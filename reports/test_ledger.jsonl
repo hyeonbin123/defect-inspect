@@ -5,3 +5,7 @@
 {"time": "2026-09-30T10:11:05+00:00", "commit": "08990a9+dirty", "stage": "2", "config": "d-s", "note": "stage 2 unsupervised method D-S; tree dirty only by untracked stage 2/3 files written by other agents"}
 {"time": "2026-09-30T10:45:26+00:00", "commit": "a7caca0+dirty", "stage": "cache", "config": "m2ad-cache-256", "note": "M2AD resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-09-30T10:48:18+00:00", "commit": "a7caca0+dirty", "stage": "cache", "config": "m2ad-cache-448", "note": "M2AD resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-09-30T10:53:28+00:00", "commit": "f971a43", "stage": "3-m2ad", "config": "m2ad-p0", "note": "stage 3-B, P0 inspectors"}
+{"time": "2026-09-30T11:12:18+00:00", "commit": "2357c4d+dirty", "stage": "cache", "config": "cache-384", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-09-30T11:15:42+00:00", "commit": "5ba9151+dirty", "stage": "cache", "config": "cache-252", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-09-30T11:20:41+00:00", "commit": "5ba9151+dirty", "stage": "3-m2ad", "config": "m2ad-d-s", "note": "stage 3-B, D-S inspectors"}
