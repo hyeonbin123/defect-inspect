@@ -264,7 +264,11 @@ def test_the_body_limit_holds_without_a_content_length(monkeypatch):
 def test_damaged_and_unsupported_files_are_a_400_not_a_500(client, monkeypatch):
     rgba = np.dstack([_normal(), np.full((64, 64), 255, np.uint8)])
     damaged = bytearray(_png(rgba))
-    damaged[36] ^= 0xFF  # the length of the first data chunk: Pillow raises SyntaxError here, not OSError
+    # Halve the declared length of the data chunk: Pillow then reads a chunk header out of the compressed
+    # bytes and raises SyntaxError, not OSError. (Flipping a byte of the length can also make it longer,
+    # which still decodes; whether it grows depends on the zlib build, so the damage is written out.)
+    assert damaged[37:41] == b"IDAT"
+    damaged[33:37] = (int.from_bytes(damaged[33:37], "big") // 2).to_bytes(4, "big")
     truncated = _png(_normal())[:200]
     for data in (bytes(damaged), truncated, _encode(_normal(), "GIF"), _encode(_normal(), "PPM")):
         response = _inspect(client, data)
