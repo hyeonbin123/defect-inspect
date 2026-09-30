@@ -1,3 +1,4 @@
 {"time": "2026-09-30T07:37:00+00:00", "commit": "b8829b3+dirty", "stage": "cache", "config": "cache-256", "note": "resize cache build: pixels copied into arrays, no scores or metrics. Entered by hand: this build ran before the cache command wrote ledger lines (see rule change 1)"}
 {"time": "2026-09-30T08:37:08+00:00", "commit": "c21393f", "stage": "cache", "config": "cache-448", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-09-30T08:40:07+00:00", "commit": "c21393f+dirty", "stage": "cache", "config": "cache-392", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-09-30T09:10:13+00:00", "commit": "b6ea5d5+dirty", "stage": "1", "config": "p0", "note": "stage 1 baseline and calibration strategies; tree dirty only by untracked stage 2 files written by other agents"}

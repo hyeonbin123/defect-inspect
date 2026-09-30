@@ -1,0 +1,1137 @@
+{
+  "config": {
+    "name": "p0",
+    "backbone": "wrn50",
+    "img_size": 256,
+    "coreset_ratio": 0.1,
+    "reweight_k": 9,
+    "sigma": 4.0,
+    "batch_size": 32,
+    "seed": 0
+  },
+  "protocol": "test",
+  "commit": "b6ea5d5+dirty",
+  "n_boot": 2000,
+  "accuracy": {
+    "per_category": {
+      "candle": {
+        "n_normal": 400,
+        "n_defect": 40,
+        "image_auroc": 0.9668125,
+        "aupro": 0.9704941179224787,
+        "pixel_auroc": 0.9957196928570317,
+        "fpr_at_tpr95": 0.1625,
+        "fp_at_tpr95": 65
+      },
+      "capsules": {
+        "n_normal": 241,
+        "n_defect": 40,
+        "image_auroc": 0.6394190871369294,
+        "aupro": 0.6425880643830856,
+        "pixel_auroc": 0.9723938755031872,
+        "fpr_at_tpr95": 0.8838174273858921,
+        "fp_at_tpr95": 213
+      },
+      "cashew": {
+        "n_normal": 200,
+        "n_defect": 40,
+        "image_auroc": 0.964,
+        "aupro": 0.9553505169369297,
+        "pixel_auroc": 0.9965872111514396,
+        "fpr_at_tpr95": 0.185,
+        "fp_at_tpr95": 37
+      },
+      "chewinggum": {
+        "n_normal": 201,
+        "n_defect": 40,
+        "image_auroc": 0.9822139303482587,
+        "aupro": 0.8779284077834384,
+        "pixel_auroc": 0.9872250878318871,
+        "fpr_at_tpr95": 0.024875621890547265,
+        "fp_at_tpr95": 5
+      },
+      "fryum": {
+        "n_normal": 200,
+        "n_defect": 40,
+        "image_auroc": 0.916,
+        "aupro": 0.9176766760339546,
+        "pixel_auroc": 0.9700026118497487,
+        "fpr_at_tpr95": 0.495,
+        "fp_at_tpr95": 99
+      },
+      "macaroni1": {
+        "n_normal": 400,
+        "n_defect": 40,
+        "image_auroc": 0.83975,
+        "aupro": 0.9137862364381268,
+        "pixel_auroc": 0.9825607647209931,
+        "fpr_at_tpr95": 0.67,
+        "fp_at_tpr95": 268
+      },
+      "macaroni2": {
+        "n_normal": 400,
+        "n_defect": 40,
+        "image_auroc": 0.615375,
+        "aupro": 0.8107575575307004,
+        "pixel_auroc": 0.9527268510332387,
+        "fpr_at_tpr95": 0.765,
+        "fp_at_tpr95": 306
+      },
+      "pcb1": {
+        "n_normal": 402,
+        "n_defect": 40,
+        "image_auroc": 0.9590174129353234,
+        "aupro": 0.9569999879869597,
+        "pixel_auroc": 0.9978711070799816,
+        "fpr_at_tpr95": 0.1417910447761194,
+        "fp_at_tpr95": 57
+      },
+      "pcb2": {
+        "n_normal": 400,
+        "n_defect": 40,
+        "image_auroc": 0.934,
+        "aupro": 0.9569448081391126,
+        "pixel_auroc": 0.9957676018176915,
+        "fpr_at_tpr95": 0.3725,
+        "fp_at_tpr95": 149
+      },
+      "pcb3": {
+        "n_normal": 402,
+        "n_defect": 40,
+        "image_auroc": 0.9345771144278607,
+        "aupro": 0.9235290702074994,
+        "pixel_auroc": 0.9907544382587059,
+        "fpr_at_tpr95": 0.26616915422885573,
+        "fp_at_tpr95": 107
+      },
+      "pcb4": {
+        "n_normal": 402,
+        "n_defect": 40,
+        "image_auroc": 0.9931592039800995,
+        "aupro": 0.9694674244177983,
+        "pixel_auroc": 0.9950345528806634,
+        "fpr_at_tpr95": 0.0024875621890547263,
+        "fp_at_tpr95": 1
+      },
+      "pipe_fryum": {
+        "n_normal": 200,
+        "n_defect": 40,
+        "image_auroc": 0.97475,
+        "aupro": 0.9694613708516749,
+        "pixel_auroc": 0.9974310515211771,
+        "fpr_at_tpr95": 0.06,
+        "fp_at_tpr95": 12
+      }
+    },
+    "macro_image_auroc": 0.8932561874023727,
+    "macro_image_auroc_ci": [
+      0.8783800367220775,
+      0.9076318036750463
+    ],
+    "macro_aupro": 0.9054153532193133,
+    "macro_aupro_ci": [
+      0.8876017034798227,
+      0.9204370187047303
+    ],
+    "macro_aupro_binned": 0.9054152391112948,
+    "macro_pixel_auroc": 0.9861729038754787,
+    "pooled_fpr_at_tpr95": 0.3427754677754678,
+    "pooled_fpr_at_tpr95_ci": [
+      0.2923531704781705,
+      0.3952767671517671
+    ]
+  },
+  "accuracy_holdout_model": {
+    "macro_image_auroc": 0.893883483365503
+  },
+  "calibration": {
+    "0.05": {
+      "resubstitution": {
+        "fpr": 0.8599272349272349,
+        "fp": 3309,
+        "n_normal": 3848,
+        "fpr_ci": [
+          0.8495322245322245,
+          0.8703222453222453
+        ],
+        "fpr_clopper_pearson": [
+          0.8485582592329197,
+          0.8707465135139965
+        ],
+        "theory_band": [
+          0.04132016632016632,
+          0.058991683991683995
+        ],
+        "theory_mean": 0.049810610706860714,
+        "tpr": 1.0,
+        "tp": 480,
+        "n_defect": 480,
+        "tpr_ci": [
+          1.0,
+          1.0
+        ],
+        "categories_guaranteed": 12,
+        "n_cal_total": 5773,
+        "per_category": {
+          "candle": {
+            "threshold": 0.9603687524795532,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 374,
+            "n_normal": 400,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "capsules": {
+            "threshold": 1.9737770557403564,
+            "n_cal": 361,
+            "guaranteed": true,
+            "fp": 241,
+            "n_normal": 241,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "cashew": {
+            "threshold": 1.2265081405639648,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 186,
+            "n_normal": 200,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "chewinggum": {
+            "threshold": 1.2994163036346436,
+            "n_cal": 302,
+            "guaranteed": true,
+            "fp": 194,
+            "n_normal": 201,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "fryum": {
+            "threshold": 1.255475401878357,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 172,
+            "n_normal": 200,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "macaroni1": {
+            "threshold": 1.136278748512268,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 338,
+            "n_normal": 400,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "macaroni2": {
+            "threshold": 1.4061479568481445,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 389,
+            "n_normal": 400,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pcb1": {
+            "threshold": 1.2550268173217773,
+            "n_cal": 602,
+            "guaranteed": true,
+            "fp": 296,
+            "n_normal": 402,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pcb2": {
+            "threshold": 1.2001910209655762,
+            "n_cal": 601,
+            "guaranteed": true,
+            "fp": 351,
+            "n_normal": 400,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pcb3": {
+            "threshold": 1.27458655834198,
+            "n_cal": 604,
+            "guaranteed": true,
+            "fp": 334,
+            "n_normal": 402,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pcb4": {
+            "threshold": 1.2217676639556885,
+            "n_cal": 603,
+            "guaranteed": true,
+            "fp": 237,
+            "n_normal": 402,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pipe_fryum": {
+            "threshold": 1.1383891105651855,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 197,
+            "n_normal": 200,
+            "tp": 40,
+            "n_defect": 40
+          }
+        }
+      },
+      "holdout": {
+        "fpr": 0.055613305613305616,
+        "fp": 214,
+        "n_normal": 3848,
+        "fpr_ci": [
+          0.04833679833679834,
+          0.06262993762993763
+        ],
+        "fpr_clopper_pearson": [
+          0.04858221571474218,
+          0.06332839178349511
+        ],
+        "theory_band": [
+          0.035602910602910605,
+          0.06340956340956341
+        ],
+        "theory_mean": 0.048709955821205825,
+        "tpr": 0.68125,
+        "tp": 327,
+        "n_defect": 480,
+        "tpr_ci": [
+          0.6479166666666667,
+          0.7146354166666664
+        ],
+        "categories_guaranteed": 12,
+        "n_cal_total": 1158,
+        "per_category": {
+          "candle": {
+            "threshold": 1.2684940099716187,
+            "n_cal": 120,
+            "guaranteed": true,
+            "fp": 37,
+            "n_normal": 400,
+            "tp": 34,
+            "n_defect": 40
+          },
+          "capsules": {
+            "threshold": 2.332618236541748,
+            "n_cal": 73,
+            "guaranteed": true,
+            "fp": 13,
+            "n_normal": 241,
+            "tp": 15,
+            "n_defect": 40
+          },
+          "cashew": {
+            "threshold": 1.5636670589447021,
+            "n_cal": 60,
+            "guaranteed": true,
+            "fp": 12,
+            "n_normal": 200,
+            "tp": 33,
+            "n_defect": 40
+          },
+          "chewinggum": {
+            "threshold": 1.5157760381698608,
+            "n_cal": 61,
+            "guaranteed": true,
+            "fp": 18,
+            "n_normal": 201,
+            "tp": 38,
+            "n_defect": 40
+          },
+          "fryum": {
+            "threshold": 1.5663589239120483,
+            "n_cal": 60,
+            "guaranteed": true,
+            "fp": 8,
+            "n_normal": 200,
+            "tp": 29,
+            "n_defect": 40
+          },
+          "macaroni1": {
+            "threshold": 1.5575116872787476,
+            "n_cal": 120,
+            "guaranteed": true,
+            "fp": 20,
+            "n_normal": 400,
+            "tp": 13,
+            "n_defect": 40
+          },
+          "macaroni2": {
+            "threshold": 1.9457066059112549,
+            "n_cal": 120,
+            "guaranteed": true,
+            "fp": 29,
+            "n_normal": 400,
+            "tp": 3,
+            "n_defect": 40
+          },
+          "pcb1": {
+            "threshold": 1.5092395544052124,
+            "n_cal": 121,
+            "guaranteed": true,
+            "fp": 27,
+            "n_normal": 402,
+            "tp": 31,
+            "n_defect": 40
+          },
+          "pcb2": {
+            "threshold": 1.6019561290740967,
+            "n_cal": 121,
+            "guaranteed": true,
+            "fp": 7,
+            "n_normal": 400,
+            "tp": 28,
+            "n_defect": 40
+          },
+          "pcb3": {
+            "threshold": 1.569460153579712,
+            "n_cal": 121,
+            "guaranteed": true,
+            "fp": 28,
+            "n_normal": 402,
+            "tp": 29,
+            "n_defect": 40
+          },
+          "pcb4": {
+            "threshold": 1.5858618021011353,
+            "n_cal": 121,
+            "guaranteed": true,
+            "fp": 7,
+            "n_normal": 402,
+            "tp": 39,
+            "n_defect": 40
+          },
+          "pipe_fryum": {
+            "threshold": 1.5217207670211792,
+            "n_cal": 60,
+            "guaranteed": true,
+            "fp": 8,
+            "n_normal": 200,
+            "tp": 35,
+            "n_defect": 40
+          }
+        }
+      },
+      "crossfit": {
+        "fpr": 0.03976091476091476,
+        "fp": 153,
+        "n_normal": 3848,
+        "fpr_ci": [
+          0.033523908523908526,
+          0.04547817047817048
+        ],
+        "fpr_clopper_pearson": [
+          0.03380909410298675,
+          0.046423912054504225
+        ],
+        "theory_band": [
+          0.04132016632016632,
+          0.058991683991683995
+        ],
+        "theory_mean": 0.049810610706860714,
+        "tpr": 0.6666666666666666,
+        "tp": 320,
+        "n_defect": 480,
+        "tpr_ci": [
+          0.6333333333333333,
+          0.7
+        ],
+        "categories_guaranteed": 12,
+        "n_cal_total": 5773,
+        "per_category": {
+          "candle": {
+            "threshold": 1.3818762302398682,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 8,
+            "n_normal": 400,
+            "tp": 30,
+            "n_defect": 40
+          },
+          "capsules": {
+            "threshold": 2.3187310695648193,
+            "n_cal": 361,
+            "guaranteed": true,
+            "fp": 11,
+            "n_normal": 241,
+            "tp": 15,
+            "n_defect": 40
+          },
+          "cashew": {
+            "threshold": 1.5787808895111084,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 8,
+            "n_normal": 200,
+            "tp": 33,
+            "n_defect": 40
+          },
+          "chewinggum": {
+            "threshold": 1.536849021911621,
+            "n_cal": 302,
+            "guaranteed": true,
+            "fp": 6,
+            "n_normal": 201,
+            "tp": 38,
+            "n_defect": 40
+          },
+          "fryum": {
+            "threshold": 1.5640815496444702,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 7,
+            "n_normal": 200,
+            "tp": 30,
+            "n_defect": 40
+          },
+          "macaroni1": {
+            "threshold": 1.569044589996338,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 15,
+            "n_normal": 400,
+            "tp": 13,
+            "n_defect": 40
+          },
+          "macaroni2": {
+            "threshold": 1.9457066059112549,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 26,
+            "n_normal": 400,
+            "tp": 2,
+            "n_defect": 40
+          },
+          "pcb1": {
+            "threshold": 1.5574928522109985,
+            "n_cal": 602,
+            "guaranteed": true,
+            "fp": 14,
+            "n_normal": 402,
+            "tp": 30,
+            "n_defect": 40
+          },
+          "pcb2": {
+            "threshold": 1.5274415016174316,
+            "n_cal": 601,
+            "guaranteed": true,
+            "fp": 15,
+            "n_normal": 400,
+            "tp": 28,
+            "n_defect": 40
+          },
+          "pcb3": {
+            "threshold": 1.5821926593780518,
+            "n_cal": 604,
+            "guaranteed": true,
+            "fp": 22,
+            "n_normal": 402,
+            "tp": 28,
+            "n_defect": 40
+          },
+          "pcb4": {
+            "threshold": 1.503297209739685,
+            "n_cal": 603,
+            "guaranteed": true,
+            "fp": 13,
+            "n_normal": 402,
+            "tp": 39,
+            "n_defect": 40
+          },
+          "pipe_fryum": {
+            "threshold": 1.5217207670211792,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 8,
+            "n_normal": 200,
+            "tp": 34,
+            "n_defect": 40
+          }
+        }
+      },
+      "tpr_crossfit_minus_holdout": {
+        "point": -0.014583333333333393,
+        "ci": [
+          -0.029166666666666674,
+          0.0
+        ]
+      }
+    },
+    "0.01": {
+      "resubstitution": {
+        "fpr": 0.7653326403326404,
+        "fp": 2945,
+        "n_normal": 3848,
+        "fpr_ci": [
+          0.7531185031185031,
+          0.7785862785862786
+        ],
+        "fpr_clopper_pearson": [
+          0.7516140289245821,
+          0.7786471454216894
+        ],
+        "theory_band": [
+          0.006237006237006237,
+          0.014033264033264034
+        ],
+        "theory_mean": 0.009854958419958421,
+        "tpr": 0.9979166666666667,
+        "tp": 479,
+        "n_defect": 480,
+        "tpr_ci": [
+          0.99375,
+          1.0
+        ],
+        "categories_guaranteed": 12,
+        "n_cal_total": 5773,
+        "per_category": {
+          "candle": {
+            "threshold": 0.9866938591003418,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 338,
+            "n_normal": 400,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "capsules": {
+            "threshold": 2.0324668884277344,
+            "n_cal": 361,
+            "guaranteed": true,
+            "fp": 232,
+            "n_normal": 241,
+            "tp": 39,
+            "n_defect": 40
+          },
+          "cashew": {
+            "threshold": 1.2456965446472168,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 174,
+            "n_normal": 200,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "chewinggum": {
+            "threshold": 1.32479989528656,
+            "n_cal": 302,
+            "guaranteed": true,
+            "fp": 183,
+            "n_normal": 201,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "fryum": {
+            "threshold": 1.2773985862731934,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 154,
+            "n_normal": 200,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "macaroni1": {
+            "threshold": 1.1721670627593994,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 290,
+            "n_normal": 400,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "macaroni2": {
+            "threshold": 1.4402360916137695,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 371,
+            "n_normal": 400,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pcb1": {
+            "threshold": 1.2771210670471191,
+            "n_cal": 602,
+            "guaranteed": true,
+            "fp": 244,
+            "n_normal": 402,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pcb2": {
+            "threshold": 1.2320047616958618,
+            "n_cal": 601,
+            "guaranteed": true,
+            "fp": 287,
+            "n_normal": 400,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pcb3": {
+            "threshold": 1.3083709478378296,
+            "n_cal": 604,
+            "guaranteed": true,
+            "fp": 288,
+            "n_normal": 402,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pcb4": {
+            "threshold": 1.248375654220581,
+            "n_cal": 603,
+            "guaranteed": true,
+            "fp": 197,
+            "n_normal": 402,
+            "tp": 40,
+            "n_defect": 40
+          },
+          "pipe_fryum": {
+            "threshold": 1.1780675649642944,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 187,
+            "n_normal": 200,
+            "tp": 40,
+            "n_defect": 40
+          }
+        }
+      },
+      "holdout": {
+        "fpr": 0.009875259875259876,
+        "fp": 38,
+        "n_normal": 3848,
+        "fpr_ci": [
+          0.007016632016632017,
+          0.012993762993762994
+        ],
+        "fpr_clopper_pearson": [
+          0.006997532735017446,
+          0.013529601771587314
+        ],
+        "theory_band": [
+          0.004677754677754678,
+          0.017671517671517672
+        ],
+        "theory_mean": 0.010239009875259875,
+        "tpr": 0.4479166666666667,
+        "tp": 215,
+        "n_defect": 480,
+        "tpr_ci": [
+          0.41041666666666665,
+          0.48333333333333334
+        ],
+        "categories_guaranteed": 7,
+        "n_cal_total": 1158,
+        "per_category": {
+          "candle": {
+            "threshold": 1.7413804531097412,
+            "n_cal": 120,
+            "guaranteed": true,
+            "fp": 0,
+            "n_normal": 400,
+            "tp": 13,
+            "n_defect": 40
+          },
+          "capsules": {
+            "threshold": 2.3668053150177,
+            "n_cal": 73,
+            "guaranteed": false,
+            "fp": 8,
+            "n_normal": 241,
+            "tp": 15,
+            "n_defect": 40
+          },
+          "cashew": {
+            "threshold": 1.6611257791519165,
+            "n_cal": 60,
+            "guaranteed": false,
+            "fp": 4,
+            "n_normal": 200,
+            "tp": 29,
+            "n_defect": 40
+          },
+          "chewinggum": {
+            "threshold": 1.6802603006362915,
+            "n_cal": 61,
+            "guaranteed": false,
+            "fp": 1,
+            "n_normal": 201,
+            "tp": 37,
+            "n_defect": 40
+          },
+          "fryum": {
+            "threshold": 1.6500487327575684,
+            "n_cal": 60,
+            "guaranteed": false,
+            "fp": 5,
+            "n_normal": 200,
+            "tp": 27,
+            "n_defect": 40
+          },
+          "macaroni1": {
+            "threshold": 1.8561434745788574,
+            "n_cal": 120,
+            "guaranteed": true,
+            "fp": 1,
+            "n_normal": 400,
+            "tp": 1,
+            "n_defect": 40
+          },
+          "macaroni2": {
+            "threshold": 2.0557785034179688,
+            "n_cal": 120,
+            "guaranteed": true,
+            "fp": 10,
+            "n_normal": 400,
+            "tp": 0,
+            "n_defect": 40
+          },
+          "pcb1": {
+            "threshold": 1.7989751100540161,
+            "n_cal": 121,
+            "guaranteed": true,
+            "fp": 3,
+            "n_normal": 402,
+            "tp": 20,
+            "n_defect": 40
+          },
+          "pcb2": {
+            "threshold": 2.2545714378356934,
+            "n_cal": 121,
+            "guaranteed": true,
+            "fp": 0,
+            "n_normal": 400,
+            "tp": 7,
+            "n_defect": 40
+          },
+          "pcb3": {
+            "threshold": 1.7905925512313843,
+            "n_cal": 121,
+            "guaranteed": true,
+            "fp": 2,
+            "n_normal": 402,
+            "tp": 16,
+            "n_defect": 40
+          },
+          "pcb4": {
+            "threshold": 2.046548366546631,
+            "n_cal": 121,
+            "guaranteed": true,
+            "fp": 0,
+            "n_normal": 402,
+            "tp": 19,
+            "n_defect": 40
+          },
+          "pipe_fryum": {
+            "threshold": 1.6150712966918945,
+            "n_cal": 60,
+            "guaranteed": false,
+            "fp": 4,
+            "n_normal": 200,
+            "tp": 31,
+            "n_defect": 40
+          }
+        }
+      },
+      "crossfit": {
+        "fpr": 0.008056133056133057,
+        "fp": 31,
+        "n_normal": 3848,
+        "fpr_ci": [
+          0.005457380457380458,
+          0.010654885654885655
+        ],
+        "fpr_clopper_pearson": [
+          0.005480126275539855,
+          0.011415703619237152
+        ],
+        "theory_band": [
+          0.006237006237006237,
+          0.014033264033264034
+        ],
+        "theory_mean": 0.009854958419958421,
+        "tpr": 0.48333333333333334,
+        "tp": 232,
+        "n_defect": 480,
+        "tpr_ci": [
+          0.44578125000000013,
+          0.5208333333333334
+        ],
+        "categories_guaranteed": 12,
+        "n_cal_total": 5773,
+        "per_category": {
+          "candle": {
+            "threshold": 1.5961796045303345,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 0,
+            "n_normal": 400,
+            "tp": 17,
+            "n_defect": 40
+          },
+          "capsules": {
+            "threshold": 2.4575576782226562,
+            "n_cal": 361,
+            "guaranteed": true,
+            "fp": 6,
+            "n_normal": 241,
+            "tp": 13,
+            "n_defect": 40
+          },
+          "cashew": {
+            "threshold": 1.8429721593856812,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 1,
+            "n_normal": 200,
+            "tp": 22,
+            "n_defect": 40
+          },
+          "chewinggum": {
+            "threshold": 1.6155542135238647,
+            "n_cal": 302,
+            "guaranteed": true,
+            "fp": 2,
+            "n_normal": 201,
+            "tp": 37,
+            "n_defect": 40
+          },
+          "fryum": {
+            "threshold": 1.776873230934143,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 0,
+            "n_normal": 200,
+            "tp": 21,
+            "n_defect": 40
+          },
+          "macaroni1": {
+            "threshold": 1.772175669670105,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 3,
+            "n_normal": 400,
+            "tp": 3,
+            "n_defect": 40
+          },
+          "macaroni2": {
+            "threshold": 2.0636627674102783,
+            "n_cal": 600,
+            "guaranteed": true,
+            "fp": 8,
+            "n_normal": 400,
+            "tp": 0,
+            "n_defect": 40
+          },
+          "pcb1": {
+            "threshold": 1.7547078132629395,
+            "n_cal": 602,
+            "guaranteed": true,
+            "fp": 4,
+            "n_normal": 402,
+            "tp": 21,
+            "n_defect": 40
+          },
+          "pcb2": {
+            "threshold": 1.7799651622772217,
+            "n_cal": 601,
+            "guaranteed": true,
+            "fp": 1,
+            "n_normal": 400,
+            "tp": 16,
+            "n_defect": 40
+          },
+          "pcb3": {
+            "threshold": 1.7211122512817383,
+            "n_cal": 604,
+            "guaranteed": true,
+            "fp": 3,
+            "n_normal": 402,
+            "tp": 18,
+            "n_defect": 40
+          },
+          "pcb4": {
+            "threshold": 1.6887646913528442,
+            "n_cal": 603,
+            "guaranteed": true,
+            "fp": 1,
+            "n_normal": 402,
+            "tp": 37,
+            "n_defect": 40
+          },
+          "pipe_fryum": {
+            "threshold": 1.6939443349838257,
+            "n_cal": 300,
+            "guaranteed": true,
+            "fp": 2,
+            "n_normal": 200,
+            "tp": 27,
+            "n_defect": 40
+          }
+        }
+      },
+      "tpr_crossfit_minus_holdout": {
+        "point": 0.03541666666666665,
+        "ci": [
+          0.00833333333333336,
+          0.06255208333333305
+        ]
+      }
+    }
+  },
+  "finite_sample": {
+    "0.05": [
+      {
+        "n": 20,
+        "categories": 12,
+        "guaranteed": true,
+        "mean": 0.04098515780795194,
+        "p5": 0.003603047177666302,
+        "p95": 0.11960063100816803,
+        "theory_mean": 0.047619047619047616,
+        "theory_p5": 0.00256137877653028,
+        "theory_p95": 0.13910834066826516,
+        "reference_mean": 0.04796271407385043,
+        "reference_interval": [
+          0.0408639442472544,
+          0.0558170317345528
+        ],
+        "within_reference": true
+      },
+      {
+        "n": 50,
+        "categories": 12,
+        "guaranteed": true,
+        "mean": 0.03322927381161276,
+        "p5": 0.00810391765240189,
+        "p95": 0.07324751157765803,
+        "theory_mean": 0.039215686274509796,
+        "theory_p5": 0.0071537195312938034,
+        "theory_p95": 0.09139813071969734,
+        "reference_mean": 0.03947977731945964,
+        "reference_interval": [
+          0.033136915217882465,
+          0.04786792608068177
+        ],
+        "within_reference": true
+      },
+      {
+        "n": 100,
+        "categories": 12,
+        "guaranteed": true,
+        "mean": 0.04049358912130221,
+        "p5": 0.023424823496624763,
+        "p95": 0.06826616829407596,
+        "theory_mean": 0.049504950495049514,
+        "theory_p5": 0.019905563662171832,
+        "theory_p95": 0.08919625015887979,
+        "reference_mean": 0.04993398910960411,
+        "reference_interval": [
+          0.04243354165483956,
+          0.061121090252403254
+        ],
+        "within_reference": false
+      },
+      {
+        "n": 200,
+        "categories": 12,
+        "guaranteed": true,
+        "mean": 0.04016592435901406,
+        "p5": 0.029246755503258257,
+        "p95": 0.05578603782608397,
+        "theory_mean": 0.04975124378109453,
+        "theory_p5": 0.027374253525114484,
+        "theory_p95": 0.0772109750173381,
+        "reference_mean": 0.050188193199946544,
+        "reference_interval": [
+          0.04277135207541993,
+          0.061537990341629795
+        ],
+        "within_reference": false
+      }
+    ],
+    "0.01": [
+      {
+        "n": 20,
+        "categories": 12,
+        "guaranteed": false,
+        "mean": 0.04098515780795194,
+        "p5": 0.003603047177666302,
+        "p95": 0.11960063100816803,
+        "theory_mean": 0.047619047619047616,
+        "theory_p5": 0.00256137877653028,
+        "theory_p95": 0.13910834066826516,
+        "reference_mean": 0.04796271407385043,
+        "reference_interval": [
+          0.0408639442472544,
+          0.0558170317345528
+        ],
+        "within_reference": true
+      },
+      {
+        "n": 50,
+        "categories": 12,
+        "guaranteed": false,
+        "mean": 0.017395574010136045,
+        "p5": 0.0017311566304026203,
+        "p95": 0.04374969894648471,
+        "theory_mean": 0.019607843137254898,
+        "theory_p5": 0.0010253398672320638,
+        "theory_p95": 0.05815507911697226,
+        "reference_mean": 0.01988834034931383,
+        "reference_interval": [
+          0.015848809183537132,
+          0.02472253507165933
+        ],
+        "within_reference": true
+      },
+      {
+        "n": 100,
+        "categories": 12,
+        "guaranteed": true,
+        "mean": 0.009052740773999987,
+        "p5": 0.0017311566304026203,
+        "p95": 0.023849833861467207,
+        "theory_mean": 0.0099009900990099,
+        "theory_p5": 0.0005128014162622921,
+        "theory_p95": 0.02951304960703993,
+        "reference_mean": 0.010168596789135238,
+        "reference_interval": [
+          0.006856934177085984,
+          0.013779970519692913
+        ],
+        "within_reference": true
+      },
+      {
+        "n": 200,
+        "categories": 12,
+        "guaranteed": true,
+        "mean": 0.009291421544593769,
+        "p5": 0.005817433406962422,
+        "p95": 0.018637302766939853,
+        "theory_mean": 0.009950248756218904,
+        "theory_p5": 0.0017796814478925685,
+        "theory_p95": 0.02349847043495072,
+        "reference_mean": 0.010258309945632602,
+        "reference_interval": [
+          0.0067041088418127205,
+          0.014252324036012308
+        ],
+        "within_reference": true
+      }
+    ]
+  },
+  "hypotheses": {
+    "H1": "지지",
+    "H2": "지지",
+    "H3": "지지",
+    "H4": "판정 불가"
+  }
+}
