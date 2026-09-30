@@ -103,6 +103,8 @@ def _flipped_batch(
     cols = torch.arange(w).expand(len(index), w)
     rows = torch.where(flips[:, 1:2], h - 1 - rows, rows)
     cols = torch.where(flips[:, 0:1], w - 1 - cols, cols)
+    # The indices are drawn on the CPU; the gather runs where the features live.
+    index, rows, cols = index.to(feats.device), rows.to(feats.device), cols.to(feats.device)
     pick = (index[:, None, None], rows[:, :, None], cols[:, None, :])
     return feats[pick], targets[pick]
 
@@ -171,8 +173,10 @@ def train_head(
 ) -> TrainResult:
     """Train a `SegHead` on patch features and keep the epoch with the best validation image AUROC.
 
-    `train_feats` [N, H, W, D] and `val_feats` [M, H, W, D] stay on the CPU (fp16) and go to the device
-    one batch at a time as fp32. `train_targets` is bool [N, H, W], `val_labels` is 0/1 [M]. The
+    `train_feats` [N, H, W, D] and `val_feats` [M, H, W, D] are CPU fp16 tensors. On CUDA they are moved
+    to the device once (a category is a few hundred MB as fp16) and batches are gathered there; a host
+    to device copy per step made a run take minutes instead of seconds. Batches are cast to fp32.
+    `train_targets` is bool [N, H, W], `val_labels` is 0/1 [M]. The
     validation AUROC is measured every `cfg.eval_every` epochs and at the last epoch; a later epoch
     replaces the best one only when it is strictly better.
 
@@ -195,6 +199,8 @@ def train_head(
 
     weight = torch.tensor(pos_weight(train_targets, cfg.max_pos_weight), dtype=torch.float32, device=device)
     targets = torch.from_numpy(np.ascontiguousarray(train_targets != 0))
+    if device.type == "cuda":
+        train_feats, targets, val_feats = train_feats.to(device), targets.to(device), val_feats.to(device)
     # Order and flips are drawn on the CPU, so they are the same on every device.
     generator = torch.Generator().manual_seed(cfg.seed)
     torch.manual_seed(cfg.seed)  # weight initialisation
