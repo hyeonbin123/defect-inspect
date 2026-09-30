@@ -2,3 +2,6 @@
 {"time": "2026-09-30T08:37:08+00:00", "commit": "c21393f", "stage": "cache", "config": "cache-448", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-09-30T08:40:07+00:00", "commit": "c21393f+dirty", "stage": "cache", "config": "cache-392", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-09-30T09:10:13+00:00", "commit": "b6ea5d5+dirty", "stage": "1", "config": "p0", "note": "stage 1 baseline and calibration strategies; tree dirty only by untracked stage 2 files written by other agents"}
+{"time": "2026-09-30T10:11:05+00:00", "commit": "08990a9+dirty", "stage": "2", "config": "d-s", "note": "stage 2 unsupervised method D-S; tree dirty only by untracked stage 2/3 files written by other agents"}
+{"time": "2026-09-30T10:45:26+00:00", "commit": "a7caca0+dirty", "stage": "cache", "config": "m2ad-cache-256", "note": "M2AD resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-09-30T10:48:18+00:00", "commit": "a7caca0+dirty", "stage": "cache", "config": "m2ad-cache-448", "note": "M2AD resize cache build: pixels copied into arrays, no scores or metrics"}
