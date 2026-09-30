@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>defect-inspect</title>
+  <link rel="stylesheet" href="/static/demo.css">
+</head>
+<body>
+  <main>
+    <h1>외관 검사</h1>
+    <p class="lead">제품 사진을 올리면 이상 점수와 판정, 이상 위치를 보여 준다.</p>
+
+    <form id="form">
+      <label>범주
+        <select id="category" name="category" required></select>
+      </label>
+      <label>사진
+        <input id="image" name="image" type="file" accept="image/*" required>
+      </label>
+      <button id="submit" type="submit">검사</button>
+    </form>
+
+    <p id="status" role="status"></p>
+
+    <section id="result" hidden>
+      <div class="verdict">
+        <span id="verdict" class="badge"></span>
+        <span>점수 <strong id="score"></strong></span>
+        <span>임계값 <strong id="threshold"></strong></span>
+        <span>처리 <strong id="latency"></strong> ms</span>
+      </div>
+      <div class="views">
+        <figure>
+          <canvas id="photo" width="384" height="384"></canvas>
+          <figcaption>입력 사진</figcaption>
+        </figure>
+        <figure>
+          <canvas id="overlay" width="384" height="384"></canvas>
+          <figcaption>이상 위치 (붉을수록 점수가 높다)</figcaption>
+        </figure>
+      </div>
+      <label class="slider">겹쳐 보기 진하기
+        <input id="opacity" type="range" min="0" max="100" value="60">
+      </label>
+    </section>
+  </main>
+  <script src="/static/demo.js"></script>
+</body>
+</html>
