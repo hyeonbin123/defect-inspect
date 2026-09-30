@@ -11,3 +11,6 @@
 {"time": "2026-09-30T11:20:41+00:00", "commit": "5ba9151+dirty", "stage": "3-m2ad", "config": "m2ad-d-s", "note": "stage 3-B, D-S inspectors"}
 {"time": "2026-09-30T12:00:42+00:00", "commit": "2e2cfd2+dirty", "stage": "3", "config": "perturb-p0", "note": "stage 3-A synthetic conditions, P0; tree dirty only by stage 4 files under review"}
 {"time": "2026-09-30T12:02:58+00:00", "commit": "2e2cfd2+dirty", "stage": "2", "config": "dm", "note": "stage 2 unsupervised method DM (fp32, batch 8 training); tree dirty only by stage 4 files under review"}
+{"time": "2026-09-30T13:19:06+00:00", "commit": "567ec92", "stage": "3", "config": "perturb-d-s", "note": "stage 3-A synthetic conditions, D-S; tree dirty only by stage 4 files under review"}
+{"time": "2026-09-30T13:48:35+00:00", "commit": "567ec92+dirty", "stage": "2", "config": "supervised", "note": "ks=[5, 10, 20, 40] seeds=[0, 1, 2] categories=12"}
+{"time": "2026-09-30T15:56:25+00:00", "commit": "567ec92+dirty", "stage": "3", "config": "perturb-dm", "note": "stage 3-A synthetic conditions, DM"}
