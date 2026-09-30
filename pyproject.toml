@@ -42,6 +42,9 @@ dinomaly = [
     "torch==2.11.0",
     "torchvision==0.26.0",
 ]
+figures = [
+    "matplotlib>=3.9",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
