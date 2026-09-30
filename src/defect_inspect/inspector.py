@@ -107,7 +107,9 @@ def image_score(
     dist = np.linalg.norm(query[p_star][None, :] - bank[support], axis=1).astype(np.float64)
     weights = np.exp(dist - dist.max())
     weight = 1.0 - weights[0] / weights.sum()
-    return float(weight * s_star)
+    # Rounded to float32 like the torch pipeline's scores: thresholds are float32 scores, and a verdict
+    # must not depend on the digits float64 keeps beyond them.
+    return float(np.float32(weight * s_star))
 
 
 def _bilinear_axis(n_in: int, n_out: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -154,17 +156,99 @@ def score_map(
     return out.astype(np.float32)
 
 
+def _is_int(value) -> bool:
+    return isinstance(value, (int, np.integer)) and not isinstance(value, bool)
+
+
+def _is_finite_number(value) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:  # an integer beyond the float range
+        return False
+
+
+def check_meta(meta: dict) -> None:
+    """Raise ValueError unless `meta` has every key of an artifact with a usable value."""
+    if not isinstance(meta, dict):
+        raise ValueError(f"artifact meta must be a JSON object, got {type(meta).__name__}")
+    missing = [k for k in META_KEYS if k not in meta]
+    if missing:
+        raise ValueError(f"artifact meta lacks {missing}")
+    if not _is_int(meta["version"]) or meta["version"] != ARTIFACT_VERSION:
+        raise ValueError(f"artifact version {meta['version']!r} is not {ARTIFACT_VERSION}")
+    for key in ("img_size", "dim"):
+        if not _is_int(meta[key]) or meta[key] <= 0:
+            raise ValueError(f"artifact meta: {key} must be a positive integer, got {meta[key]!r}")
+    grid = meta["grid"]
+    if not isinstance(grid, (list, tuple)) or len(grid) != 2 or not all(_is_int(g) and g > 0 for g in grid):
+        raise ValueError(f"artifact meta: grid must be two positive integers [H, W], got {grid!r}")
+    if not _is_int(meta["reweight_k"]) or meta["reweight_k"] < 0:
+        raise ValueError(
+            f"artifact meta: reweight_k must be a non-negative integer, got {meta['reweight_k']!r}"
+        )
+    if not _is_finite_number(meta["sigma"]) or meta["sigma"] < 0:
+        raise ValueError(f"artifact meta: sigma must be a finite number >= 0, got {meta['sigma']!r}")
+    radius = int(4 * float(meta["sigma"]) + 0.5)  # the kernel radius of `gaussian_kernel1d`
+    if radius >= meta["img_size"]:
+        raise ValueError(
+            f"artifact meta: sigma {meta['sigma']!r} gives a blur radius of {radius}, which needs an "
+            f"input larger than {meta['img_size']}"
+        )
+    if not _is_finite_number(meta["threshold"]):
+        raise ValueError(f"artifact meta: threshold must be a finite number, got {meta['threshold']!r}")
+
+
+def check_model_io(session, meta: dict) -> None:
+    """Raise ValueError unless the session's declared input and output fit `meta`.
+
+    The model must take `image` [1, 3, S, S] and return `features` [1, H, W, dim]. Dimensions the model
+    leaves symbolic are not compared.
+    """
+    size, (grid_h, grid_w), dim = meta["img_size"], meta["grid"], meta["dim"]
+    wanted = (
+        ("input", session.get_inputs(), "image", [1, 3, size, size]),
+        ("output", session.get_outputs(), "features", [1, grid_h, grid_w, dim]),
+    )
+    for kind, nodes, name, want in wanted:
+        shapes = {node.name: node.shape for node in nodes}
+        if name not in shapes:
+            raise ValueError(f"the model has no {kind} named {name!r} (it has {sorted(shapes)})")
+        shape = list(shapes[name])
+        if len(shape) != 4 or any(_is_int(a) and a != b for a, b in zip(shape, want, strict=True)):
+            raise ValueError(f"the model's {kind} {name!r} is {shape}, the artifact meta needs {want}")
+
+
+def _check_bank(bank: np.ndarray, dim: int) -> np.ndarray:
+    """The bank as one fp32 array [R, dim], or ValueError."""
+    bank = np.asarray(bank)
+    if bank.ndim != 2 or bank.shape[0] == 0 or bank.shape[1] != dim:
+        raise ValueError(f"bank shape {bank.shape} does not match dim {dim}")
+    if not np.issubdtype(bank.dtype, np.floating):
+        raise ValueError(f"the bank must be a float array, got {bank.dtype}")
+    with np.errstate(over="ignore"):
+        bank32 = bank.astype(np.float32)
+    if not np.isfinite(bank32).all():
+        raise ValueError("the bank has values that are not finite in fp32")
+    return bank32
+
+
 class Inspector:
-    """One category's inspector: an ONNX Runtime session, a memory bank and a threshold."""
+    """One category's inspector: an ONNX Runtime session, a memory bank and a threshold.
+
+    A score that is not finite raises `FloatingPointError` instead of reaching a verdict: `nan > threshold`
+    is false, so it would otherwise pass as normal.
+    """
+
+    precision = "fp32"
+    threads: int | None = None  # intra-op threads the session was created with; None = onnxruntime's default
 
     def __init__(self, session, bank: np.ndarray, meta: dict):
-        missing = [k for k in META_KEYS if k not in meta]
-        if missing:
-            raise ValueError(f"artifact meta lacks {missing}")
-        if meta["version"] != ARTIFACT_VERSION:
-            raise ValueError(f"artifact version {meta['version']} is not {ARTIFACT_VERSION}")
-        if bank.ndim != 2 or bank.shape[0] == 0 or bank.shape[1] != meta["dim"]:
-            raise ValueError(f"bank shape {bank.shape} does not match dim {meta['dim']}")
+        check_meta(meta)
+        bank32 = _check_bank(bank, meta["dim"])
+        if hasattr(session, "get_inputs") and hasattr(session, "get_outputs"):
+            check_model_io(session, meta)
         self.session = session
         self.meta = dict(meta)
         self.size = int(meta["img_size"])
@@ -172,15 +256,15 @@ class Inspector:
         self.reweight_k = int(meta["reweight_k"])
         self.sigma = float(meta["sigma"])
         self.threshold = float(meta["threshold"])
-        self.bank_rows = int(bank.shape[0])
+        self.bank_rows = int(bank32.shape[0])
         # One centred fp32 copy. Centring leaves distances unchanged and keeps the expanded form accurate.
-        bank32 = bank.astype(np.float32)
         self._centre = bank32.mean(axis=0, keepdims=True)
         self._bank = bank32 - self._centre
         self._bank_sq = np.square(self._bank).sum(axis=1)
 
     @classmethod
     def load(cls, artifact_dir: Path, *, precision: str = "fp32", threads: int | None = None) -> "Inspector":
+        """An inspector from an artifact folder. Anything wrong with the artifact is a `ValueError`."""
         import onnxruntime as ort
 
         artifact_dir = Path(artifact_dir)
@@ -193,17 +277,35 @@ class Inspector:
         for path in (artifact_dir / "meta.json", artifact_dir / "bank.npy", model):
             if not path.exists():
                 raise ValueError(f"not an inspector artifact: {path} is missing")
-        with open(artifact_dir / "meta.json", encoding="utf-8") as f:
-            meta = json.load(f)
+        try:
+            with open(artifact_dir / "meta.json", encoding="utf-8") as f:
+                meta = json.load(f)
+        except (OSError, ValueError) as err:
+            raise ValueError(f"{artifact_dir / 'meta.json'} is not readable JSON: {err}") from err
+        try:
+            check_meta(meta)  # before the model is opened, so that the message names the bad value
+        except ValueError as err:
+            raise ValueError(f"{artifact_dir / 'meta.json'}: {err}") from err
+        try:
+            bank = np.load(artifact_dir / "bank.npy", allow_pickle=False)
+        except (OSError, ValueError, EOFError) as err:
+            raise ValueError(f"{artifact_dir / 'bank.npy'} is not a readable array: {err}") from err
         options = ort.SessionOptions()
         if threads is not None:
             options.intra_op_num_threads = int(threads)
-        session = ort.InferenceSession(str(model), sess_options=options, providers=["CPUExecutionProvider"])
-        inspector = cls(session, np.load(artifact_dir / "bank.npy"), meta)
+        try:
+            session = ort.InferenceSession(
+                str(model), sess_options=options, providers=["CPUExecutionProvider"]
+            )
+        except Exception as err:  # onnxruntime has its own exception types for files it cannot load
+            raise ValueError(f"{model} is not a loadable ONNX model: {err}") from err
+        try:
+            inspector = cls(session, bank, meta)
+        except ValueError as err:
+            raise ValueError(f"{artifact_dir} ({model.name}): {err}") from err
         inspector.precision = precision
+        inspector.threads = None if threads is None else int(threads)
         return inspector
-
-    precision = "fp32"
 
     def features(self, image: Image.Image | np.ndarray) -> np.ndarray:
         """Patch features float32 [H * W, D] of one image, rounded through float16 like the torch pipeline."""
@@ -213,15 +315,25 @@ class Inspector:
                 f"model returned features {out.shape}, expected {(1, *self.grid, self._bank.shape[1])}"
             )
         feats = out[0].reshape(-1, out.shape[-1])
-        if not np.isfinite(feats).all():
-            raise FloatingPointError("the model produced non-finite features")
-        return feats.astype(np.float16).astype(np.float32)
+        with np.errstate(over="ignore"):
+            rounded = feats.astype(np.float16)
+        # Checked after the cast, like patchcore._patch_features: a value beyond fp16 becomes inf there.
+        if not np.isfinite(rounded).all():
+            if not np.isfinite(feats).all():
+                raise FloatingPointError("the model produced non-finite features")
+            raise FloatingPointError("patch features overflowed fp16")
+        return rounded.astype(np.float32)
 
     def score_features(self, feats: np.ndarray) -> tuple[float, np.ndarray]:
         """Image score and patch scores [H, W] of one image's features."""
-        query = feats.astype(np.float32) - self._centre
+        feats = np.asarray(feats, dtype=np.float32)
+        if not np.isfinite(feats).all():
+            raise FloatingPointError("patch features are not finite")
+        query = feats - self._centre
         dist, index = nearest(query, self._bank, self._bank_sq)
         score = image_score(dist, index, query, self._bank, self._bank_sq, self.reweight_k)
+        if not math.isfinite(score):
+            raise FloatingPointError("the anomaly score is not finite")
         return score, dist.reshape(self.grid)
 
     def inspect(self, image: Image.Image | np.ndarray, *, heatmap: bool = True) -> Inspection:
@@ -239,8 +351,8 @@ class Inspector:
         return out
 
     def set_threshold(self, value: float) -> None:
-        if not math.isfinite(value):
-            raise ValueError("the threshold must be finite")
+        if not _is_finite_number(value):
+            raise ValueError(f"the threshold must be a finite number, got {value!r}")
         self.threshold = float(value)
         self.meta["threshold"] = float(value)
 
@@ -248,7 +360,9 @@ class Inspector:
         """Set the threshold from normal images of the current condition (conformal rank at `alpha`)."""
         if len(images) == 0:
             raise ValueError("calibration needs at least one normal image")
-        scores = np.array([self.score_features(self.features(image))[0] for image in images])
+        scores = np.array(
+            [self.score_features(self.features(image))[0] for image in images], dtype=np.float32
+        )
         thr = conformal_threshold(scores, alpha)
         self.set_threshold(thr.value)
         self.meta["alpha"] = float(alpha)
@@ -267,11 +381,8 @@ def save_artifact(
     import shutil
 
     meta = {"version": ARTIFACT_VERSION, **meta}
-    missing = [k for k in META_KEYS if k not in meta]
-    if missing:
-        raise ValueError(f"artifact meta lacks {missing}")
-    if bank.ndim != 2 or bank.shape[1] != meta["dim"]:
-        raise ValueError(f"bank shape {bank.shape} does not match dim {meta['dim']}")
+    check_meta(meta)
+    _check_bank(bank, meta["dim"])
     artifact_dir = Path(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     targets = [(Path(onnx_fp32), artifact_dir / PRECISIONS["fp32"])]

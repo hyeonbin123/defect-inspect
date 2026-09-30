@@ -18,7 +18,7 @@ from .cache import ImageCache
 from .configs import PatchCoreConfig
 from .ledger import git_commit, record_test_access
 from .metrics import aupro, pixel_auroc, pro_histograms
-from .splits import ManifestRow, pool_folds, read_manifest, select
+from .splits import PARTS, ManifestRow, pool_folds, read_manifest, select
 from .visa import CATEGORIES
 
 PRO_BINS = 2000
@@ -37,6 +37,42 @@ def ratio_rows(n_features: int, ratio: float) -> int:
 
 def setting_name(backbone: str, size: int) -> str:
     return f"{backbone}-{size}"
+
+
+def _is_ratio_folder(name: str) -> bool:
+    try:
+        ratio = float(name[1:])
+    except ValueError:
+        return False
+    return 0 < ratio <= 1 and ratio_name(ratio) == name
+
+
+def _remove_if_empty(folder: Path) -> None:
+    try:
+        folder.rmdir()
+    except OSError:
+        pass  # something that is not a grid output is in there: keep the folder
+
+
+def clear_outputs(out_dir: Path) -> None:
+    """Delete what earlier calls wrote to `out_dir`: run.json, the ratio folders' runs, the saved banks.
+
+    A call owns its output folder: results of other ratios or categories left by an earlier (or an
+    interrupted) call would otherwise still load as a finished run through `compare.load_patchcore`.
+    Only files with the names this module writes are deleted. The top-level run.json goes first, so the
+    folder stops counting as finished before anything else changes.
+    """
+    (out_dir / "run.json").unlink(missing_ok=True)
+    for folder in sorted(p for p in out_dir.glob("r*") if p.is_dir() and _is_ratio_folder(p.name)):
+        for path in [folder / "run.json", *sorted(folder.glob("*.npz"))]:
+            path.unlink(missing_ok=True)
+        _remove_if_empty(folder)
+    bank_dir = out_dir / "banks"
+    if bank_dir.is_dir():
+        for pattern in ("*.json", "*_full.npy", "*_minus_fold_*.npy"):
+            for path in sorted(bank_dir.glob(pattern)):
+                path.unlink(missing_ok=True)
+        _remove_if_empty(bank_dir)
 
 
 def run_category(
@@ -196,7 +232,9 @@ def main(argv: list[str] | None = None) -> None:
         "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
     )
     parser.add_argument("--note", default="")
-    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--overwrite", action="store_true", help="redo a finished run (its outputs are deleted first)"
+    )
     args = parser.parse_args(argv)
 
     from .backbones import make_extractor
@@ -215,6 +253,18 @@ def main(argv: list[str] | None = None) -> None:
 
     # Everything that can fail without touching a test image comes before the ledger line.
     manifest = read_manifest(paths.VISA_MANIFEST)
+    for category in args.categories:
+        if args.categories.count(category) > 1:
+            parser.error(f"--categories lists {category} twice")
+        empty = [
+            part
+            for part in PARTS  # manifest rows only: no image is read here
+            if not select(
+                manifest, protocol=args.protocol, part=part, category=category, allow_test=args.allow_test
+            )
+        ]
+        if empty:
+            parser.error(f"unknown or empty category {category!r}: the manifest has no {', '.join(empty)}")
     try:
         cache = ImageCache(paths.CACHE, args.size)
     except FileNotFoundError:
@@ -223,12 +273,12 @@ def main(argv: list[str] | None = None) -> None:
     cfg = PatchCoreConfig(name=setting, backbone=args.backbone, img_size=args.size, coreset_ratio=ratios[0])
     extractor = make_extractor(cfg.backbone, img_size=cfg.img_size).to(args.device).eval()
     commit = git_commit()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    clear_outputs(out_dir)
     if args.protocol == "test":
         record_test_access(
             paths.TEST_LEDGER, stage=args.stage, config=f"grid-{setting}", note=args.note, commit=commit
         )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "run.json").unlink(missing_ok=True)
 
     per_ratio: dict[float, list[dict]] = {r: [] for r in ratios}
     started = time.perf_counter()

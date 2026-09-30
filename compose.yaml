@@ -6,12 +6,22 @@ services:
     environment:
       DEFECT_INSPECT_ARTIFACTS: /artifacts
       DEFECT_INSPECT_PRECISION: ${DEFECT_INSPECT_PRECISION:-fp32}
+      # Host names the service answers to (comma separated). Add the machine's name or address before
+      # publishing the port beyond 127.0.0.1.
+      DEFECT_INSPECT_ALLOWED_HOSTS: ${DEFECT_INSPECT_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      # POST /calibrate (replacing a threshold) stays disabled until a token is set here; callers send it
+      # as the X-Admin-Token header.
+      DEFECT_INSPECT_ADMIN_TOKEN: ${DEFECT_INSPECT_ADMIN_TOKEN:-}
     volumes:
       # An artifact set built by `python -m defect_inspect.export` (model files, banks, thresholds).
       - ${DEFECT_INSPECT_ARTIFACT_DIR:-./artifacts/serving}:/artifacts:ro
     read_only: true
+    # Uploads larger than 1 MB are spooled here while a request is parsed. The tmpfs counts towards the
+    # memory limit, so it is sized for one full calibration call (256 MB) plus inspection uploads.
     tmpfs:
-      - /tmp
+      - /tmp:size=512m
+    mem_limit: 2g
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 30s

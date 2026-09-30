@@ -9,14 +9,14 @@
 <body>
   <main>
     <h1>외관 검사</h1>
-    <p class="lead">제품 사진을 올리면 이상 점수와 판정, 이상 위치를 보여 준다.</p>
+    <p class="lead">제품 사진을 올리면 이상 점수와 판정, 이상 위치를 보여 준다. PNG, JPEG, BMP, TIFF, WebP (채널당 8비트, 투명도 없음)를 받는다.</p>
 
     <form id="form">
       <label>범주
         <select id="category" name="category" required></select>
       </label>
       <label>사진
-        <input id="image" name="image" type="file" accept="image/*" required>
+        <input id="image" name="image" type="file" accept="image/png,image/jpeg,image/bmp,image/tiff,image/webp" required>
       </label>
       <button id="submit" type="submit">검사</button>
     </form>
@@ -33,7 +33,7 @@
       <div class="views">
         <figure>
           <canvas id="photo" width="384" height="384"></canvas>
-          <figcaption>입력 사진</figcaption>
+          <figcaption>입력 사진 (모델이 본 크기와 방향)</figcaption>
         </figure>
         <figure>
           <canvas id="overlay" width="384" height="384"></canvas>

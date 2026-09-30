@@ -7,6 +7,7 @@ bank and `meta.json` (threshold, grid, scoring options).
 """
 
 import argparse
+import copy
 import json
 import time
 from pathlib import Path
@@ -15,24 +16,37 @@ import numpy as np
 
 from . import paths
 from .calibrate import conformal_threshold
-from .inspector import ARTIFACT_VERSION, PRECISIONS, preprocess
+from .inspector import ARTIFACT_VERSION, PRECISIONS, check_meta, preprocess
 from .ledger import git_commit
 from .run_grid import ratio_name, ratio_rows
+
+
+def _cpu_fp32(extractor):
+    """`extractor` on the CPU in fp32 and eval mode: a copy unless it already is (the caller's stays put)."""
+    import torch
+
+    tensors = [*extractor.parameters(), *extractor.buffers()]
+    ready = not extractor.training and all(
+        t.device.type == "cpu" and (not t.is_floating_point() or t.dtype == torch.float32) for t in tensors
+    )
+    return extractor if ready else copy.deepcopy(extractor).to("cpu").float().eval()
 
 
 def export_onnx(extractor, img_size: int, path: Path, *, opset: int = 18) -> Path:
     """Export `extractor` (eval mode, fp32, CPU) for a fixed batch of one image and check it against torch.
 
     Uses the TorchScript-based exporter (`dynamo=False`): it handles both the WideResNet and the timm
-    DINOv2 extractor, and its graphs go through onnxruntime's static quantization without changes.
+    DINOv2 extractor. The WideResNet graph goes through onnxruntime's static quantization without
+    changes; the DINOv2 graph does not (see `quantize_static_int8`).
     Raises if the onnxruntime output differs from torch by more than 1e-3 (max abs) on one random image.
+    The caller's module is not moved or converted: a copy is exported when it is not on the CPU in fp32.
     """
     import onnx
     import torch
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    extractor = extractor.to("cpu").float().eval()
+    extractor = _cpu_fp32(extractor)
     example = torch.zeros(1, 3, img_size, img_size, dtype=torch.float32)
     with torch.no_grad():
         torch.onnx.export(
@@ -67,7 +81,7 @@ def check_parity(extractor, onnx_path: Path, images: np.ndarray) -> dict:
     import torch
 
     session = _session(onnx_path)
-    extractor = extractor.to("cpu").float().eval()
+    extractor = _cpu_fp32(extractor)
     max_abs, sum_abs, count, scale = 0.0, 0.0, 0, 0.0
     for image in images:
         x = preprocess(image, image.shape[0])
@@ -96,14 +110,33 @@ class _Reader:
 def quantize_static_int8(
     fp32_path: Path, int8_path: Path, calibration_images: np.ndarray, *, per_channel: bool = True
 ) -> Path:
-    """Static INT8 quantization (QDQ, MinMax calibration, activations uint8, weights int8)."""
+    """Static INT8 quantization (QDQ, MinMax calibration, activations uint8, weights int8).
+
+    Works for the WideResNet export. Raises `NotImplementedError` with the reason when onnxruntime's
+    pre-processing cannot handle the graph, and writes no model then. That is the case for the DINOv2
+    export (onnxruntime 1.30): symbolic shape inference stops at the Expand node of the class and register
+    tokens. There is no fallback, because skipping that step only lets the quantization finish: the
+    features of the pretrained ViT-S/14 at 252 px then correlate 0.07 with the fp32 ones.
+    """
     from onnxruntime.quantization import CalibrationMethod, QuantFormat, QuantType, quantize_static
     from onnxruntime.quantization.shape_inference import quant_pre_process
 
     fp32_path, int8_path = Path(fp32_path), Path(int8_path)
+    if not fp32_path.is_file():
+        raise FileNotFoundError(f"no fp32 model at {fp32_path}")
+    if len(calibration_images) == 0:
+        raise ValueError("static quantization needs at least one calibration image")
     prepared = int8_path.with_suffix(".prep.onnx")
     try:
-        quant_pre_process(str(fp32_path), str(prepared))
+        try:
+            quant_pre_process(str(fp32_path), str(prepared))
+        except (OSError, MemoryError):
+            raise  # the machine, not the graph: not a reason to go on without INT8
+        except Exception as err:  # onnxruntime's shape inference fails with whatever its internals raise
+            raise NotImplementedError(
+                f"static INT8 quantization is not available for {fp32_path.name}: onnxruntime's "
+                f"pre-processing failed ({type(err).__name__}: {err})"
+            ) from err
         quantize_static(
             str(prepared),
             str(int8_path),
@@ -131,7 +164,9 @@ def build_artifacts(
     """Artifacts for every category of a `run_grid --save-banks` run at one coreset ratio.
 
     The threshold of each category is the conformal threshold of the run's cross-fitted scores (torch
-    pipeline). INT8 calibration uses the first pool normals of every category in the run.
+    pipeline). INT8 calibration uses the first pool normals of every category in the run. When the model
+    cannot be quantized (`NotImplementedError`, e.g. DINOv2) the fp32 artifacts are still complete: the
+    set then has no `model_int8.onnx` and `artifacts.json` says why under `int8`.
     """
     from .backbones import make_extractor
     from .cache import ImageCache
@@ -150,9 +185,16 @@ def build_artifacts(
     t0 = time.perf_counter()
     extractor = make_extractor(cfg["backbone"], img_size=cfg["img_size"])
     fp32 = export_onnx(extractor, cfg["img_size"], out_dir / PRECISIONS["fp32"])
-    info = {"export_s": round(time.perf_counter() - t0, 1), "categories": []}
+    info = {
+        "export_s": round(time.perf_counter() - t0, 1),
+        "int8": {"available": False, "reason": "not requested"},
+        "categories": [],
+    }
 
     manifest = read_manifest(paths.VISA_MANIFEST)
+    int8_path = out_dir / PRECISIONS["int8"]
+    # A quantized model left by an earlier export into this folder does not belong to the new fp32 model.
+    int8_path.unlink(missing_ok=True)
     if int8:
         cache = ImageCache(paths.CACHE, cfg["img_size"])
         rows = []
@@ -160,9 +202,15 @@ def build_artifacts(
             pool = select(manifest, protocol="dev", part="pool_normal", category=category)
             rows += pool[:calibration_per_category]
         t0 = time.perf_counter()
-        quantize_static_int8(fp32, out_dir / PRECISIONS["int8"], cache.images(rows))
-        info["quantize_s"] = round(time.perf_counter() - t0, 1)
-        info["calibration_images"] = len(rows)
+        try:
+            quantize_static_int8(fp32, int8_path, cache.images(rows))
+        except NotImplementedError as err:
+            int8_path.unlink(missing_ok=True)
+            info["int8"] = {"available": False, "reason": str(err)}
+        else:
+            info["int8"] = {"available": True}
+            info["quantize_s"] = round(time.perf_counter() - t0, 1)
+            info["calibration_images"] = len(rows)
 
     commit = git_commit()
     for cat_info in ratio_run["categories"]:
@@ -188,6 +236,7 @@ def build_artifacts(
             "commit": commit,
             "source": {"grid": grid_dir.name, "ratio": ratio, "protocol": grid["protocol"]},
         }
+        check_meta(meta)
         cat_dir = out_dir / category
         cat_dir.mkdir(parents=True, exist_ok=True)
         np.save(cat_dir / "bank.npy", bank)

@@ -1,4 +1,6 @@
 import json
+import warnings
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -214,8 +216,13 @@ def test_calibrate_sets_the_conformal_threshold():
     assert insp.meta["calibration"]["guaranteed"] is False
     with pytest.raises(ValueError):
         insp.calibrate([])
-    with pytest.raises(ValueError):
-        insp.set_threshold(float("nan"))
+    kept = insp.threshold
+    for bad in (float("nan"), float("inf"), None, "0.5", True):
+        with pytest.raises(ValueError):
+            insp.set_threshold(bad)
+    assert insp.threshold == kept and insp.meta["threshold"] == kept
+    insp.set_threshold(np.float32(1.5))
+    assert insp.threshold == 1.5 and isinstance(insp.meta["threshold"], float)
 
 
 def test_meta_and_bank_are_validated():
@@ -231,6 +238,209 @@ def test_meta_and_bank_are_validated():
     wrong_grid = Inspector(FakeSession(grid=2), bank, _meta())
     with pytest.raises(ValueError, match="features"):
         wrong_grid.features(_images(1)[0])
+
+
+class SpikeSession(FakeSession):
+    """A model whose first feature value is `value` (too large for fp16, or not finite)."""
+
+    def __init__(self, value):
+        super().__init__()
+        self.value = value
+
+    def run(self, names, feeds):
+        out = super().run(names, feeds)
+        out[0][0, 0, 0, 0] = self.value
+        return out
+
+
+def test_features_beyond_fp16_raise_like_the_torch_pipeline():
+    # patchcore._patch_features checks after the cast to fp16; so does the numpy path, without warnings.
+    insp = Inspector(SpikeSession(1e5), _bank(_images(4)), _meta())
+    image = _images(1, seed=3)[0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for call in (
+            lambda: insp.features(image),
+            lambda: insp.inspect(image),
+            lambda: insp.scores(image[None]),
+            lambda: insp.calibrate([image]),
+        ):
+            with pytest.raises(FloatingPointError, match="overflowed fp16"):
+                call()
+    assert insp.threshold == 0.5  # a failed calibration leaves the threshold alone
+    # The largest fp16 value still passes.
+    assert np.isfinite(Inspector(SpikeSession(65504.0), _bank(_images(4)), _meta()).features(image)).all()
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_non_finite_features_never_give_a_verdict(value):
+    insp = Inspector(SpikeSession(value), _bank(_images(4)), _meta())
+    image = _images(1, seed=3)[0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(FloatingPointError):
+            insp.inspect(image)
+        with pytest.raises(FloatingPointError):
+            insp.scores(image[None])
+        # Features handed in from elsewhere get the same treatment: NaN > threshold would read as "normal".
+        feats = Inspector(FakeSession(), _bank(_images(4)), _meta()).features(image)
+        feats[5, 1] = value
+        with pytest.raises(FloatingPointError):
+            insp.score_features(feats)
+
+
+def test_inspect_scores_and_calibrate_use_the_same_float32_score():
+    """The threshold comes from float32 scores; the service must judge the same float32 value."""
+    insp = Inspector(FakeSession(), _bank(_images(10)), _meta(reweight_k=9))
+    images = _images(40, seed=11)
+    offline = insp.scores(images)
+    assert offline.dtype == np.float32 and len(set(offline.tolist())) > 30
+    for image, score in zip(images, offline, strict=True):
+        insp.set_threshold(float(score))
+        served = insp.inspect(image, heatmap=False)
+        assert served.score == float(score)
+        assert not served.is_defect  # rule: score > threshold, and this score is the threshold
+    value = insp.calibrate(list(images), alpha=0.05)
+    assert value == float(np.sort(offline)[38])  # exactly one of the float32 scores, rank ceil(41 * 0.95)
+    assert value == float(np.float32(value))
+
+
+BAD_META = {
+    "threshold NaN": {"threshold": float("nan")},
+    "threshold inf": {"threshold": float("inf")},
+    "threshold None": {"threshold": None},
+    "threshold text": {"threshold": "0.5"},
+    "threshold bool": {"threshold": True},
+    "grid one entry": {"grid": [GRID]},
+    "grid three entries": {"grid": [GRID, GRID, GRID]},
+    "grid zero": {"grid": [0, 0]},
+    "grid negative": {"grid": [GRID, -GRID]},
+    "grid fractional": {"grid": [4.5, 4]},
+    "grid not a list": {"grid": GRID},
+    "img_size zero": {"img_size": 0},
+    "img_size text": {"img_size": str(SIZE)},
+    "img_size fractional": {"img_size": 32.5},
+    "dim zero": {"dim": 0},
+    "dim text": {"dim": "3"},
+    "reweight_k negative": {"reweight_k": -3},
+    "reweight_k fractional": {"reweight_k": 2.5},
+    "sigma NaN": {"sigma": float("nan")},
+    "sigma negative": {"sigma": -1.0},
+    "sigma text": {"sigma": "1"},
+    "sigma too large for the input": {"sigma": 8.0},  # blur radius 32 on a 32 px map
+    "version as text": {"version": str(inspector.ARTIFACT_VERSION)},
+}
+
+
+@pytest.mark.parametrize("change", BAD_META.values(), ids=BAD_META.keys())
+def test_bad_meta_values_are_refused_with_a_value_error(change, tmp_path):
+    bank = _bank(_images(4))
+    with pytest.raises(ValueError):
+        Inspector(FakeSession(), bank, _meta(**change))
+    with pytest.raises(ValueError):
+        inspector.check_meta(_meta(**change))
+    # Nothing invalid gets written either.
+    model = tmp_path / "source.onnx"
+    model.write_bytes(b"x")
+    with pytest.raises(ValueError):
+        inspector.save_artifact(tmp_path / "art", onnx_fp32=model, bank=bank, meta=_meta(**change))
+    assert not (tmp_path / "art" / "meta.json").exists()
+
+
+def test_valid_meta_variants_are_accepted():
+    bank = _bank(_images(4))
+    for change in (
+        {"threshold": 0},
+        {"threshold": -1.5},
+        {"sigma": 0},
+        {"sigma": 7.8},  # blur radius int(31.7) = 31 < 32
+        {"reweight_k": 0},
+        {"grid": (GRID, GRID)},
+        {"img_size": np.int64(SIZE)},
+    ):
+        insp = Inspector(FakeSession(), bank, _meta(**change))
+        assert insp.size == SIZE and insp.grid == (GRID, GRID)
+        assert isinstance(insp.threshold, float) and isinstance(insp.sigma, float)
+
+
+def test_a_bank_with_non_finite_values_is_refused():
+    bank = _bank(_images(4)).astype(np.float32)
+    for value in (np.nan, np.inf):
+        bad = bank.copy()
+        bad[3, 1] = value
+        with pytest.raises(ValueError, match="finite"):
+            Inspector(FakeSession(), bad, _meta())
+    with pytest.raises(ValueError, match="bank"):
+        Inspector(FakeSession(), bank[:, 0], _meta())
+    with pytest.raises(ValueError, match="bank"):
+        Inspector(FakeSession(), np.array([["a", "b", "c"]]), _meta())
+
+
+class DescribedSession(FakeSession):
+    """A session that declares its input and output like onnxruntime does."""
+
+    def __init__(self, inputs, outputs):
+        super().__init__()
+        self._inputs, self._outputs = inputs, outputs
+
+    def get_inputs(self):
+        return [SimpleNamespace(name=n, shape=s) for n, s in self._inputs]
+
+    def get_outputs(self):
+        return [SimpleNamespace(name=n, shape=s) for n, s in self._outputs]
+
+
+def test_the_declared_model_shapes_must_fit_the_meta():
+    bank = _bank(_images(4))
+    image, features = ("image", [1, 3, SIZE, SIZE]), ("features", [1, GRID, GRID, 3])
+    Inspector(DescribedSession([image], [features]), bank, _meta())
+    # Symbolic (str) or unknown (None) dimensions are not compared.
+    Inspector(
+        DescribedSession([("image", ["batch", 3, SIZE, SIZE])], [("features", [None, GRID, GRID, 3])]),
+        bank,
+        _meta(),
+    )
+    bad = {
+        "another input size": ([("image", [1, 3, 64, 64])], [features]),
+        "another grid": ([image], [("features", [1, 8, 8, 3])]),
+        "another dim": ([image], [("features", [1, GRID, GRID, 5])]),
+        "a fixed batch of two": ([("image", [2, 3, SIZE, SIZE])], [("features", [2, GRID, GRID, 3])]),
+        "channels last": ([("image", [1, SIZE, SIZE, 3])], [features]),
+        "three dimensions": ([("image", [3, SIZE, SIZE])], [features]),
+        "another input name": ([("x", [1, 3, SIZE, SIZE])], [features]),
+        "another output name": ([image], [("out", [1, GRID, GRID, 3])]),
+    }
+    for name, (inputs, outputs) in bad.items():
+        with pytest.raises(ValueError, match="model"):
+            Inspector(DescribedSession(inputs, outputs), bank, _meta())
+            pytest.fail(f"accepted {name}")
+    with pytest.raises(ValueError, match="model"):
+        inspector.check_model_io(DescribedSession([image], [("features", [1, 8, 8, 3])]), _meta())
+
+
+def test_load_turns_broken_files_into_value_errors(tmp_path):
+    pytest.importorskip("onnxruntime")
+    art = tmp_path / "art"
+    art.mkdir()
+    np.save(art / "bank.npy", _bank(_images(4)))
+    (art / "meta.json").write_text(json.dumps(_meta()), encoding="utf-8")
+    (art / "model_fp32.onnx").write_bytes(b"not a real model")
+    with pytest.raises(ValueError, match="ONNX"):
+        Inspector.load(art)
+    (art / "meta.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(ValueError, match="meta.json"):
+        Inspector.load(art)
+    (art / "meta.json").write_text(json.dumps([1, 2]), encoding="utf-8")
+    with pytest.raises(ValueError, match="meta.json"):
+        Inspector.load(art)
+    # The meta is checked before the model is opened: the message names the bad value, not the model.
+    (art / "meta.json").write_text(json.dumps(_meta(threshold=None)), encoding="utf-8")
+    with pytest.raises(ValueError, match="threshold"):
+        Inspector.load(art)
+    (art / "meta.json").write_text(json.dumps(_meta()), encoding="utf-8")
+    (art / "bank.npy").write_bytes(b"not an array")
+    with pytest.raises(ValueError, match="bank.npy"):
+        Inspector.load(art)
 
 
 def test_save_artifact_writes_the_documented_files(tmp_path):

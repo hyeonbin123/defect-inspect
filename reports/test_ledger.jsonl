@@ -9,3 +9,5 @@
 {"time": "2026-09-30T11:12:18+00:00", "commit": "2357c4d+dirty", "stage": "cache", "config": "cache-384", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-09-30T11:15:42+00:00", "commit": "5ba9151+dirty", "stage": "cache", "config": "cache-252", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-09-30T11:20:41+00:00", "commit": "5ba9151+dirty", "stage": "3-m2ad", "config": "m2ad-d-s", "note": "stage 3-B, D-S inspectors"}
+{"time": "2026-09-30T12:00:42+00:00", "commit": "2e2cfd2+dirty", "stage": "3", "config": "perturb-p0", "note": "stage 3-A synthetic conditions, P0; tree dirty only by stage 4 files under review"}
+{"time": "2026-09-30T12:02:58+00:00", "commit": "2e2cfd2+dirty", "stage": "2", "config": "dm", "note": "stage 2 unsupervised method DM (fp32, batch 8 training); tree dirty only by stage 4 files under review"}

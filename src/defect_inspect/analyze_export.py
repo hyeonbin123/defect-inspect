@@ -8,6 +8,7 @@ with a named pipeline's cross-fitted scores.
 import argparse
 import json
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 import numpy as np
@@ -62,7 +63,16 @@ def _rates(
         n_pos += len(pos)
         fp_boot += f_neg[neg_idx].sum(axis=1)
         tp_boot += f_pos[pos_idx].sum(axis=1)
-    return {"fpr": fp / n_neg, "tpr": tp / n_pos, "fpr_boot": fp_boot / n_neg, "tpr_boot": tp_boot / n_pos}
+    return {
+        "fpr": fp / n_neg,
+        "tpr": tp / n_pos,
+        "fpr_boot": fp_boot / n_neg,
+        "tpr_boot": tp_boot / n_pos,
+        # The counts behind the false alarm rate, for exact comparisons with the minimum effect.
+        "fp": fp,
+        "fp_boot": fp_boot,
+        "n_neg": n_neg,
+    }
 
 
 def _cell(r: dict) -> dict:
@@ -120,39 +130,53 @@ def build_report(run: dict, alpha: float = ALPHA) -> dict:
         "n_boot": boot.n_boot,
         "rows": rows,
         **{k: run["meta"][k] for k in ("artifacts", "ratio", "protocol")},
+        # False when the run has no INT8 scores (e.g. the model could not be quantized): no H14 verdict.
+        "int8_scored": "int8" in pipelines,
     }
     if "fp32" in pipelines and "int8" in pipelines:
         report["int8_at_fp32_thresholds"] = int8_shift(boot, pipelines, alpha)
     return report
 
 
+def shift_verdict(fp_diff: int, ci_counts: list[float], n_neg: int) -> str:
+    """The registered H14 rule, on false alarm counts out of `n_neg` pooled normals.
+
+    Supported ("지지") when the paired interval excludes 0 and the change is at least 2.0 points;
+    rejected ("기각") when the whole interval lies strictly inside (-2.0, +2.0) points; undecided
+    ("판정 불가") otherwise. Counts keep the comparison with the margin exact: as a difference of two
+    rates, 12/100 - 10/100 is 0.01999... in floating point and would miss "at least 2.0 points".
+    """
+    margin = Fraction(str(MIN_EFFECT_FPR)) * n_neg
+    lo, hi = ci_counts
+    if (lo > 0 or hi < 0) and abs(fp_diff) >= margin:
+        return "지지"
+    if -margin < lo and hi < margin:
+        return "기각"
+    return "판정 불가"
+
+
 def int8_shift(boot: compare.Bootstrap, pipelines: dict, alpha: float = ALPHA) -> dict:
     """INT8 scores under thresholds calibrated with the fp32 CPU pipeline, against fp32 under the same ones.
 
-    Registered claim: the pooled false alarm rate moves by more than 2 points. Supported when the paired
-    interval excludes 0 and the change is at least 2 points; rejected when the whole interval lies inside
-    (-2, +2) points; undecided otherwise.
+    Registered claim: the pooled false alarm rate moves by more than 2 points (`shift_verdict`). The
+    thresholds stay those of the fp32 cross-fitted scores; the INT8 rate after recalibrating on its own
+    cross-fitted scores is reported next to it.
     """
     fp32 = _rates(boot, pipelines["fp32"], pipelines["fp32"], alpha)
     int8 = _rates(boot, pipelines["int8"], pipelines["fp32"], alpha)
     recal = _rates(boot, pipelines["int8"], pipelines["int8"], alpha)
-    diff = int8["fpr"] - fp32["fpr"]
-    lo, hi = compare._ci(int8["fpr_boot"] - fp32["fpr_boot"])
-    if (lo > 0 or hi < 0) and abs(diff) >= MIN_EFFECT_FPR:
-        verdict = "지지"
-    elif -MIN_EFFECT_FPR < lo and hi < MIN_EFFECT_FPR:
-        verdict = "기각"
-    else:
-        verdict = "판정 불가"
+    n_neg = fp32["n_neg"]
+    fp_diff = int8["fp"] - fp32["fp"]
+    lo, hi = compare._ci(int8["fp_boot"] - fp32["fp_boot"])
     return {
         "fp32": _cell(fp32),
         "int8_at_fp32_thresholds": _cell(int8),
         "int8_recalibrated": _cell(recal),
-        "d_fpr": float(diff),
-        "d_fpr_ci": [lo, hi],
+        "d_fpr": fp_diff / n_neg,
+        "d_fpr_ci": [lo / n_neg, hi / n_neg],
         "d_tpr": float(int8["tpr"] - fp32["tpr"]),
         "d_tpr_ci": compare._ci(int8["tpr_boot"] - fp32["tpr_boot"]),
-        "verdict": verdict,
+        "verdict": shift_verdict(fp_diff, [lo, hi], n_neg),
     }
 
 
@@ -197,6 +221,8 @@ def format_report(report: dict) -> str:
             f"({shift['d_fpr'] * 100:+.2f}%p {_span(shift['d_fpr_ci'])}), "
             f"after recalibration {_pct(shift['int8_recalibrated']['fpr'])}; verdict: {shift['verdict']}",
         ]
+    elif not report.get("int8_scored", True):
+        lines += ["", "INT8 was not scored in this run: no verdict on the INT8 threshold shift."]
     return "\n".join(lines)
 
 

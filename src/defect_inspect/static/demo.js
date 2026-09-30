@@ -36,14 +36,14 @@ function loadImage(src) {
 }
 
 function draw() {
-  if (!state.photo) return;
   for (const id of ["photo", "overlay"]) {
     const canvas = $(id);
     const ctx = canvas.getContext("2d");
     ctx.globalAlpha = 1;
-    ctx.drawImage(state.photo, 0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (state.photo) ctx.drawImage(state.photo, 0, 0, canvas.width, canvas.height);
   }
-  if (!state.heat) return;
+  if (!state.photo || !state.heat) return;
   const canvas = $("overlay");
   const ctx = canvas.getContext("2d");
   // Grey heatmap -> red with alpha proportional to the score.
@@ -66,6 +66,10 @@ function draw() {
   ctx.globalAlpha = 1;
 }
 
+function describeRefusal(data) {
+  return data && typeof data.detail === "string" ? data.detail : "요청이 거부됐다.";
+}
+
 async function inspect(event) {
   event.preventDefault();
   const file = $("image").files[0];
@@ -74,31 +78,46 @@ async function inspect(event) {
   body.append("image", file);
   body.append("category", $("category").value);
   $("submit").disabled = true;
+  // The verdict and picture of the previous upload must not stay next to this one.
+  $("result").hidden = true;
+  state.photo = null;
+  state.heat = null;
+  draw();
   setStatus("검사 중…", false);
+
+  let data;
   try {
-    const response = await fetch("/inspect", { method: "POST", body });
-    const data = await response.json();
+    // preview=true: the server sends back the picture the model saw, so the overlay always lines up
+    // (formats a browser cannot draw, EXIF rotation that the server does not apply).
+    const response = await fetch("/inspect?preview=true", { method: "POST", body });
+    data = await response.json();
     if (!response.ok) {
-      setStatus(typeof data.detail === "string" ? data.detail : "요청이 거부됐다.", true);
+      setStatus(describeRefusal(data), true);
       return;
     }
-    const url = URL.createObjectURL(file);
-    state.photo = await loadImage(url);
-    URL.revokeObjectURL(url);
-    state.heat = data.heatmap_png ? await loadImage("data:image/png;base64," + data.heatmap_png) : null;
-    const verdict = $("verdict");
-    verdict.textContent = data.is_defect ? "불량" : "양품";
-    verdict.className = "badge " + (data.is_defect ? "bad" : "ok");
-    $("score").textContent = data.score.toFixed(3);
-    $("threshold").textContent = data.threshold.toFixed(3);
-    $("latency").textContent = String(data.latency_ms);
-    $("result").hidden = false;
+  } catch (err) {
+    setStatus("검사에 실패했다. 서버 상태를 확인한다.", true);
+    return;
+  } finally {
+    $("submit").disabled = false;
+  }
+
+  const verdict = $("verdict");
+  verdict.textContent = data.is_defect ? "불량" : "양품";
+  verdict.className = "badge " + (data.is_defect ? "bad" : "ok");
+  $("score").textContent = data.score.toFixed(3);
+  $("threshold").textContent = data.threshold.toFixed(3);
+  $("latency").textContent = String(data.latency_ms);
+  $("result").hidden = false;
+  try {
+    const photo = await loadImage("data:image/png;base64," + data.input_png);
+    const heat = data.heatmap_png ? await loadImage("data:image/png;base64," + data.heatmap_png) : null;
+    state.photo = photo;
+    state.heat = heat;
     draw();
     setStatus("", false);
   } catch (err) {
-    setStatus("검사에 실패했다. 서버 상태를 확인한다.", true);
-  } finally {
-    $("submit").disabled = false;
+    setStatus("판정은 나왔지만 사진을 그리지 못했다.", true);
   }
 }
 
