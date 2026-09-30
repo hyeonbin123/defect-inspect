@@ -18,6 +18,9 @@ class PatchCoreConfig:
 CONFIGS: dict[str, PatchCoreConfig] = {
     # Stage 1 baseline: literature defaults, no defect labels.
     "p0": PatchCoreConfig(name="p0", backbone="wrn50", img_size=256, coreset_ratio=0.1),
+    # Stage 2: the same PatchCore on DINOv2 patch tokens (32x32 grid at 448 px).
+    "d-s": PatchCoreConfig(name="d-s", backbone="dinov2_vits14", img_size=448, coreset_ratio=0.1),
+    "d-b": PatchCoreConfig(name="d-b", backbone="dinov2_vitb14", img_size=448, coreset_ratio=0.1),
 }
 
 
