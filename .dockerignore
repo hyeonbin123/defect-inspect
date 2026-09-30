@@ -1,0 +1,17 @@
+.git
+.venv*
+data
+outputs
+work
+artifacts
+reports
+tests
+docs
+.pytest_cache
+.pytest-tmp*
+.ruff_cache
+__pycache__
+*.pyc
+AGENTS.md
+CLAUDE.md
+HANDOFF.md

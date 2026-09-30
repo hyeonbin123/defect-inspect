@@ -28,3 +28,6 @@ TASKS.md
 
 # Lock file of the sealed-test ledger (exists for milliseconds during an append)
 *.jsonl.lock
+
+# Inspector artifact sets (ONNX models, banks, thresholds) built by defect_inspect.export
+artifacts/

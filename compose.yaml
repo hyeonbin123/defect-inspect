@@ -1,0 +1,19 @@
+services:
+  inspect:
+    build: .
+    ports:
+      - "127.0.0.1:8093:8000"
+    environment:
+      DEFECT_INSPECT_ARTIFACTS: /artifacts
+      DEFECT_INSPECT_PRECISION: ${DEFECT_INSPECT_PRECISION:-fp32}
+    volumes:
+      # An artifact set built by `python -m defect_inspect.export` (model files, banks, thresholds).
+      - ${DEFECT_INSPECT_ARTIFACT_DIR:-./artifacts/serving}:/artifacts:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
