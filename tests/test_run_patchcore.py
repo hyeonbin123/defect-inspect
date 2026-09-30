@@ -63,10 +63,19 @@ CFG = PatchCoreConfig(
 )
 
 
-def _run(tmp_path, protocol, allow_test=False):
+def _run(tmp_path, protocol, allow_test=False, save_bank=False):
     manifest = _manifest()
     return run_patchcore.run_category(
-        CFG, protocol, "toy", manifest, FakeCache(manifest), GridMean(), "cpu", allow_test, tmp_path
+        CFG,
+        protocol,
+        "toy",
+        manifest,
+        FakeCache(manifest),
+        GridMean(),
+        "cpu",
+        allow_test,
+        tmp_path,
+        save_bank,
     )
 
 
@@ -101,6 +110,28 @@ def test_dev_run_feeds_the_analysis(tmp_path, monkeypatch):
     assert report["accuracy"]["macro_image_auroc"] == 1.0
     assert report["calibration"]["0.05"]["holdout"]["n_cal_total"] == 8
     assert report["calibration"]["0.05"]["crossfit"]["n_cal_total"] == 32
+
+
+def test_saved_bank_reproduces_the_scores(tmp_path):
+    from defect_inspect.patchcore import score_images
+
+    info = _run(tmp_path, "dev", save_bank=True)
+    bank = np.load(tmp_path / "toy_bank.npy")
+    assert bank.dtype == np.float16 and bank.shape == (info["bank_rows"]["full"], 3)
+    manifest = _manifest()
+    rows = [r for r in manifest if r.role == "dev_defect"]
+    images = FakeCache(manifest).images(rows)
+    res = score_images(
+        GridMean(), torch.from_numpy(bank), images, batch_size=CFG.batch_size, device="cpu", sigma=CFG.sigma
+    )
+    with np.load(tmp_path / "toy.npz") as z:
+        np.testing.assert_allclose(res.image_scores, z["eval_score_full"][8:], rtol=1e-5)
+    assert not (tmp_path / "other_bank.npy").exists()
+
+
+def test_bank_is_not_saved_by_default(tmp_path):
+    _run(tmp_path, "dev")
+    assert not (tmp_path / "toy_bank.npy").exists()
 
 
 def test_test_protocol_needs_permission(tmp_path):

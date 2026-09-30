@@ -34,6 +34,7 @@ def run_category(
     device: str,
     allow_test: bool,
     out_dir: Path,
+    save_bank: bool = False,
 ) -> dict:
     import torch
 
@@ -135,6 +136,9 @@ def run_category(
         pro_component_image=hist.component_image,
     )
     np.save(out_dir / f"{category}_maps.npy", res_full.maps)
+    if save_bank:
+        # The full bank in selection order (fp16): later stages score new conditions against it.
+        np.save(out_dir / f"{category}_bank.npy", full_bank.numpy())
     return {
         "category": category,
         "pool": len(pool),
@@ -161,6 +165,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--note", default="")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--save-bank", action="store_true", help="keep each category's full memory bank")
     args = parser.parse_args(argv)
 
     from .backbones import make_extractor
@@ -188,7 +193,16 @@ def main(argv: list[str] | None = None) -> None:
     for category in args.categories:
         t0 = time.perf_counter()
         info = run_category(
-            cfg, args.protocol, category, manifest, cache, extractor, args.device, args.allow_test, out_dir
+            cfg,
+            args.protocol,
+            category,
+            manifest,
+            cache,
+            extractor,
+            args.device,
+            args.allow_test,
+            out_dir,
+            save_bank=args.save_bank,
         )
         info["total_s"] = round(time.perf_counter() - t0, 1)
         summaries.append(info)
