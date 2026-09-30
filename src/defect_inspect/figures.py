@@ -27,11 +27,16 @@ import numpy as np
 from . import paths
 from .analyze_grid import CPU_BUDGET_MS
 from .analyze_m2ad import BASE as M2AD_BASE
-from .conditions import CLEAN, LEVELS
+from .conditions import CLEAN, LEVELS, REFERENCE_SIZE, strength
+from .configs import CONFIGS
+from .m2ad import REFERENCE as M2AD_REFERENCE
+from .run_dinomaly import IMG_SIZE as DINOMALY_SIZE
+from .run_dinomaly import NAME as DINOMALY
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
 
 DPI = 150
 WIDTH = 12.0  # inches: 1800 px at DPI
@@ -59,7 +64,16 @@ _KINDS = {
     "shift": "shift (px)",
     "jpeg": "JPEG quality",
 }
-_GROUP_GAP = 0.7  # extra space between two groups of conditions, in condition slots
+# The kinds whose strength `conditions.strength` scales with the input size (blur σ and shift): their
+# ticks show the value on the 256 px grid, and a footnote says what the other input sizes got.
+_SCALED = tuple(
+    kind
+    for kind in LEVELS
+    if strength(f"{kind}-1", 2 * REFERENCE_SIZE) != strength(f"{kind}-1", REFERENCE_SIZE)
+)
+# Input size of each method in stage 3 (the images were perturbed at this size).
+INPUT_SIZES = {**{name: cfg.img_size for name, cfg in CONFIGS.items()}, DINOMALY: DINOMALY_SIZE}
+_GROUP_GAP = 0.6  # extra space between two groups of conditions, in condition slots
 
 _RC = {
     "font.family": "DejaVu Sans",  # ships with matplotlib: the same glyphs on every machine
@@ -199,30 +213,58 @@ def _points(
     return line
 
 
-def _offsets(n: int, step: float = 0.28) -> np.ndarray:
+def _offsets(n: int, step: float) -> np.ndarray:
     """Sideways offsets that put n series next to each other around one x position."""
     return (np.arange(n) - (n - 1) / 2) * step
 
 
 def _condition(name: str) -> tuple[str, str]:
-    """(group label, tick label) of a condition name of the perturbation or the M2AD report."""
+    """(group label, tick label) of a condition name of the perturbation or the M2AD report.
+
+    A strength that was scaled to the input size is shown on the 256 px grid, its group marked with `*`.
+    """
     if name == CLEAN:
         return "clean", ""
     if name == M2AD_BASE:
-        return "reference", name
+        return "reference", M2AD_REFERENCE  # the lighting whose images the thresholds were fixed on
     if name.startswith("R:"):
         return "real lighting", name[2:]
     kind, _, level = name.removeprefix("P:").rpartition("-")
     if kind in LEVELS and level in {"1", "2", "3"}:
-        return _KINDS.get(kind, kind), f"{LEVELS[kind][int(level) - 1]:g}"
+        mark = "*" if kind in _SCALED else ""
+        return f"{_KINDS.get(kind, kind)}{mark}", f"{LEVELS[kind][int(level) - 1]:g}"
     return name, ""
 
 
-def _condition_axis(ax: Axes, names: Sequence[str], *, labels: bool = True) -> np.ndarray:
+def _scaled_note(methods: Sequence[str]) -> str:
+    """Footnote of the `*` groups: the strengths are on the 256 px grid; what every other input size got."""
+    scaled = [m for m in methods if INPUT_SIZES.get(m) != REFERENCE_SIZE]
+    at_256 = [_method(m)[0] for m in methods if m not in scaled]
+    note = f"* blur σ and shift in pixels of a {REFERENCE_SIZE} px image"
+    if at_256:
+        note += f", the input of {' and '.join(at_256)}"
+    if not scaled:
+        return note
+    parts = []
+    for method in scaled:
+        label, size = _method(method)[0], INPUT_SIZES.get(method)
+        if size is None:
+            parts.append(f"{label}: input size not known")
+            continue
+        factor = strength("blur-1", size) / strength("blur-1", REFERENCE_SIZE)
+        shifts = ", ".join(f"{strength(f'shift-{level}', size):g}" for level in (1, 2, 3))
+        parts.append(f"{label} ({size} px): σ ×{factor:.3g}, shift {shifts} px")
+    return f"{note}; other input sizes got them scaled:\n" + ";   ".join(parts)
+
+
+def _condition_axis(
+    ax: Axes, names: Sequence[str], *, labels: bool = True, methods: Sequence[str] = ()
+) -> np.ndarray:
     """Put the conditions on the x axis, group by group with a gap and a hairline between the groups.
 
     Ticks show the strength (or the lighting id); the group name stands under the middle tick of its
-    group. Returns the x position of every condition.
+    group. When a group is on the 256 px grid (`*`), the x label says what the input sizes of `methods`
+    got. Returns the x position of every condition.
     """
     parsed = [_condition(name) for name in names]
     x: list[float] = []
@@ -246,7 +288,25 @@ def _condition_axis(ax: Axes, names: Sequence[str], *, labels: bool = True) -> n
     ax.set_xticks(x, ticks if labels else [""] * len(x))
     ax.tick_params(axis="x", length=0)
     ax.set_xlim(x[0] - 0.75, x[-1] + 0.75)
+    if labels and any(group.endswith("*") for group, _ in parsed):
+        ax.set_xlabel(_scaled_note(methods), loc="left", fontsize=SMALL, labelpad=6)
     return np.asarray(x)
+
+
+def _interval_handle() -> Line2D:
+    """Legend entry of the vertical lines through the markers."""
+    from matplotlib.lines import Line2D
+
+    return Line2D(
+        [],
+        [],
+        linestyle="none",
+        marker="|",
+        markersize=11,
+        markeredgewidth=1.3,
+        color=INK_2,
+        label="95% bootstrap interval",
+    )
 
 
 def _same_conditions(tables: dict[str, list[dict]]) -> list[str]:
@@ -300,7 +360,8 @@ def fig_calibration(report: dict, alpha: float = 0.05) -> Figure:
         ax.set_xticks(x, [f"{STRATEGIES[s]}\nn = {cal[s]['n_cal_total']:,}" for s in strategies])
         ax.tick_params(axis="x", length=0)
         ax.set_xlim(-0.6, len(strategies) - 0.4)
-        ax.set_xlabel("threshold procedure (n: calibration scores)")
+        # `n_cal_total` is the sum over the categories; the right panel's n is per category.
+        ax.set_xlabel("n: calibration scores of all categories together")
         _target(ax, alpha, outside=True)
 
     bars(ax_all, list(STRATEGIES), 1)
@@ -326,7 +387,15 @@ def fig_calibration(report: dict, alpha: float = 0.05) -> Figure:
     top = max(hi, 100 * alpha, *(100 * cal[s]["fpr_ci"][1] for s in zoomed))
     ax_zoom.set_ylim(0, 1.45 * top)
     ax_zoom.set_title("Hold-out and cross-fit, enlarged")
-    ax_zoom.legend(loc="upper left", handlelength=1.2, borderaxespad=0.2)
+    # Name the whiskers of the bars too, so that the theory range is not taken for them (or vice versa).
+    whisker = _interval_handle()
+    whisker.set(color=INK, label="on the bars: 95% bootstrap interval")
+    ax_zoom.legend(
+        handles=[whisker, *ax_zoom.get_legend_handles_labels()[0]],
+        loc="upper left",
+        handlelength=1.2,
+        borderaxespad=0.2,
+    )
 
     x = np.arange(len(curve))
     ref = 100 * np.array([row["reference_interval"] for row in curve])
@@ -503,13 +572,20 @@ def fig_label_curve(report: dict) -> Figure:
             fontsize=9,
             color=INK_2,
         )
-    ax_unseen.set_xticks(
-        xu, [f"k = {row['k']}\n{row['unseen_types']['unseen_defects_mean']:.0f} defects" for row in judged]
-    )
+    # Each seed labels other defects, so the unseen subset differs by seed: its size is a mean over seeds,
+    # written with a decimal unless it is whole.
+    counts = [_mean_count(row["unseen_types"]["unseen_defects_mean"]) for row in judged]
+    ax_unseen.set_xticks(xu, [f"k = {row['k']}\n{n} defects" for row, n in zip(judged, counts, strict=True)])
+    ax_unseen.set_xlabel(f"defects of these types: mean over the {n_seeds} seeds")
     ax_unseen.set_xlim(-1.2, len(judged) - 0.05)
     span = float(max(sup.max(), ref.max()) - min(sup.min(), ref.min())) or 1.0
     ax_unseen.set_ylim(min(sup.min(), ref.min()) - 0.35 * span, max(sup.max(), ref.max()) + 0.35 * span)
     return fig
+
+
+def _mean_count(value: float) -> str:
+    """A mean of counts: `60` when it is whole, `116.7` when it is not (never rounded to a count)."""
+    return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.1f}"
 
 
 def _seed_dots(row: dict) -> list[tuple[float, float]]:
@@ -527,21 +603,22 @@ def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str
     conditions and the real lightings, one marker per method with its interval. Right: the pooled rate
     over the real lightings after recalibrating with n normal images of the new lighting.
     """
+    from matplotlib.lines import Line2D
+
     runs = {m: report["methods"][m] for m in methods if m in report["methods"]}
     if not runs:
         raise ValueError(f"the report has none of the methods {list(methods)}")
     names = _same_conditions({m: run["conditions"] for m, run in runs.items()})
     fig = _figure(4.9)
-    ax, ax_recal = fig.subplots(1, 2, width_ratios=[3.5, 1.0])
+    # 25 conditions on the left: its slots must hold labels like "1.25" side by side with a space between.
+    ax, ax_recal = fig.subplots(1, 2, width_ratios=[4.4, 1.0])
     inspectors = len(next(iter(runs.values()))["inspectors"])
-    _suptitle(
-        fig,
-        f"M2AD: false alarms when the capture condition changes ({inspectors} inspectors, fixed thresholds)",
-    )
+    _suptitle(fig, f"M2AD: false alarms when the capture condition changes ({inspectors} inspectors)")
 
-    x = _condition_axis(ax, names)
+    x = _condition_axis(ax, names, methods=list(runs))
     handles = []
-    for dx, (method, run) in zip(_offsets(len(runs)), runs.items(), strict=True):
+    # Wide enough apart that the markers of two methods at one condition do not overlap.
+    for dx, (method, run) in zip(_offsets(len(runs), 0.38), runs.items(), strict=True):
         rows = run["conditions"]
         handles.append(
             _points(
@@ -553,16 +630,24 @@ def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str
                 gid=f"fpr:{method}",
             )
         )
-    _target(ax, alpha, outside=True)
+    # The target is named in the legend: a label at the end of the line would take room from the slots.
+    _target(ax, alpha, label=False)
+    handles += [
+        _interval_handle(),
+        Line2D([], [], color=INK_2, linewidth=1.0, linestyle=(0, (4, 3)), label=f"target {100 * alpha:g}%"),
+    ]
     ax.set_ylim(-3, 103)
     ax.set_yticks([0, 25, 50, 75, 100])
     ax.set_ylabel("false-alarm rate on normal images (%)")
-    ax.set_title("Reference lighting, synthetic changes (by strength) and real lightings (by id)")
+    ax.set_title(
+        f"Thresholds fixed on the reference lighting {M2AD_REFERENCE}: "
+        "synthetic changes (by strength), real lightings (by id)"
+    )
     fig.legend(handles=handles, loc="outside lower left", ncols=len(handles), handlelength=1.2)
 
     sizes = [row["n"] for row in next(iter(runs.values()))["recal"]]
     xr = np.arange(len(sizes))
-    for dx, (method, run) in zip(_offsets(len(runs), 0.38), runs.items(), strict=True):
+    for dx, (method, run) in zip(_offsets(len(runs), 0.46), runs.items(), strict=True):
         rows = run["recal"]
         if [row["n"] for row in rows] != sizes:
             raise ValueError(f"the methods were recalibrated with different sizes: {method} has other n")
@@ -590,7 +675,7 @@ def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str
     ax_recal.set_ylim(-0.3, 180)
     ax_recal.set_yticks([0, 1, 2, 5, 10, 20, 50, 100], ["0", "1", "2", "5", "10", "20", "50", "100"])
     ax_recal.minorticks_off()
-    _target(ax_recal, alpha, label=False)  # the 5 tick and the left panel's label name the line
+    _target(ax_recal, alpha, label=False)  # the 5 tick and the legend name the line
     ax_recal.set_xticks(xr, [str(n) for n in sizes])
     ax_recal.tick_params(axis="x", length=0)
     ax_recal.set_xlim(-0.75, len(sizes) - 0.25)
@@ -620,7 +705,7 @@ def fig_perturb(report: dict) -> Figure:
     _suptitle(fig, f"Synthetic capture changes: accuracy and false alarms at a fixed threshold ({protocol})")
 
     _condition_axis(ax_auc, names, labels=False)
-    x = _condition_axis(ax_fpr, names)
+    x = _condition_axis(ax_fpr, names, methods=list(tables))
     handles = []
     for dx, (method, table) in zip(_offsets(len(tables), 0.25), tables.items(), strict=True):
         style = _method(method)
@@ -645,6 +730,7 @@ def fig_perturb(report: dict) -> Figure:
                 style,
                 gid=f"fpr:{method}",
             )
+    handles.append(_interval_handle())
     labels = [h.get_label() for h in handles]
     verdict = report.get("h9")
     if verdict and verdict.get("conditions"):
@@ -665,7 +751,9 @@ def fig_perturb(report: dict) -> Figure:
     ax_fpr.set_ylim(bottom=0)
     ax_fpr.set_ylabel("pooled false-alarm rate (%)")
     ax_fpr.set_title("False alarms at the threshold fixed on clean images")
-    fig.legend(handles, labels, loc="outside lower left", ncols=len(handles), handlelength=1.2)
+    fig.legend(
+        handles, labels, loc="outside lower left", ncols=len(handles), handlelength=1.2, columnspacing=1.2
+    )
     return fig
 
 

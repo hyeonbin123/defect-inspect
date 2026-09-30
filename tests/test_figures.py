@@ -23,6 +23,11 @@ from defect_inspect.visa import CATEGORIES  # noqa: E402
 PERTURBED = condition_names(include_clean=False)
 M2AD_CONDITIONS = ["S", *[f"P:{name}" for name in PERTURBED], *[f"R:{i:02d}" for i in range(2, 11)]]
 SHIFTED = "brightness-2"  # every score moves up: the ranking stays, the fixed thresholds are overrun
+# The note under a condition axis with WRN-50 (256 px input) and DINOv2 ViT-S (448 px input).
+SCALED_NOTE = (
+    "* blur σ and shift in pixels of a 256 px image, the input of PatchCore WRN-50; "
+    "other input sizes got them scaled:\nPatchCore DINOv2 ViT-S (448 px): σ ×1.75, shift 2, 4, 7 px"
+)
 
 
 def _artists(fig, gid):
@@ -92,6 +97,71 @@ def _marks_inside(fig):
             )
             where = ax.get_title(loc="left") or ax.get_label()
             assert inside.all(), f"{artist.get_gid() or artist} is cut off in the axes {where!r}"
+
+
+def _drawn(fig):
+    with figures._style():
+        fig.canvas.draw()
+    return fig.canvas.get_renderer()
+
+
+def _tick_labels_apart(fig):
+    """On every axes, neighbouring x tick labels keep at least a space between them, line by line.
+
+    A tick label of two lines ("1.25\\ngamma") is centred on its tick line by line, so the lines are
+    measured one by one: a strength against the next strength, a group name against the next group name.
+    """
+    renderer = _drawn(fig)
+    for ax in fig.axes:
+        labels = [t for t in ax.get_xticklabels() if t.get_visible() and t.get_text().strip()]
+        if not labels:
+            continue
+        font = labels[0].get_fontproperties()
+
+        def width(text, font=font):
+            return renderer.get_text_width_height_descent(text, font, ismath=False)[0]
+
+        space = width("a b") - width("ab")
+        rows = {}
+        for label in labels:
+            box = label.get_window_extent(renderer)
+            centre = (box.x0 + box.x1) / 2
+            for i, line in enumerate(label.get_text().split("\n")):
+                if line.strip():
+                    rows.setdefault(i, []).append((centre - width(line) / 2, centre + width(line) / 2, line))
+        for row in rows.values():
+            row.sort()
+            for (_, right, left_text), (left, _, right_text) in zip(row, row[1:], strict=False):
+                gap = left - right
+                assert gap >= space, (
+                    f"{left_text!r} and {right_text!r} are {gap:.1f} px apart (a space: {space:.1f})"
+                )
+
+
+def _markers_apart(fig, gids):
+    """At every x position, the markers of neighbouring series stand side by side without overlapping."""
+    _drawn(fig)
+    lines = [_one(fig, gid) for gid in gids]
+    for a, b in zip(lines, lines[1:], strict=False):
+        xa = a.axes.transData.transform(a.get_xydata())[:, 0]
+        xb = b.axes.transData.transform(b.get_xydata())[:, 0]
+        # Half the width of each marker, with the white edge drawn around it.
+        room = sum(line.get_markersize() + line.get_markeredgewidth() for line in (a, b)) / 2 * fig.dpi / 72
+        assert np.min(np.abs(xb - xa)) >= room, f"{a.get_gid()} and {b.get_gid()} overlap"
+
+
+def _texts_inside(fig):
+    """Every text (titles, labels, notes, legend entries) lies inside the figure."""
+    renderer = _drawn(fig)
+    box = fig.bbox
+    for text in fig.findobj(
+        lambda artist: hasattr(artist, "get_text") and hasattr(artist, "get_window_extent")
+    ):
+        if not text.get_visible() or not text.get_text().strip():
+            continue
+        ext = text.get_window_extent(renderer)
+        inside = box.x0 <= ext.x0 and ext.x1 <= box.x1 and box.y0 <= ext.y0 and ext.y1 <= box.y1
+        assert inside, f"{text.get_text()!r} sticks out of the figure: {ext}"
 
 
 # ---- calibration -----------------------------------------------------------------------------------------
@@ -199,7 +269,20 @@ def test_calibration_draws_the_rates_of_the_report_in_percent():
         assert (at.min(), at.max()) == pytest.approx((lo, hi))
     assert [t.get_text() for t in by_n.get_xticklabels()] == ["20", "50", "100"]
     assert _notes(by_n) == {"target 5%": pytest.approx((1.0, 5.0))}
+    # The whiskers of the bars are named next to the theory range, so neither is taken for the other; the
+    # n under the bars is a total over the categories, the n of the right panel is per category.
+    assert [t.get_text() for t in zoom.get_legend().get_texts()] == [
+        "on the bars: 95% bootstrap interval",
+        "hold-out: 95% range expected in theory",
+    ]
+    whisker, theory = zoom.get_legend().legend_handles
+    assert (whisker.get_marker(), whisker.get_color()) == ("|", figures.INK)
+    assert theory.get_color() == _one(fig, "theory:holdout").get_color()
+    assert full.get_xlabel() == zoom.get_xlabel() == "n: calibration scores of all categories together"
+    assert by_n.get_xlabel() == "calibration images per category (n)"
     _marks_inside(fig)
+    _tick_labels_apart(fig)
+    _texts_inside(fig)
 
 
 def test_calibration_at_another_target_rate():
@@ -223,11 +306,13 @@ def _compare_report(judged=(5, 10)):
         return {"macro_image_auroc": value, "macro_image_auroc_ci": [value - 0.01, value + 0.01]}
 
     supervised = {}
+    # Means over the seeds, whose subsets differ: 116.67 at k = 5 (as in the committed report), whole at 10.
+    unseen_defects = {5: 350 / 3, 10: 60.0}
     for k, mean in zip((5, 10, 20, 40), MEANS, strict=True):
         unseen = {"unseen_defects_mean": 2.0, "categories_mean": 1.0, "judged": False}
         if k in judged:
             unseen = {
-                "unseen_defects_mean": 116.67,
+                "unseen_defects_mean": unseen_defects[k],
                 "categories_mean": 9.0,
                 "supervised": mean - 0.02,
                 "reference": 0.975,
@@ -287,7 +372,9 @@ def test_label_curve_draws_the_supervised_curve_over_the_unsupervised_lines():
     assert legend[0].startswith("Supervised head: mean of 3 seeds")
     # Unseen defect types: the judged k only, supervised against the reference method (Dinomaly).
     uticks = unseen.get_xticks()
-    assert [t.get_text() for t in unseen.get_xticklabels()] == ["k = 5\n117 defects", "k = 10\n117 defects"]
+    # The number of unseen defects is a mean over the seeds: not written as a count unless it is whole.
+    assert [t.get_text() for t in unseen.get_xticklabels()] == ["k = 5\n116.7 defects", "k = 10\n60 defects"]
+    assert unseen.get_xlabel() == "defects of these types: mean over the 3 seeds"
     assert _x(fig, "unseen:supervised") == pytest.approx(uticks)
     assert _x(fig, "unseen:reference") == pytest.approx(uticks)
     assert _y(fig, "unseen:supervised") == pytest.approx([93.0, 95.0])
@@ -302,6 +389,8 @@ def test_label_curve_draws_the_supervised_curve_over_the_unsupervised_lines():
         "Supervised head": pytest.approx((uticks[0], 93.0)),
     }
     _marks_inside(fig)
+    _tick_labels_apart(fig)
+    _texts_inside(fig)
 
 
 def test_label_curve_without_a_judged_subset_keeps_the_panel_and_says_so():
@@ -338,7 +427,7 @@ def test_m2ad_conditions_are_grouped_and_every_rate_is_drawn():
     ax, recal = fig.axes
     # The two methods stand side by side at each condition: marker and interval at the condition's tick.
     ticks, rticks = ax.get_xticks(), recal.get_xticks()
-    sides, rsides = figures._offsets(2), figures._offsets(2, 0.38)
+    sides, rsides = figures._offsets(2, 0.38), figures._offsets(2, 0.46)
     for (method, run), dx, rdx in zip(report["methods"].items(), sides, rsides, strict=True):
         line = _one(fig, f"fpr:{method}")
         assert line.axes is ax
@@ -370,23 +459,39 @@ def test_m2ad_conditions_are_grouped_and_every_rate_is_drawn():
     assert np.isclose(steps, 1.0).sum() == 18 and (steps > 1.5).sum() == 6
     assert [int(i) for i in np.flatnonzero(steps > 1.5)] == [0, 3, 6, 9, 12, 15]
     labels = [t.get_text() for t in ax.get_xticklabels()]
-    assert labels[0] == "S\nreference"
+    # The reference condition is lighting 01, the one the thresholds were fixed on (as 02-10 are lightings).
+    assert labels[0] == "01\nreference"
     assert labels[1:4] == ["0.9\n ", "0.8\nbrightness", "0.7\n "]
     assert labels[13:16] == ["90\n ", "70\nJPEG quality", "50\n "]
     assert labels[16] == "02\n " and labels[20] == "06\nreal lighting" and labels[24] == "10\n "
-    assert {"gamma", "blur σ", "shift (px)"} <= {label.split("\n")[1] for label in labels}
-    # The target line in both panels, named once; a rate of 0 has a place on the recalibration axis.
+    # Blur and shift are on the 256 px grid: their groups are starred, and the note under the axis says
+    # what the 448 px input of DINOv2 got (conditions.strength: shift rounded, blur scaled).
+    assert labels[7:13] == ["0.5\n ", "1\nblur σ*", "1.5\n ", "1\n ", "2\nshift (px)*", "4\n "]
+    assert "gamma" in labels[5]
+    assert ax.get_xlabel() == SCALED_NOTE
+    # The target line in both panels, named in the legend; a rate of 0 has a place on the recalibration axis.
     targets = _artists(fig, "target")
     assert {line.axes for line in targets} == {ax, recal}
     assert all(list(line.get_ydata()) == pytest.approx([5.0, 5.0]) for line in targets)
-    assert _notes(ax) == {"target 5%": pytest.approx((1.0, 5.0))}
+    assert not ax.texts  # no label at the end of the line: it would take room from the 25 slots
     assert np.isfinite(recal.transData.transform((1.0, 0.0))).all()
     assert [t.get_text() for t in recal.get_xticklabels()] == ["0", "8", "30"]
+    # The legend names the vertical lines too.
     assert [t.get_text() for t in fig.legends[0].get_texts()] == [
         "PatchCore WRN-50",
         "PatchCore DINOv2 ViT-S",
+        "95% bootstrap interval",
+        "target 5%",
     ]
+    # "Fixed thresholds" is said of the left panel only: the right one shows recalibrated thresholds.
+    assert fig.get_suptitle() == "M2AD: false alarms when the capture condition changes (2 inspectors)"
+    assert ax.get_title(loc="left").startswith("Thresholds fixed on the reference lighting 01: ")
+    assert recal.get_title(loc="left") == "After recalibration"
     _marks_inside(fig)
+    _tick_labels_apart(fig)
+    _markers_apart(fig, ["fpr:p0", "fpr:d-s"])
+    _markers_apart(fig, ["recal:p0", "recal:d-s"])
+    _texts_inside(fig)
 
 
 def test_m2ad_takes_the_methods_the_report_has_and_checks_their_conditions():
@@ -394,6 +499,12 @@ def test_m2ad_takes_the_methods_the_report_has_and_checks_their_conditions():
     assert len(fig.axes) == 2 and not _artists(fig, "fpr:d-s")
     assert _x(fig, "fpr:p0") == pytest.approx(fig.axes[0].get_xticks())  # alone: on the tick
     assert all(list(line.get_ydata()) == pytest.approx([10.0, 10.0]) for line in _artists(fig, "target"))
+    assert [t.get_text() for t in fig.legends[0].get_texts()][-1] == "target 10%"
+    # Only the 256 px input: nothing was scaled.
+    assert (
+        fig.axes[0].get_xlabel()
+        == "* blur σ and shift in pixels of a 256 px image, the input of PatchCore WRN-50"
+    )
     _marks_inside(fig)
     with pytest.raises(ValueError, match="none of the methods"):
         figures.fig_m2ad_conditions(_m2ad_report(methods=("dm",)))
@@ -485,11 +596,19 @@ def test_perturb_shows_accuracy_change_and_fixed_threshold_rate(tmp_path):
     assert _notes(ax_fpr) == {"target 5%": pytest.approx((1.0, 5.0))}
     labels = [t.get_text() for t in ax_fpr.get_xticklabels()]
     assert labels[0] == "\nclean" and labels[1:4] == ["0.9\n ", "0.8\nbrightness", "0.7\n "]
+    assert labels[7:13] == ["0.5\n ", "1\nblur σ*", "1.5\n ", "1\n ", "2\nshift (px)*", "4\n "]
     assert all(t.get_text() == "" for t in ax_auc.get_xticklabels())
+    # The starred strengths are on the 256 px grid; the note says what the larger inputs got.
+    assert ax_auc.get_xlabel() == ""
+    assert ax_fpr.get_xlabel() == SCALED_NOTE
     legend = [t.get_text() for t in fig.legends[0].get_texts()]
-    assert legend[:2] == ["PatchCore WRN-50", "PatchCore DINOv2 ViT-S"]
-    assert legend[2] == "PatchCore WRN-50: AUROC falls by less than 1 point, false alarms at least 10%"
+    assert legend[:3] == ["PatchCore WRN-50", "PatchCore DINOv2 ViT-S", "95% bootstrap interval"]
+    assert legend[3] == "PatchCore WRN-50: AUROC falls by less than 1 point, false alarms at least 10%"
     _marks_inside(fig)
+    _tick_labels_apart(fig)
+    for gid in ("d_auroc", "fpr"):
+        _markers_apart(fig, [f"{gid}:p0", f"{gid}:d-s"])
+    _texts_inside(fig)
 
 
 def test_perturb_method_without_calibration_scores_has_no_rate_markers(tmp_path):
@@ -501,11 +620,46 @@ def test_perturb_method_without_calibration_scores_has_no_rate_markers(tmp_path)
     assert not _artists(fig, "fpr:dm")
     assert _x(fig, "fpr:p0") == pytest.approx(ticks + figures._offsets(2, 0.25)[0])
     _marks_inside(fig)
-    # A partial run is not judged: nothing is shaded and the legend has the methods only.
+    # A partial run is not judged: nothing is shaded and the legend has the methods and intervals only.
     report["h9"] = None
     fig = figures.fig_perturb(report)
     assert not _artists(fig, f"h9:{SHIFTED}")
-    assert [t.get_text() for t in fig.legends[0].get_texts()] == ["PatchCore WRN-50", "Dinomaly"]
+    assert [t.get_text() for t in fig.legends[0].get_texts()] == [
+        "PatchCore WRN-50",
+        "Dinomaly",
+        "95% bootstrap interval",
+    ]
+    assert fig.axes[1].get_xlabel().endswith("scaled:\nDinomaly (392 px): σ ×1.53, shift 2, 3, 6 px")
+
+
+def test_perturb_of_three_methods_keeps_its_legend_and_note_inside_the_figure(tmp_path):
+    report = _perturb_report(tmp_path, cal={"p0": 60, "d-s": 60, "dm": 60})
+    assert report["h9"]["conditions"] == [SHIFTED]  # the longest legend: three methods and the H9 shading
+    fig = figures.fig_perturb(report)
+    assert fig.axes[1].get_xlabel().splitlines()[1] == (
+        "PatchCore DINOv2 ViT-S (448 px): σ ×1.75, shift 2, 4, 7 px;   "
+        "Dinomaly (392 px): σ ×1.53, shift 2, 3, 6 px"
+    )
+    _tick_labels_apart(fig)
+    for gid in ("d_auroc", "fpr"):
+        _markers_apart(fig, [f"{gid}:p0", f"{gid}:d-s", f"{gid}:dm"])
+    _texts_inside(fig)
+
+
+def test_scaled_strengths_follow_the_input_size_of_each_method():
+    # The input sizes of stage 3, and the conditions that conditions.strength scales with them.
+    assert figures.INPUT_SIZES == {"p0": 256, "d-s": 448, "d-b": 448, "dm": 392}
+    assert figures._SCALED == ("blur", "shift")
+    assert [figures._condition(f"P:{kind}-1")[0] for kind in ("gamma", "blur", "shift")] == [
+        "gamma",
+        "blur σ*",
+        "shift (px)*",
+    ]
+    note = figures._scaled_note(["d-s", "mystery"])
+    assert note == (
+        "* blur σ and shift in pixels of a 256 px image; other input sizes got them scaled:\n"
+        "PatchCore DINOv2 ViT-S (448 px): σ ×1.75, shift 2, 4, 7 px;   mystery: input size not known"
+    )
 
 
 # ---- grid ------------------------------------------------------------------------------------------------
@@ -766,7 +920,7 @@ def test_examples_refuse_maps_they_cannot_draw_and_masks_of_another_size():
 # ---- committed reports, determinism, CLI -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["calibration", "label_curve", "m2ad_conditions"])
+@pytest.mark.parametrize("name", ["calibration", "label_curve", "m2ad_conditions", "perturb"])
 def test_committed_reports_give_figures(name, tmp_path):
     inputs, build = figures.FIGURES[name]
     files = [paths.REPORTS / rel for rel in inputs]
@@ -778,6 +932,8 @@ def test_committed_reports_give_figures(name, tmp_path):
     with Image.open(path) as image:
         assert image.format == "PNG" and image.width == 1800 and 500 < image.height < 1200
     _marks_inside(fig)
+    _tick_labels_apart(fig)
+    _texts_inside(fig)
 
 
 def test_the_same_report_gives_identical_bytes(tmp_path):

@@ -29,6 +29,8 @@
 - 교차 적합은 1%p쯤 보수적이다. 같은 목표에서 어느 쪽이 결함을 더 잡는지는 가리지 못했다(차이 −1.5%p [−2.9, 0.0], 판정 불가)
 - 오검출률을 5%로 묶으면 결함의 약 3분의 2를, 1%로 묶으면 절반에 못 미치게 잡는다
 
+![목표 5%로 정한 임계값의 실제 오검출률: 세 방식과 보정 표본 수](docs/figures/calibration.png)
+
 **방법을 바꾸면** (같은 테스트, 결함 라벨 0장)
 
 | 방법 | 이미지 AUROC | AUPRO | 목표 오검출률 5%에서의 검출률 (실제 오검출률) |
@@ -49,6 +51,8 @@
 - "k가 10 이하면 지도 학습이 진다"고 미리 적었는데 k = 10에서는 틀렸고 k = 5에서는 가리지 못했다. 5장이면 구별되지 않고 10장이면 이미 조금 앞선다. 분명히 앞서는 것은 20장부터다
 - 그러나 **학습에서 보지 못한 결함 유형**만 모으면 뒤집힌다. k = 5에서 지도 학습이 3.5%p [−5.1, −1.9], k = 10에서 2.1%p [−4.3, −0.2] 낮다. 정상만 쓰는 방법은 결함 유형을 가리지 않는다
 
+![결함 라벨 수에 따른 지도 학습과 비지도 방법의 AUROC](docs/figures/label_curve.png)
+
 **조명이 실제로 바뀌면** (M2AD의 Motor·Bird. 기준선 PatchCore(WideResNet-50, 256px)를 기준 조명에서 만들어 다른 조명 9가지에 그대로 적용)
 
 | | 기준 조명 | 다른 조명 | 새 조명의 정상 30장으로 다시 보정 |
@@ -59,7 +63,9 @@
 - 같은 기준 조명 이미지에 합성 교란(밝기·감마·흐림·이동·JPEG 15가지)을 준 것 가운데 가장 나쁜 조건은 +82.5%p(흐림 σ 1.5)였다. "합성 교란은 실제 조명 변화의 절반에도 못 미칠 것"이라고 미리 적었는데 틀렸다. 다만 가장 큰 영향을 준 것은 조명과 상관없는 흐림과 JPEG 압축이었다. 조명을 흉내 내려고 넣은 밝기 배율은 가장 센 단계에서도 +14.2%p에 그쳤고, 감마는 +51.7%p까지 갔지만 실제 조명(모든 조건 +78%p 이상)에는 못 미쳤다. 밝기만 바꿔 보는 점검으로는 실제 조명 변화를 어림할 수 없다
 - 새 조명에서 찍은 정상 30장을 뱅크에 더하고 임계값을 다시 잡으면 오검출률이 목표 근처로 돌아온다 (8장만으로도 3.5%)
 
-**촬영 조건이 조금 바뀌면** (VisA 테스트에 합성 교란 15가지, 2단계의 임계값을 그대로 사용)
+![M2AD에서 합성 교란과 실제 조명 변화의 오검출률, 재보정 뒤](docs/figures/m2ad_conditions.png)
+
+**촬영 조건이 조금 바뀌면** (VisA 테스트에 합성 교란 15가지, 1·2단계 테스트에서 정한 임계값을 그대로 사용)
 
 | 교란 | PatchCore WRN-50 | PatchCore DINOv2 | Dinomaly |
 |---|---|---|---|
@@ -71,8 +77,10 @@
 
 (칸의 값은 목표 5%로 정한 임계값에서 정상을 불량으로 판정한 비율)
 
-- 이미지를 20~30% 어둡게 하면 WideResNet PatchCore의 AUROC는 그대로(+0.3, +0.5%p)인데 오검출률은 15%, 41%로 뛴다. 점수 순서는 유지되고 점수 전체가 밀려서다. AUROC로 모델을 감시하면 이 고장은 보이지 않는다(미리 적은 가설 지지)
-- DINOv2 특징을 쓰는 두 방법은 밝기에 흔들리지 않는 대신 1~2px 어긋남에 크게 무너진다. 어느 방법을 쓰든 고정 임계값은 촬영 조건(노출·초점·압축·위치 맞춤)과 한 묶음이다
+- 이미지를 20~30% 어둡게 하면 WideResNet PatchCore의 AUROC는 그대로(+0.3, +0.5%p)인데 오검출률은 15%, 41%로 뛴다. 점수 순서는 거의 그대로인 채 점수 전체가 밀린 것으로 본다(검출률도 같이 오른다). AUROC로 모델을 감시하면 이 고장은 보이지 않는다(미리 적은 가설 지지)
+- DINOv2 특징을 쓰는 두 방법은 밝기 배율에는 흔들리지 않는 대신 256px 기준 1~2px(실제 입력에서 2~4px) 어긋남에 크게 무너진다. 어느 방법을 쓰든 고정 임계값은 촬영 조건(노출·초점·압축·위치 맞춤)과 한 묶음이다
+
+![VisA 합성 교란 15가지에서의 AUROC 변화와 고정 임계값의 오검출률](docs/figures/perturb.png)
 
 4단계(가볍게 만들기, CPU 지연, 내보내기 전후 일치)는 진행 중이다.
 
@@ -91,6 +99,7 @@ VisA: Zou et al., "SPot-the-Difference Self-Supervised Pre-training for Anomaly 
 uv sync                                   # 지표·분할·임계값 보정 코드 (numpy, scipy, pillow)
 uv sync --group serve                     # 검사 서비스까지 (onnxruntime, FastAPI; torch 없음)
 uv sync --group train --group dinomaly --group serve   # 특징 추출·학습·내보내기까지 (torch CUDA 12.8 빌드)
+uv sync --group figures                   # README 그림을 다시 그릴 때 (matplotlib)
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
@@ -127,6 +136,9 @@ uv run python -m defect_inspect.run_grid --backbone wrn50 --size 256 --protocol 
 uv run python -m defect_inspect.export --grid outputs/grid-wrn50-256-dev --ratio 0.01 --out artifacts/wrn50-256-r0.01
 uv run python -m defect_inspect.bench --artifacts artifacts/wrn50-256-r0.01 --key wrn50-256-r0.01 --gpu
 uv run python -m defect_inspect.analyze_grid --protocol dev
+
+# README 그림 (reports/ 의 리포트에서 docs/figures/*.png 를 다시 그린다)
+uv run python -m defect_inspect.figures
 ```
 `--protocol test`나 `--allow-test`가 붙은 실행은 봉인 테스트를 읽고, 읽을 때마다 `reports/test_ledger.jsonl`에 한 줄을 남긴다.
 
