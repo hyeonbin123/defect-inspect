@@ -25,3 +25,6 @@ CLAUDE.md
 HANDOFF.md
 ROLES.md
 TASKS.md
+
+# Lock file of the sealed-test ledger (exists for milliseconds during an append)
+*.jsonl.lock

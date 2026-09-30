@@ -1,0 +1,1 @@
+{"time": "2026-09-30T07:37:00+00:00", "commit": "b8829b3+dirty", "stage": "cache", "config": "cache-256", "note": "resize cache build: pixels copied into arrays, no scores or metrics. Entered by hand: this build ran before the cache command wrote ledger lines (see rule change 1)"}

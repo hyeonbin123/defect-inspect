@@ -23,6 +23,12 @@ train = [
     "torchvision==0.26.0",
     "timm>=1.0",
 ]
+# Dinomaly model code (stage 2). Only run_dinomaly.py imports it; install together with `train`.
+dinomaly = [
+    "anomalib==2.6.2",
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -30,8 +36,8 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu128", group = "train" }]
-torchvision = [{ index = "pytorch-cu128", group = "train" }]
+torch = [{ index = "pytorch-cu128" }]
+torchvision = [{ index = "pytorch-cu128" }]
 
 [build-system]
 requires = ["hatchling"]
