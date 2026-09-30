@@ -43,9 +43,70 @@ VisA: Zou et al., "SPot-the-Difference Self-Supervised Pre-training for Anomaly 
 
 ## 설치와 테스트
 ```bash
-uv sync                  # 지표·분할·임계값 보정 코드 (numpy, scipy, pillow)
-uv sync --group train    # 특징 추출과 학습까지 (torch CUDA 12.8 빌드, 약 2.5GB)
+uv sync                                   # 지표·분할·임계값 보정 코드 (numpy, scipy, pillow)
+uv sync --group serve                     # 검사 서비스까지 (onnxruntime, FastAPI; torch 없음)
+uv sync --group train --group dinomaly --group serve   # 특징 추출·학습·내보내기까지 (torch CUDA 12.8 빌드)
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+## 재현 명령
+```bash
+# 0단계: 데이터와 분할
+uv run python -m defect_inspect.download               # VisA tar (1.93GB, sha256 검증)
+uv run python -m defect_inspect.splits                 # manifests/visa.csv
+uv run python -m defect_inspect.cache --size 256       # 리사이즈 캐시 (448, 392 등도 같은 방식)
+
+# 1단계: 기준선과 임계값 보정 (dev로 점검한 뒤 test는 한 번)
+uv run python -m defect_inspect.run_patchcore --config p0 --protocol dev
+uv run python -m defect_inspect.analyze outputs/p0-dev --stage stage1
+uv run python -m defect_inspect.run_patchcore --config p0 --protocol test --allow-test --stage 1 --save-bank
+
+# 2단계: 다른 백본, Dinomaly, 지도 학습
+uv run python -m defect_inspect.run_patchcore --config d-s --protocol test --allow-test --stage 2 --save-bank
+uv run python -m defect_inspect.run_dinomaly train --no-amp --batch-size 8
+uv run python -m defect_inspect.run_dinomaly eval --protocol test --allow-test --stage 2
+uv run python -m defect_inspect.run_supervised --protocol test --allow-test --stage 2
+uv run python -m defect_inspect.compare --protocol test --dinomaly --supervised --reference dm
+
+# 3단계: 합성 교란(VisA)과 실제 조명 변화(M2AD)
+uv run python -m defect_inspect.run_perturb --method p0 --protocol test --allow-test --stage 3
+uv run python -m defect_inspect.analyze_perturb --protocol test
+uv run python -m defect_inspect.m2ad --size 256        # data/raw/m2ad 의 zip에서 캐시 생성
+uv run python -m defect_inspect.run_m2ad --method p0 --allow-test --stage 3-m2ad
+uv run python -m defect_inspect.analyze_m2ad --methods p0 d-s
+
+# 4단계: 코어셋·해상도 격자, 내보내기, 지연
+uv run python -m defect_inspect.run_grid --backbone wrn50 --size 256 --protocol dev --save-banks
+uv run python -m defect_inspect.export --grid outputs/grid-wrn50-256-dev --ratio 0.01 --out artifacts/wrn50-256-r0.01
+uv run python -m defect_inspect.bench --artifacts artifacts/wrn50-256-r0.01 --key wrn50-256-r0.01 --gpu
+uv run python -m defect_inspect.analyze_grid --protocol dev
+```
+`--protocol test`나 `--allow-test`가 붙은 실행은 봉인 테스트를 읽고, 읽을 때마다 `reports/test_ledger.jsonl`에 한 줄을 남긴다.
+
+## 검사 서비스
+torch 없이 onnxruntime만으로 CPU에서 돈다. `defect_inspect.export`가 만든 아티팩트 폴더(ONNX 모델, 범주별 메모리 뱅크와 임계값)를 읽는다.
+
+```bash
+# 모델 파일 없이 도는 합성 범주(demo)로 띄워 보기
+uv run uvicorn defect_inspect.service:create_offline_app --factory --port 8093
+
+# 아티팩트로 띄우기
+DEFECT_INSPECT_ARTIFACTS=artifacts/serving uv run uvicorn defect_inspect.service:create_app --factory --port 8093
+
+# Docker (CPU 이미지, 약 650MB)
+DEFECT_INSPECT_ARTIFACT_DIR=./artifacts/serving docker compose up --build
+```
+
+| 경로 | 내용 |
+|---|---|
+| `GET /` | 데모 페이지: 사진을 올리면 판정과 이상 위치를 겹쳐 보여 준다 |
+| `POST /inspect` | `image`(파일), `category` → 이상 점수, 임계값, 양품/불량, 히트맵 PNG(base64) |
+| `POST /calibrate` | 현재 촬영 조건의 정상 사진 여러 장 → 그 범주의 임계값을 다시 잡는다. `DEFECT_INSPECT_ADMIN_TOKEN`을 설정하고 `X-Admin-Token` 헤더로 보내야 하며, 설정하지 않으면 꺼져 있다 |
+| `DELETE /calibrate` | 재보정을 되돌린다 |
+| `GET /categories`, `GET /healthz` | 범주별 임계값·뱅크 크기, 상태 |
+
+- 받는 형식은 PNG, JPEG, BMP, TIFF, WebP(채널당 8비트, 투명도 없음)이고 업로드는 파일당 20MB까지다. 16비트 이미지는 조용히 잘리지 않게 거절한다
+- 재보정한 임계값은 메모리에만 있다. 다시 띄우면 아티팩트의 값으로 돌아간다
+- 기본으로 `localhost`와 `127.0.0.1` 이름으로만 응답한다. 다른 이름이나 주소로 열려면 `DEFECT_INSPECT_ALLOWED_HOSTS`에 적는다
