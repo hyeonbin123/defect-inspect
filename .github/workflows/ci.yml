@@ -18,9 +18,9 @@ jobs:
         with:
           enable-cache: true
 
-      # Base package and dev group only: no torch, no dataset.
+      # Base package, dev and serve groups: no torch, no dataset.
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --group serve
 
       - name: Lint
         run: |
