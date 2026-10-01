@@ -224,4 +224,5 @@ DEFECT_INSPECT_ARTIFACT_DIR=./artifacts/serving-wrn50-256-r0.01 docker compose u
 
 - 받는 형식은 PNG, JPEG, BMP, TIFF, WebP(채널당 8비트, 투명도 없음)이고 업로드는 파일당 20MB까지다. 16비트 이미지는 조용히 잘리지 않게 거절한다
 - 재보정한 임계값은 메모리에만 있다. 다시 띄우면 아티팩트의 값으로 돌아간다
+- 보안 점검: HawkScan(StackHawk) DAST로 오프라인 서비스를 OpenAPI 명세와 실제 업로드 요청(`hawk/seed.har`)으로 스캔했다(`stackhawk.yml`, 관리자 토큰은 실행할 때 환경 변수로 준다). 지적은 데모 페이지 폼의 Anti-CSRF 토큰 1건(Medium)뿐이었고, 폼은 `fetch()`로만 보내며 서비스가 쿠키를 쓰지 않고 다른 출처의 쓰기 요청을 거절하므로 오탐으로 표시했다
 - 기본으로 `localhost`, `127.0.0.1`(uvicorn으로 직접 띄우면 `[::1]`도) 이름으로만 응답한다. 다른 이름이나 주소로 열려면 `DEFECT_INSPECT_ALLOWED_HOSTS`에 쉼표로 적는다. 이 값은 기본 목록을 대신하므로 `localhost,127.0.0.1`도 함께 적는다(compose의 상태 점검이 127.0.0.1로 접속한다)
