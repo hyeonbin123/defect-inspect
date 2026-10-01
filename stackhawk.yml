@@ -28,6 +28,14 @@ app:
       path: /calibrate
       requestMethod: POST
       fail: ".*403.*"
+hawk:
+  spider:
+    # Real multipart requests (made by hawk/make_seed_har.py). The OpenAPI builder cannot render an image
+    # upload, so without them every POST /inspect and POST /calibrate stops at form validation (422).
+    har:
+      file:
+        paths:
+          - hawk/seed.har
 tags:
   - name: _STACKHAWK_GIT_COMMIT_SHA
     value: ${COMMIT_SHA:none}
