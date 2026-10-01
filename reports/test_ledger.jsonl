@@ -16,3 +16,5 @@
 {"time": "2026-09-30T15:56:25+00:00", "commit": "567ec92+dirty", "stage": "3", "config": "perturb-dm", "note": "stage 3-A synthetic conditions, DM"}
 {"time": "2026-10-01T08:52:18+00:00", "commit": "22e27b7", "stage": "4", "config": "grid-wrn50-256", "note": "stage 4 test of the serving setting wrn50-256 (chosen on dev with the idle latency, rule change 6)"}
 {"time": "2026-10-01T09:25:26+00:00", "commit": "5f8759b+dirty", "stage": "4", "config": "export-serving-wrn50-256-r0.01", "note": "stage 4 test: CPU pipeline of the serving configuration, FP32 and INT8"}
+{"time": "2026-10-01T10:22:25+00:00", "commit": "28c1fbb+dirty", "stage": "5", "config": "examples-dm", "note": "README example panel: images and masks of the picked rows read for a figure only, no scores"}
+{"time": "2026-10-01T10:22:30+00:00", "commit": "28c1fbb+dirty", "stage": "5", "config": "examples-p0", "note": "README example panel: images and masks of the picked rows read for a figure only, no scores"}
