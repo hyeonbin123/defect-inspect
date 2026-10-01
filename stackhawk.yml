@@ -1,0 +1,39 @@
+# HawkScan (StackHawk) configuration. No secrets in this file. The scan target is the service with the synthetic
+# `demo` category (no model file), which serves its OpenAPI description. Calibration is switched on with a
+# throwaway admin token so that the scan also reaches POST/DELETE /calibrate:
+#
+#   ADMIN_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
+#   DEFECT_INSPECT_ADMIN_TOKEN=$ADMIN_TOKEN uv run uvicorn defect_inspect.service:create_offline_app --factory --port 8093
+#   APP_ID=<application id> ADMIN_TOKEN=$ADMIN_TOKEN COMMIT_SHA=$(git rev-parse HEAD) hawk scan
+app:
+  applicationId: ${APP_ID}
+  env: ${APP_ENV:Development}
+  host: ${APP_HOST:http://127.0.0.1:8093}
+  openApiConf:
+    path: /openapi.json
+  authentication:
+    # The admin token is supplied from outside and never expires: the indicators are inert on purpose and
+    # testPath is the real check. testPath cannot send DELETE, so it posts an empty calibration: without the
+    # header the guard answers 403 before the body is read, with it the request gets as far as body
+    # validation (422).
+    loggedInIndicator: ".*"
+    loggedOutIndicator: "$^"
+    external:
+      values:
+        - type: TOKEN
+          value:
+            name: X-Admin-Token
+            val: ${ADMIN_TOKEN}
+    testPath:
+      path: /calibrate
+      requestMethod: POST
+      fail: ".*403.*"
+tags:
+  - name: _STACKHAWK_GIT_COMMIT_SHA
+    value: ${COMMIT_SHA:none}
+  - name: _STACKHAWK_GIT_BRANCH
+    value: ${BRANCH_NAME:none}
+  - name: git_origin
+    value: hyeonbin123/defect-inspect
+  - name: _STACKHAWK_AGENT
+    value: ${HAWK_AGENT:none}
