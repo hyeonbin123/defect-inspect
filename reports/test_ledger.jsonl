@@ -14,3 +14,5 @@
 {"time": "2026-09-30T13:19:06+00:00", "commit": "567ec92", "stage": "3", "config": "perturb-d-s", "note": "stage 3-A synthetic conditions, D-S; tree dirty only by stage 4 files under review"}
 {"time": "2026-09-30T13:48:35+00:00", "commit": "567ec92+dirty", "stage": "2", "config": "supervised", "note": "ks=[5, 10, 20, 40] seeds=[0, 1, 2] categories=12"}
 {"time": "2026-09-30T15:56:25+00:00", "commit": "567ec92+dirty", "stage": "3", "config": "perturb-dm", "note": "stage 3-A synthetic conditions, DM"}
+{"time": "2026-10-01T08:52:18+00:00", "commit": "22e27b7", "stage": "4", "config": "grid-wrn50-256", "note": "stage 4 test of the serving setting wrn50-256 (chosen on dev with the idle latency, rule change 6)"}
+{"time": "2026-10-01T09:25:26+00:00", "commit": "5f8759b+dirty", "stage": "4", "config": "export-serving-wrn50-256-r0.01", "note": "stage 4 test: CPU pipeline of the serving configuration, FP32 and INT8"}
