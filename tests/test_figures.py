@@ -5,6 +5,7 @@ import io
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -15,9 +16,10 @@ from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from defect_inspect import analyze_grid, analyze_perturb, figures, paths  # noqa: E402
+from defect_inspect import analyze_grid, analyze_perturb, cache, compare, figures, ledger, paths  # noqa: E402
 from defect_inspect.conditions import condition_names  # noqa: E402
 from defect_inspect.run_grid import ratio_name  # noqa: E402
+from defect_inspect.splits import ManifestRow, SealedTestError, read_manifest, write_manifest  # noqa: E402
 from defect_inspect.visa import CATEGORIES  # noqa: E402
 
 PERTURBED = condition_names(include_clean=False)
@@ -1070,6 +1072,665 @@ def test_cli_prints_paths_the_console_code_page_cannot_encode(tmp_path, monkeypa
         f"wrote {out / 'calibration.png'}",
         f"wrote {out / 'm2ad_conditions.png'}",
     ]
+
+
+# ---- example inspections of an evaluation run --------------------------------------------------------------
+
+SIZE = cache.MASK_SIZE
+# category -> (threshold its calibration scores give, [(image, defect types, image score)] in run order).
+# Detected margins 1.75, 2.25, 8 (cat_a) and 1.25, 1.5, 16 (cat_b): median 2.0, with the two cat_a hits
+# 0.25 away from it on either side. cat_a/Anomaly/002 is listed before 001, so only the path breaks the tie.
+# The scores equal to the threshold are not flagged (score > threshold is the rule).
+EXAMPLE_CATS = {
+    "cat_a": (
+        1.0,
+        [
+            ("cat_a/Normal/000.JPG", "", 0.5),
+            ("cat_a/Normal/001.JPG", "", 1.0),
+            ("cat_a/Normal/002.JPG", "", 3.0),
+            ("cat_a/Normal/003.JPG", "", 5.0),
+            ("cat_a/Anomaly/000.JPG", "crack", 0.25),
+            ("cat_a/Anomaly/002.JPG", "scratch", 1.75),
+            ("cat_a/Anomaly/001.JPG", "crack|scratch", 2.25),
+            ("cat_a/Anomaly/003.JPG", "crack", 8.0),
+            ("cat_a/Anomaly/004.JPG", "hole", 0.125),
+        ],
+    ),
+    "cat_b": (
+        2.0,
+        [
+            ("cat_b/Normal/000.JPG", "", 1.0),
+            ("cat_b/Normal/001.JPG", "", 8.0),
+            ("cat_b/Anomaly/000.JPG", "bent", 1.0),
+            ("cat_b/Anomaly/001.JPG", "bent", 2.5),
+            ("cat_b/Anomaly/002.JPG", "dent", 2.0),
+            ("cat_b/Anomaly/003.JPG", "dent", 3.0),
+            ("cat_b/Anomaly/004.JPG", "bent|dent", 32.0),
+        ],
+    ),
+}
+# (image, row title, threshold) of the six rows the rule picks, in panel order.
+EXPECTED_EXAMPLES = [
+    ("cat_a/Anomaly/001.JPG", "detected defect: cat_a, crack + scratch, score/threshold = 2.25", 1.0),
+    ("cat_b/Anomaly/003.JPG", "detected defect: cat_b, dent, score/threshold = 1.50", 2.0),
+    ("cat_a/Anomaly/004.JPG", "missed defect: cat_a, hole, score/threshold = 0.12", 1.0),
+    ("cat_b/Anomaly/000.JPG", "missed defect: cat_b, bent, score/threshold = 0.50", 2.0),
+    ("cat_a/Normal/003.JPG", "false alarm: cat_a, normal, score/threshold = 5.00", 1.0),
+    ("cat_b/Normal/001.JPG", "false alarm: cat_b, normal, score/threshold = 4.00", 2.0),
+]
+
+
+N_CAL = 19  # calibration scores per category: the conformal rank at 5% is the 19th, the largest
+# Keys the driver reads from each .npz before any score: image lists and evaluation labels.
+NAME_KEYS = {
+    "common": ("eval_images", "eval_labels", "cal_images"),
+    "patchcore": ("eval_images", "eval_labels", "pool_images"),
+}
+
+
+def _is_defect(image):
+    return "/Anomaly/" in image
+
+
+def _cal_images(category):
+    return [f"{category}/cal/{i:03d}.JPG" for i in range(N_CAL)]
+
+
+def _write_examples_run(root, fmt="common", protocol="dev", scores=None):
+    """A finished evaluation run of EXAMPLE_CATS: the common format (Dinomaly) or a run_patchcore run.
+
+    Map i of a category is filled with i, so a drawn map tells which evaluation row it came from.
+    """
+    run_dir = root / "run"
+    run_dir.mkdir(parents=True)
+    categories = []
+    for category, (threshold, items) in EXAMPLE_CATS.items():
+        images = np.array([image for image, _, _ in items])
+        labels = np.array([int(_is_defect(image)) for image in images], dtype=np.int8)
+        score = np.array([(scores or {}).get(image, s) for image, _, s in items], dtype=np.float32)
+        # The largest of the N_CAL scores is the threshold.
+        cal = (threshold * np.linspace(0.0, 1.0, N_CAL)).astype(np.float32)
+        if fmt == "common":
+            arrays = {"eval_score": score, "cal_score": cal, "cal_images": np.array(_cal_images(category))}
+        else:  # other strategies' scores too: only the cross-fitted ones may decide
+            arrays = {
+                "eval_score_full": score,
+                "eval_score_holdout": score[::-1].copy(),
+                "pool_images": np.array(_cal_images(category)),
+                "pool_score_oof": cal,
+                "pool_score_resub": cal / 4,
+                "pool_folds": np.arange(len(cal)) % 5,
+            }
+        np.savez(
+            run_dir / f"{category}.npz",
+            eval_images=images,
+            eval_labels=labels,
+            eval_defect_types=np.array([types for _, types, _ in items]),
+            **arrays,
+        )
+        maps = np.stack([np.full((SIZE, SIZE), i, dtype=np.float16) for i in range(len(items))])
+        np.save(run_dir / f"{category}_maps.npy", maps)
+        categories.append({"category": category, "eval_normal": int((labels == 0).sum())})
+    meta = {"protocol": protocol, "categories": categories}
+    if fmt == "common":
+        meta |= {"method": "dinomaly", "config": {"name": "dm"}}
+    else:
+        meta |= {"config": {"name": "p0", "backbone": "wrn50"}}
+    _write_json(run_dir / "run.json", meta)
+    return run_dir
+
+
+@pytest.fixture
+def fake_data(tmp_path, monkeypatch):
+    """A manifest and a 256 px cache of the EXAMPLE_CATS images (other rows and another order than the run).
+
+    The evaluation images get the roles of the protocol; the calibration images are pool normals, after
+    the others. Cache image j is filled with j + 1; defect j has a mask band at rows 4j..4j+8. The test
+    ledger goes to a temporary file. Call the returned function with the protocol; it returns the
+    manifest rows.
+    """
+    monkeypatch.setattr(paths, "TEST_LEDGER", tmp_path / "ledger" / "test_ledger.jsonl")
+    monkeypatch.setattr(ledger, "git_commit", lambda root=None: "abc1234")
+
+    def build(protocol="dev"):
+        roles = ("pool_normal", "dev_defect") if protocol == "dev" else ("test_normal", "test_defect")
+        rows = [ManifestRow("other/Normal/000.JPG", "", "other", "normal", "pool_normal", 1, "")]
+        for category in reversed(list(EXAMPLE_CATS)):
+            for image, types, _ in reversed(EXAMPLE_CATS[category][1]):
+                if _is_defect(image):
+                    mask = image.replace("Images", "Masks").replace(".JPG", ".png")
+                    rows.append(ManifestRow(image, mask, category, "anomaly", roles[1], -1, types))
+                else:
+                    fold = 0 if protocol == "dev" else -1
+                    rows.append(ManifestRow(image, "", category, "normal", roles[0], fold, ""))
+        for category in EXAMPLE_CATS:
+            rows += [
+                ManifestRow(im, "", category, "normal", "pool_normal", 1, "") for im in _cal_images(category)
+            ]
+        manifest = tmp_path / "data" / "visa.csv"
+        write_manifest(rows, manifest)
+        out = tmp_path / "data" / "cache"
+        out.mkdir(parents=True)
+        index = "".join(f"{row.image}\n" for row in rows)
+        for path in (cache.index_path(out, SIZE), cache.masks_index_path(out)):
+            path.write_text(index, encoding="utf-8")
+        images = np.zeros((len(rows), SIZE, SIZE, 3), dtype=np.uint8)
+        masks = np.zeros((len(rows), SIZE, SIZE), dtype=np.uint8)
+        for j, row in enumerate(rows):
+            images[j] = j + 1
+            if row.mask:
+                masks[j, 4 * j : 4 * j + 8, 16:32] = 1
+        np.save(cache.images_path(out, SIZE), images)
+        np.save(cache.masks_path(out), masks)
+        monkeypatch.setattr(paths, "VISA_MANIFEST", manifest)
+        monkeypatch.setattr(paths, "CACHE", out)
+        return rows
+
+    return build
+
+
+@pytest.fixture
+def reads(monkeypatch):
+    """Every read of cached images, masks and score maps, with the ledger lines that existed at the time."""
+    seen = []
+
+    def ledger_lines():
+        path = paths.TEST_LEDGER
+        return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+
+    for method in ("images", "masks"):
+        original = getattr(cache.ImageCache, method)
+
+        def spy(self, rows, _original=original, _method=method):
+            seen.append((_method, [row.image for row in rows], ledger_lines()))
+            return _original(self, rows)
+
+        monkeypatch.setattr(cache.ImageCache, method, spy)
+    read_map = figures._read_map
+
+    def map_spy(path, index):
+        seen.append(("map", [f"{path.name}:{index}"], ledger_lines()))
+        return read_map(path, index)
+
+    monkeypatch.setattr(figures, "_read_map", map_spy)
+    return seen
+
+
+@pytest.fixture
+def drawn(monkeypatch):
+    """(rows, keyword arguments, figure) of every call of fig_examples."""
+    calls = []
+    original = figures.fig_examples
+
+    def spy(rows, **kwargs):
+        fig = original(rows, **kwargs)
+        calls.append((rows, kwargs, fig))
+        return fig
+
+    monkeypatch.setattr(figures, "fig_examples", spy)
+    return calls
+
+
+@pytest.fixture
+def npz_reads(monkeypatch):
+    """Every read of a run's .npz files: (file name, keys read); "all" for compare's loaders."""
+    seen = []
+    some, every = figures._npz_arrays, compare._load_npz
+
+    def some_spy(path, keys):
+        seen.append((Path(path).name, tuple(keys)))
+        return some(path, keys)
+
+    def every_spy(path):
+        seen.append((Path(path).name, "all"))
+        return every(path)
+
+    monkeypatch.setattr(figures, "_npz_arrays", some_spy)
+    monkeypatch.setattr(compare, "_load_npz", every_spy)
+    return seen
+
+
+def _rewrite(run_dir, category, change):
+    """Load every array of a category's .npz, let `change` edit the dict in place, save it again."""
+    path = run_dir / f"{category}.npz"
+    with np.load(path) as z:
+        arrays = {k: z[k] for k in z.files}
+    change(arrays)
+    np.savez(path, **arrays)
+
+
+def _add_eval_rows(run_dir, category, images, score):
+    """Append defects ("crack", one score) to a category's evaluation: every eval_* array and the maps."""
+    n = len(images)
+
+    def change(arrays):
+        extra = {
+            "eval_images": np.array(images),
+            "eval_labels": np.ones(n, dtype=np.int8),
+            "eval_defect_types": np.array(["crack"] * n),
+        }
+        extra |= {key: np.full(n, score, np.float32) for key in arrays if key.startswith("eval_score")}
+        for key, values in extra.items():
+            arrays[key] = np.concatenate([arrays[key], values])
+
+    _rewrite(run_dir, category, change)
+    maps = np.load(run_dir / f"{category}_maps.npy")
+    np.save(run_dir / f"{category}_maps.npy", np.concatenate([maps, np.zeros((n, SIZE, SIZE), np.float16)]))
+
+
+def _add_manifest_rows(rows):
+    write_manifest(read_manifest(paths.VISA_MANIFEST) + rows, paths.VISA_MANIFEST)
+
+
+def _example(category, image, margin, types="crack"):
+    return figures.Example("missed defect", category, 0, image, 1, types, margin)
+
+
+def test_examples_breaks_ties_by_path_and_takes_one_image_per_category():
+    cats = {}
+    for category in ("z", "y", "x"):  # not in path order
+        cats[category] = {
+            "eval_images": np.array([f"{category}/2.JPG", f"{category}/1.JPG", f"{category}/0.JPG"]),
+            "eval_labels": np.array([1, 1, 0], dtype=np.int8),
+            "eval_defect_types": np.array(["crack", "dent", ""]),
+            "eval_score": np.array([0.5, 0.5, 0.25], dtype=np.float32),  # two missed defects with one margin
+        }
+    picks = figures.pick_examples(cats, {"x": 1.0, "y": 1.0, "z": 1.0})
+    assert [(e.category, e.image, e.index) for e in picks["missed defect"]] == [
+        ("x", "x/1.JPG", 1),
+        ("y", "y/1.JPG", 1),
+    ]
+    assert picks["detected defect"] == [] and picks["false alarm"] == []
+    assert figures.pick_examples(cats, {"x": 1.0, "y": 1.0, "z": 1.0}, per_group=5)["missed defect"] == [
+        figures.Example("missed defect", c, 1, f"{c}/1.JPG", 1, "dent", 0.5) for c in ("x", "y", "z")
+    ]
+    with pytest.raises(figures.ExamplesError, match="threshold of x"):
+        figures.pick_examples(cats, {"x": 0.0, "y": 1.0, "z": 1.0})
+    cats["y"]["eval_score"] = np.array([np.nan, 0.5, 0.25], dtype=np.float32)
+    with pytest.raises(figures.ExamplesError, match="not all finite"):
+        figures.pick_examples(cats, {"x": 1.0, "y": 1.0, "z": 1.0})
+
+
+def test_example_titles_keep_the_ratio_whole_and_never_round_it_to_the_other_side_of_one():
+    long_types = "|".join(
+        ["breakage down the middle", "color spot", "other", "small cracks", "small scratches"]
+    )
+    example = _example("macaroni2", "m/1.JPG", 1.2345, long_types)
+    assert example.title == (
+        "missed defect: macaroni2, breakage down the middle + color spot + other + small cracks + small "
+        "scratches, score/threshold = 1.23"
+    )
+    lines = example.wrapped_title().split("\n")
+    assert len(lines) <= 3 and all(len(line) <= 34 for line in lines)
+    assert lines[-1].endswith("score/threshold = 1.23") and "more," in " ".join(lines)
+    short = _example("pcb3", "p/1.JPG", 0.75, "melt|missing|scratch")
+    assert short.wrapped_title().replace("\n", " ") == short.title  # fits: nothing left out
+    assert _example("a", "a/1.JPG", 0.999).title.endswith("= 0.999")
+    assert _example("a", "a/1.JPG", 1.0004).title.endswith("= 1.0004")
+    assert _example("a", "a/1.JPG", 0.125).title.endswith("= 0.12")
+    normal = figures.Example("false alarm", "a", 3, "a/n.JPG", 0, "", 2.5)
+    assert normal.title == "false alarm: a, normal, score/threshold = 2.50"
+    # As many digits as it takes, however close to 1.
+    assert _example("a", "a/1.JPG", float(np.nextafter(1.0, 0.0))).title.endswith("= 0.9999999999999999")
+    assert _example("a", "a/1.JPG", float(np.nextafter(1.0, 2.0))).title.endswith("= 1.0000000000000002")
+    assert _example("a", "a/1.JPG", 1.0).title.endswith("= 1.00")
+
+
+def test_example_margins_next_to_one_show_their_side_of_the_threshold():
+    threshold = np.float32(1.3)
+    below = np.nextafter(threshold, np.float32(0.0))  # one float32 step under the threshold
+    cats = {
+        category: {
+            "eval_images": np.array([f"{category}/0.JPG"]),
+            "eval_labels": np.array([1], dtype=np.int8),
+            "eval_defect_types": np.array(["crack"]),
+            "eval_score": np.array([score], dtype=np.float32),
+        }
+        for category, score in (("a", below), ("b", threshold))
+    }
+    picks = figures.pick_examples(cats, {"a": float(threshold), "b": float(threshold)})
+    # Flagged means score > threshold (calibrate's rule): a score equal to it is missed, at exactly 1.
+    assert [e.title for e in picks["missed defect"]] == [
+        "missed defect: a, crack, score/threshold = 0.9999999",
+        "missed defect: b, crack, score/threshold = 1.00",
+    ]
+    assert picks["detected defect"] == []
+
+
+@pytest.mark.parametrize("fmt", ["common", "patchcore"])
+def test_examples_draw_the_rows_the_rule_picks_with_their_image_mask_and_map(
+    fmt, tmp_path, fake_data, reads, drawn, capsys
+):
+    rows = fake_data("dev")
+    run_dir = _write_examples_run(tmp_path, fmt)
+    out = tmp_path / "figs"
+    figures.main(["--examples", str(run_dir), "--out", str(out)])
+    assert capsys.readouterr().out.splitlines() == [f"wrote {out / 'examples.png'}"]
+    assert (out / "examples.png").exists() and not paths.TEST_LEDGER.exists()  # a dev run is not logged
+    ((panel, kwargs, fig),) = drawn
+    assert [row["title"].replace("\n", " ") for row in panel] == [title for _, title, _ in EXPECTED_EXAMPLES]
+    assert [row["threshold"] for row in panel] == [thr for _, _, thr in EXPECTED_EXAMPLES]
+    cache_row = {row.image: j for j, row in enumerate(rows)}
+    for row, (image, _, _) in zip(panel, EXPECTED_EXAMPLES, strict=True):
+        j = cache_row[image]
+        assert row["image"].shape == (SIZE, SIZE, 3) and np.all(row["image"] == j + 1)
+        if _is_defect(image):
+            assert row["mask"].dtype == bool and np.array_equal(
+                np.flatnonzero(row["mask"].any(axis=1)), np.arange(4 * j, 4 * j + 8)
+            )
+        else:
+            assert row["mask"] is None
+        category = image.split("/")[0]
+        index = [item[0] for item in EXAMPLE_CATS[category][1]].index(image)
+        assert np.array_equal(row["map"], np.full((SIZE, SIZE), float(index)))
+    # At most one image per category in each group.
+    shown = [row["title"].replace("\n", " ").split(", ")[0].split(": ") for row in panel]
+    assert [tuple(pair) for pair in shown] == [
+        (group, category) for group in figures.EXAMPLE_GROUPS for category in ("cat_a", "cat_b")
+    ]
+    method = "Dinomaly" if fmt == "common" else "PatchCore WRN-50"
+    source = "held-out normal images" if fmt == "common" else "cross-fitted (out-of-fold) scores"
+    assert kwargs["title"] == f"Example inspections: {method} on the VisA dev split"
+    assert fig.get_suptitle() == kwargs["title"]
+    caption = fig.get_supxlabel().replace("\n", " ")
+    assert caption.startswith(f"Images: VisA (Zou et al., ECCV 2022), CC BY 4.0. Method: {method}.")
+    assert source in caption and "5% target false-alarm rate" in caption
+    # The decision rule (a score equal to the threshold is not flagged), and what the line on a map is.
+    assert "An image is flagged when its score/threshold is above 1." in caption
+    assert "the line and the decision can disagree" in caption
+    # The figure title, the caption and the row titles lie inside the figure (the panels have no ticks).
+    renderer = _drawn(fig)
+    titles = [ax.title for ax in fig.axes if ax.get_label() != "colorbar"]
+    for text in [fig._suptitle, fig._supxlabel, *titles]:
+        box = text.get_window_extent(renderer)
+        assert (
+            fig.bbox.x0 <= box.x0 and box.x1 <= fig.bbox.x1 and fig.bbox.y0 <= box.y0 <= box.y1 <= fig.bbox.y1
+        )
+    with Image.open(out / "examples.png") as image:
+        assert image.format == "PNG" and image.width <= 1800
+
+
+def test_examples_say_in_the_title_when_a_group_is_short(tmp_path, fake_data, drawn):
+    fake_data("dev")
+    # No false alarm left; the missed defects are all in cat_a, which gives one row.
+    calm = {"cat_a/Normal/002.JPG": 0.5, "cat_a/Normal/003.JPG": 0.5, "cat_b/Normal/001.JPG": 0.5}
+    run_dir = _write_examples_run(
+        tmp_path, scores={**calm, "cat_b/Anomaly/000.JPG": 6.0, "cat_b/Anomaly/002.JPG": 5.0}
+    )
+    figures.examples(run_dir, tmp_path / "figs")
+    ((panel, kwargs, _),) = drawn
+    assert [row["title"].split(":")[0] for row in panel] == [
+        "detected defect",
+        "detected defect",
+        "missed defect",
+    ]
+    assert kwargs["title"] == (
+        "Example inspections: Dinomaly on the VisA dev split\n"
+        "Fewer than 2 found (one per category at most): 1 missed defect, 0 false alarms"
+    )
+
+
+def test_examples_of_a_test_run_are_refused_without_allow_test(tmp_path, fake_data, reads, capsys):
+    fake_data("test")
+    run_dir = _write_examples_run(tmp_path, protocol="test")
+    out = tmp_path / "figs"
+    with pytest.raises(SystemExit) as stop:
+        figures.main(["--examples", str(run_dir), "--out", str(out)])
+    assert stop.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("examples not drawn: ") and "sealed test set" in err and "--allow-test" in err
+    assert reads == [] and not paths.TEST_LEDGER.exists() and not out.exists()
+    # Only True opens the seal, as in splits.select.
+    for value in ("yes", 1, "true"):
+        with pytest.raises(SealedTestError):
+            figures.examples(run_dir, out, allow_test=value)
+    assert reads == [] and not paths.TEST_LEDGER.exists()
+
+
+def test_examples_refuse_sealed_images_in_a_run_that_says_dev(tmp_path, fake_data, reads, npz_reads, capsys):
+    fake_data("test")  # the manifest has the images as sealed test images
+    run_dir = _write_examples_run(tmp_path, protocol="dev")
+    with pytest.raises(SystemExit) as stop:
+        figures.main(["--examples", str(run_dir), "--out", str(tmp_path / "figs")])
+    assert stop.value.code == 2 and "sealed test image" in capsys.readouterr().err
+    assert reads == [] and not paths.TEST_LEDGER.exists()
+    # Refused on the image lists of the first category: no score of a sealed image was read.
+    assert npz_reads == [("cat_a.npz", NAME_KEYS["common"])]
+
+
+@pytest.mark.parametrize("fmt", ["common", "patchcore"])
+@pytest.mark.parametrize("where", ["eval", "cal"])
+def test_examples_refuse_a_dev_run_with_sealed_images_among_the_rows_not_drawn(
+    where, fmt, tmp_path, fake_data, reads, npz_reads, capsys
+):
+    # Sealed images whose scores would steer the panel without being drawn: three detected test defects
+    # (margin 16: never picked, but they move the median of the detected margins), or test normals as
+    # the calibration images whose scores set the threshold of cat_a.
+    fake_data("dev")
+    run_dir = _write_examples_run(tmp_path, fmt)
+    if where == "eval":
+        sealed = [f"cat_a/Anomaly/9{i:02d}.JPG" for i in range(3)]
+        mask = "cat_a/Anomaly/mask.png"
+        _add_manifest_rows(
+            [ManifestRow(im, mask, "cat_a", "anomaly", "test_defect", -1, "crack") for im in sealed]
+        )
+        _add_eval_rows(run_dir, "cat_a", sealed, 16.0)
+    else:
+        sealed = [f"cat_a/Normal/9{i:02d}.JPG" for i in range(N_CAL)]
+        _add_manifest_rows([ManifestRow(im, "", "cat_a", "normal", "test_normal", -1, "") for im in sealed])
+        _rewrite(run_dir, "cat_a", lambda arrays: arrays.update({NAME_KEYS[fmt][2]: np.array(sealed)}))
+    out = tmp_path / "figs"
+    with pytest.raises(SystemExit) as stop:
+        figures.main(["--examples", str(run_dir), "--out", str(out)])
+    assert stop.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("examples not drawn: ") and f"{sealed[0]}, a sealed test image" in err
+    assert reads == [] and not paths.TEST_LEDGER.exists() and not out.exists()
+    assert npz_reads == [("cat_a.npz", NAME_KEYS[fmt])]
+
+
+@pytest.mark.parametrize(
+    ("names", "message"),
+    [
+        (["cat_a", "../../t/run/cat_b"], "'../../t/run/cat_b', which is not a plain category name"),
+        (["cat_a", "..\\..\\t\\run\\cat_b"], "which is not a plain category name"),
+        (["cat_a", "C:cat_b"], "'C:cat_b', which is not a plain category name"),
+        ([".."], "'..', which is not a plain category name"),
+        ([""], "'', which is not a plain category name"),
+        ([3], "3, which is not a plain category name"),
+        (["cat_a", "cat_b", "cat_a"], "lists cat_a twice"),
+        (["cat_a", "cat_b", "cat_c"], "cat_c is not a category of the manifest"),
+    ],
+)
+def test_examples_take_only_plain_category_names_of_the_manifest(
+    names, message, tmp_path, fake_data, npz_reads, capsys
+):
+    fake_data("dev")
+    _write_examples_run(tmp_path / "t", protocol="test")  # a test run next to the dev run
+    run_dir = _write_examples_run(tmp_path / "d")
+    for suffix in (".npz", "_maps.npy"):  # cat_c: a copy of cat_a under a name the manifest does not have
+        (run_dir / f"cat_c{suffix}").write_bytes((run_dir / f"cat_a{suffix}").read_bytes())
+    meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    meta["categories"] = [{"category": name} for name in names]
+    _write_json(run_dir / "run.json", meta)
+    with pytest.raises(SystemExit) as stop:
+        figures.main(["--examples", str(run_dir), "--out", str(tmp_path / "figs")])
+    assert stop.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("examples not drawn: ") and message in err
+    assert npz_reads == []  # refused before any .npz is opened, here or in the test run next to it
+
+
+@pytest.mark.parametrize("fmt", ["common", "patchcore"])
+def test_examples_of_a_test_run_write_the_ledger_line_before_reading_an_image(
+    fmt, tmp_path, fake_data, reads, drawn
+):
+    fake_data("test")
+    run_dir = _write_examples_run(tmp_path, fmt, protocol="test")
+    figures.main(["--examples", str(run_dir), "--out", str(tmp_path / "figs"), "--allow-test"])
+    lines = paths.TEST_LEDGER.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    name = "dm" if fmt == "common" else "p0"
+    assert (entry["stage"], entry["config"], entry["commit"]) == ("5", f"examples-{name}", "abc1234")
+    assert "figure only" in entry["note"] and "no scores" in entry["note"]
+    assert [kind for kind, _, _ in reads] == ["images", "masks", *["map"] * 6]
+    assert all(seen == lines for _, _, seen in reads)  # every read came after the line
+    assert reads[0][1] == [image for image, _, _ in EXPECTED_EXAMPLES]
+    ((_, kwargs, _),) = drawn
+    assert kwargs["title"].endswith("on the VisA test split")
+
+
+def test_examples_of_a_test_run_find_every_picked_image_in_the_cache_before_the_ledger_line(
+    tmp_path, fake_data, reads, capsys
+):
+    rows = fake_data("test")
+    missing = EXPECTED_EXAMPLES[0][0]
+    index = "".join(f"{row.image}\n" for row in rows).replace(missing, "cat_a/Anomaly/xxx.JPG")
+    for path in (cache.index_path(paths.CACHE, SIZE), cache.masks_index_path(paths.CACHE)):
+        path.write_text(index, encoding="utf-8")
+    run_dir = _write_examples_run(tmp_path, protocol="test")
+    out = tmp_path / "figs"
+    with pytest.raises(SystemExit) as stop:
+        figures.main(["--examples", str(run_dir), "--out", str(out), "--allow-test"])
+    assert stop.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("examples not drawn: ") and f"image not in the cache index: {missing}" in err
+    assert reads == [] and not paths.TEST_LEDGER.exists() and not out.exists()
+
+
+@pytest.mark.parametrize("protocol", ["dev", "test"])
+def test_examples_refuse_a_picked_map_that_is_not_finite(protocol, tmp_path, fake_data, reads, capsys):
+    fake_data(protocol)
+    run_dir = _write_examples_run(tmp_path, protocol=protocol)
+    maps = np.load(run_dir / "cat_a_maps.npy")
+    maps[6, 10, 10] = np.nan  # cat_a/Anomaly/001.JPG, the first row of the panel
+    np.save(run_dir / "cat_a_maps.npy", maps)
+    out = tmp_path / "figs"
+    with pytest.raises(SystemExit) as stop:
+        figures.main(
+            ["--examples", str(run_dir), "--out", str(out), *(["--allow-test"] * (protocol == "test"))]
+        )
+    assert stop.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("examples not drawn: ") and "cat_a_maps.npy" in err and "not all finite" in err
+    assert not out.exists()
+    # A map shows where the defect of its image is, so it is read after the images, behind the ledger line:
+    # a test run that gets this far has read its images and keeps its line.
+    assert [kind for kind, _, _ in reads] == ["images", "masks", "map"]
+    assert paths.TEST_LEDGER.exists() == (protocol == "test")
+    lines = paths.TEST_LEDGER.read_text(encoding="utf-8").splitlines() if protocol == "test" else []
+    assert all(seen == lines for _, _, seen in reads) and len(lines) == (protocol == "test")
+
+
+def test_examples_png_is_the_same_bytes_every_time(tmp_path, fake_data):
+    fake_data("dev")
+    run_dir = _write_examples_run(tmp_path)
+    figures.main(["--examples", str(run_dir), "--out", str(tmp_path / "a"), "--name", "panel"])
+    figures.main(["--examples", str(run_dir), "--out", str(tmp_path / "b"), "--name", "panel"])
+    first = (tmp_path / "a" / "panel.png").read_bytes()
+    assert first[:8] == b"\x89PNG\r\n\x1a\n" and (tmp_path / "b" / "panel.png").read_bytes() == first
+    with Image.open(tmp_path / "a" / "panel.png") as image:
+        assert "Software" not in image.info
+
+
+def _drop(run_dir, name):
+    (run_dir / name).unlink()
+
+
+def _no_eval_score(run_dir, name):
+    with np.load(run_dir / "cat_b.npz") as z:
+        arrays = {k: z[k] for k in z.files if k != "eval_score"}
+    np.savez(run_dir / "cat_b.npz", **arrays)
+
+
+def _no_calibration(run_dir, name):
+    with np.load(run_dir / "cat_b.npz") as z:
+        arrays = {k: z[k] for k in z.files}
+    arrays["cal_score"], arrays["cal_images"] = np.empty(0, np.float32), np.empty(0, np.str_)
+    np.savez(run_dir / "cat_b.npz", **arrays)
+
+
+def _short_maps(run_dir, name):
+    np.save(run_dir / "cat_a_maps.npy", np.zeros((3, SIZE, SIZE), dtype=np.float16))
+
+
+def _no_protocol(run_dir, name):
+    meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    del meta["protocol"]
+    _write_json(run_dir / "run.json", meta)
+
+
+def _protocol(value):
+    def damage(run_dir, name):
+        meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+        meta["protocol"] = value
+        _write_json(run_dir / "run.json", meta)
+
+    return damage
+
+
+def _truncate(run_dir, name):  # a copy or a rewrite cut short
+    (run_dir / name).write_bytes((run_dir / name).read_bytes()[:200])
+
+
+def _empty(run_dir, name):
+    (run_dir / name).write_bytes(b"")
+
+
+def _no_cal_images(run_dir, name):
+    _rewrite(run_dir, "cat_b", lambda arrays: arrays.pop("cal_images"))
+
+
+def _eval_row_twice(run_dir, name):  # cat_a/Anomaly/000.JPG again, now detected
+    _add_eval_rows(run_dir, "cat_a", ["cat_a/Anomaly/000.JPG"], 2.0)
+
+
+@pytest.mark.parametrize(
+    ("damage", "name", "message"),
+    [
+        (_drop, "cat_b_maps.npy", "is incomplete: it has no cat_b_maps.npy"),
+        (_drop, "cat_a.npz", "is incomplete: it has no cat_a.npz"),
+        (_drop, "run.json", "has no run.json"),
+        (_no_eval_score, "", "cat_b.npz has no eval_score"),
+        (_no_calibration, "", "no calibration scores for 1 of 2 categories (cat_b)"),
+        (_no_cal_images, "", "cat_b.npz has no cal_images"),
+        (_short_maps, "", "expected 9 maps, one per evaluation image"),
+        (_no_protocol, "", "names no known protocol: None"),
+        (_protocol(["test"]), "", "names no known protocol: ['test']"),
+        (_protocol({"test": 1}), "", "names no known protocol: {'test': 1}"),
+        (_truncate, "cat_a.npz", "cat_a.npz cannot be read: BadZipFile"),
+        (_empty, "cat_b.npz", "cat_b.npz cannot be read: EOFError"),
+        (_empty, "cat_a_maps.npy", "cat_a_maps.npy cannot be read: EOFError"),
+        (_eval_row_twice, "", "cat_a.npz lists cat_a/Anomaly/000.JPG twice in eval_images"),
+    ],
+)
+def test_examples_of_an_incomplete_run_exit_with_code_2(
+    damage, name, message, tmp_path, fake_data, reads, capsys
+):
+    fake_data("dev")
+    run_dir = _write_examples_run(tmp_path)
+    damage(run_dir, name)
+    out = tmp_path / "figs"
+    with pytest.raises(SystemExit) as stop:
+        figures.main(["--examples", str(run_dir), "--out", str(out)])
+    assert stop.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("examples not drawn: ") and message in err
+    assert reads == [] and not out.exists()
+
+
+def test_examples_options_only_go_with_examples(tmp_path, capsys):
+    for argv in (
+        ["--allow-test"],
+        ["--name", "x"],
+        ["--examples", str(tmp_path), "--only", "calibration"],
+        ["--examples", str(tmp_path), "--name", "sub/x"],
+    ):
+        with pytest.raises(SystemExit) as stop:
+            figures.main(["--reports", str(tmp_path), "--out", str(tmp_path / "out"), *argv])
+        assert stop.value.code == 2
+    assert not (tmp_path / "out").exists()
 
 
 def test_the_module_imports_without_matplotlib():

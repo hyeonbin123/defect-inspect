@@ -1,10 +1,13 @@
 """Figures of README.md, redrawn from the committed report files.
 
     python -m defect_inspect.figures [--reports reports] [--out docs/figures] [--only NAME ...]
+    python -m defect_inspect.figures --examples RUN_DIR [--allow-test] [--out docs/figures] [--name examples]
 
 Each `fig_<name>` takes report data that is already loaded and returns a matplotlib Figure. `main` loads
 the report files, skips the figures whose inputs are missing, writes one PNG per figure and exits with an
-error at the end when a report could not be read or drawn (the other figures are still written). Nothing here
+error at the end when a report could not be read or drawn (the other figures are still written). With
+`--examples`, `main` draws only the panel of example inspections of one evaluation run (`examples`) from
+the scores and maps the run saved, and exits with code 2 when the run cannot give it. Nothing here
 reads the clock or draws random numbers, and the PNG metadata carries no version string, so two runs on
 the same reports write identical bytes. matplotlib (dependency group `figures`) is imported inside the
 functions: importing this module needs the base packages only.
@@ -18,20 +21,28 @@ import functools
 import json
 import math
 import sys
+import textwrap
+import zipfile
+from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from . import paths
+from . import ledger, paths
 from .analyze_grid import CPU_BUDGET_MS
 from .analyze_m2ad import BASE as M2AD_BASE
+from .cache import MASK_SIZE, ImageCache
+from .calibrate import conformal_threshold
+from .compare import ALPHA, MethodRun, load_common, load_patchcore
 from .conditions import CLEAN, LEVELS, REFERENCE_SIZE, strength
 from .configs import CONFIGS
 from .m2ad import REFERENCE as M2AD_REFERENCE
 from .run_dinomaly import IMG_SIZE as DINOMALY_SIZE
 from .run_dinomaly import NAME as DINOMALY
+from .splits import SEALED_ROLES, ManifestRow, SealedTestError, read_manifest
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -944,20 +955,24 @@ def _log_minor_label(x: float, pos: int | None = None) -> str:
 
 
 @_styled
-def fig_examples(rows: list[dict]) -> Figure:
+def fig_examples(rows: list[dict], *, title: str | None = None, caption: str | None = None) -> Figure:
     """One line of panels per example: the image, its ground-truth outline, and the score map over it.
 
     Each row has `image` (HxWx3 uint8), `mask` (HxW bool or None: no outline is drawn), `map` (hxw
     finite float, stretched over the image), `title` and `threshold` (float or None). The colour scale
     of a row spans its map and its threshold: a map that stays below the threshold does not light up, a
     map above it everywhere lights up everywhere. The threshold is marked on the colour bar and drawn
-    as a contour where the map crosses it.
+    as a contour where the map crosses it. `title` goes over the figure, `caption` in small type under it.
     """
     from matplotlib import patheffects
 
     if not rows:
         raise ValueError("need at least one example")
     fig = _figure(3.3 * len(rows) + 0.1, width=10.4)
+    if title:
+        _suptitle(fig, title)
+    if caption:
+        fig.supxlabel(caption, x=0.008, ha="left", fontsize=SMALL, color=INK_2, linespacing=1.5)
     grid = fig.subplots(len(rows), 3, squeeze=False)
     headers = ("", "ground-truth outline", "anomaly map")
     outline = [patheffects.withStroke(linewidth=3.2, foreground=INK)]
@@ -1058,6 +1073,458 @@ def _load(path: Path) -> dict:
         return json.load(f)
 
 
+# ---- example inspections of an evaluation run ------------------------------------------------------------
+
+EXAMPLE_GROUPS = ("detected defect", "missed defect", "false alarm")
+PER_GROUP = 2  # rows per group
+EXAMPLES_STAGE = "5"  # stage label of the test ledger line
+EXAMPLES_NOTE = "README example panel: images and masks of the picked rows read for a figure only, no scores"
+DATA_CREDIT = "Images: VisA (Zou et al., ECCV 2022), CC BY 4.0"
+# Where `compare` takes the calibration scores of each kind of run from.
+_CALIBRATION_SOURCE = {
+    "crossfit": "the cross-fitted (out-of-fold) scores of the normal pool",
+    "holdout": "the scores of held-out normal images",
+}
+_EVAL_KEYS = ("eval_images", "eval_labels", "eval_defect_types", "eval_score")
+_TITLE_CHARS = 34  # a row title is wrapped to stay over the first panel of its row
+_TITLE_LINES = 3  # beyond this, a long list of defect types is shortened ("+ 3 more")
+_CAPTION_CHARS = 165
+
+
+class ExamplesError(ValueError):
+    """The run folder cannot give the example panel: incomplete, of an unknown kind or without thresholds."""
+
+
+@dataclass(frozen=True)
+class Example:
+    """One evaluation image picked for the panel; `index` is its row in its category's arrays and maps."""
+
+    group: str
+    category: str
+    index: int
+    image: str
+    label: int
+    defect_types: str
+    margin: float  # image score / threshold of its category
+
+    def _parts(self, keep: int | None = None) -> tuple[str, str]:
+        """(group, category and kind; score/threshold); only the first `keep` defect types are named."""
+        if self.label == 1:
+            types = [t for t in self.defect_types.split("|") if t] or ["defect"]
+            named = types if keep is None else types[:keep]
+            kind = " + ".join(named) + (
+                f" + {len(types) - len(named)} more" if len(named) < len(types) else ""
+            )
+        else:
+            kind = "normal"
+        return f"{self.group}: {self.category}, {kind},", f"score/threshold = {_ratio(self.margin)}"
+
+    @property
+    def title(self) -> str:
+        return " ".join(self._parts())
+
+    def _wrap(self, width: int, keep: int | None) -> list[str]:
+        head, tail = self._parts(keep)
+        lines = textwrap.wrap(head, width, break_long_words=False, break_on_hyphens=False)
+        if len(lines[-1]) + 1 + len(tail) <= width:
+            lines[-1] += f" {tail}"
+        else:
+            lines.append(tail)
+        return lines
+
+    def wrapped_title(self, width: int = _TITLE_CHARS, max_lines: int = _TITLE_LINES) -> str:
+        """`title` in lines of at most `width` characters; "score/threshold = x" is never split.
+
+        When the title takes more than `max_lines` lines, the defect types after the first ones that fit
+        are counted ("+ 3 more") instead of named.
+        """
+        lines = self._wrap(width, None)
+        n_types = len(self.defect_types.split("|"))
+        for keep in range(n_types - 1, 0, -1):
+            if len(lines) <= max_lines:
+                break
+            lines = self._wrap(width, keep)
+        return "\n".join(lines)
+
+
+def _ratio(margin: float) -> str:
+    """Two decimals, or as many more as it takes to keep a value that is not 1 off "1.00" (its side of 1)."""
+    if margin == 1.0:
+        return "1.00"
+    for digits in range(2, 18):  # 16 decimals tell any float64 from 1
+        text = f"{margin:.{digits}f}"
+        if float(text) != 1.0:
+            return text
+    return repr(margin)
+
+
+def _one_per_category(ordered: list[Example], n: int) -> list[Example]:
+    taken: list[Example] = []
+    for example in ordered:
+        if len(taken) == n:
+            break
+        if all(example.category != other.category for other in taken):
+            taken.append(example)
+    return taken
+
+
+def pick_examples(
+    cats: dict[str, dict[str, np.ndarray]], thresholds: dict[str, float], per_group: int = PER_GROUP
+) -> dict[str, list[Example]]:
+    """The rows of the panel, by a fixed rule that looks at the scores only.
+
+    margin = image score / threshold of its category. An image is flagged when score > threshold (the
+    decision rule of `calibrate`), so a flagged image has margin > 1. Groups, in this order:
+
+    - detected defect (defect, flagged): the `per_group` whose margin is closest to the median margin
+      of all detected defects of the run (typical hits);
+    - missed defect (defect, not flagged): the `per_group` with the lowest margin;
+    - false alarm (normal, flagged): the `per_group` with the highest margin.
+
+    At most one image per category in each group; ties are broken by image path. A group with fewer
+    candidates keeps what it has. `cats` holds `eval_images`, `eval_labels` (0 or 1),
+    `eval_defect_types` and `eval_score` per category; every threshold must be positive.
+    """
+    found: dict[str, list[Example]] = {group: [] for group in EXAMPLE_GROUPS}
+    for category, cat in cats.items():
+        threshold = float(thresholds[category])
+        if not (math.isfinite(threshold) and threshold > 0):
+            raise ExamplesError(f"the threshold of {category} is {threshold}: score/threshold needs it > 0")
+        scores = np.asarray(cat["eval_score"], dtype=np.float64)
+        labels = np.asarray(cat["eval_labels"])
+        if not np.isfinite(scores).all():
+            raise ExamplesError(f"the evaluation scores of {category} are not all finite")
+        if not np.isin(labels, (0, 1)).all():
+            raise ExamplesError(f"the evaluation labels of {category} are not all 0 or 1")
+        for i, (score, label) in enumerate(zip(scores, labels, strict=True)):
+            flagged = bool(score > threshold)
+            if label == 1:
+                group = EXAMPLE_GROUPS[0] if flagged else EXAMPLE_GROUPS[1]
+            elif flagged:
+                group = EXAMPLE_GROUPS[2]
+            else:
+                continue
+            found[group].append(
+                Example(
+                    group=group,
+                    category=category,
+                    index=i,
+                    image=str(cat["eval_images"][i]),
+                    label=int(label),
+                    defect_types=str(cat["eval_defect_types"][i]),
+                    margin=float(score / threshold),
+                )
+            )
+    detected = found[EXAMPLE_GROUPS[0]]
+    median = float(np.median([e.margin for e in detected])) if detected else 0.0
+    keys: dict[str, Callable[[Example], tuple[float, str]]] = {
+        EXAMPLE_GROUPS[0]: lambda e: (abs(e.margin - median), e.image),
+        EXAMPLE_GROUPS[1]: lambda e: (e.margin, e.image),
+        EXAMPLE_GROUPS[2]: lambda e: (-e.margin, e.image),
+    }
+    return {
+        group: _one_per_category(sorted(found[group], key=keys[group]), per_group) for group in EXAMPLE_GROUPS
+    }
+
+
+def example_thresholds(run: MethodRun, alpha: float = ALPHA) -> dict[str, float]:
+    """Per-category threshold as `compare` fixes it: the conformal threshold of the run's `cal_score`."""
+    empty = [c for c, cat in run.cats.items() if len(cat["cal_score"]) == 0]
+    if empty:
+        raise ExamplesError(
+            f"{run.name} has no calibration scores for {len(empty)} of {len(run.cats)} categories "
+            f"({', '.join(empty)}), so there is no threshold to draw. A dev-protocol Dinomaly run keeps "
+            "none (its held-out normals are its evaluation normals): use a run that has them"
+        )
+    try:
+        return {c: conformal_threshold(cat["cal_score"], alpha).value for c, cat in run.cats.items()}
+    except ValueError as err:
+        raise ExamplesError(f"the calibration scores of {run.name} give no threshold: {err}") from err
+
+
+def _run_meta(run_dir: Path) -> dict:
+    path = run_dir / "run.json"
+    if not path.is_file():
+        raise ExamplesError(f"{run_dir} is not a finished evaluation run: it has no run.json")
+    try:
+        meta = _load(path)
+    except (OSError, ValueError) as err:  # a JSONDecodeError is a ValueError
+        raise ExamplesError(f"{path} cannot be read: {type(err).__name__}: {err}") from err
+    if not isinstance(meta, dict):
+        raise ExamplesError(f"{path} is not the run.json of an evaluation run")
+    return meta
+
+
+def _run_categories(meta: dict, path: Path) -> list[str]:
+    """Category names of run.json; each becomes a file name in the run folder, so it must be a plain name."""
+    try:
+        names = [info["category"] for info in meta["categories"]]
+    except (KeyError, TypeError) as err:
+        raise ExamplesError(f"{path} does not list its categories as an evaluation run does") from err
+    if not names:
+        raise ExamplesError(f"{path} lists no categories")
+    for name in names:
+        plain = isinstance(name, str) and name not in ("", ".", "..")
+        if not (plain and PurePosixPath(name).name == name == PureWindowsPath(name).name):
+            raise ExamplesError(f"{path} lists {name!r}, which is not a plain category name")
+    twice = [name for name, n in Counter(names).items() if n > 1]
+    if twice:
+        raise ExamplesError(f"{path} lists {', '.join(twice)} twice")
+    return names
+
+
+# Errors of np.load on a damaged file: a truncated .npz is no zip file, an empty file has no header.
+_READ_ERRORS = (OSError, ValueError, TypeError, EOFError, zipfile.BadZipFile)
+
+
+def _npz_arrays(path: Path, keys: Sequence[str]) -> dict[str, np.ndarray]:
+    """Only `keys` of an .npz file: the other arrays in it are not read."""
+    try:
+        with np.load(path) as z:
+            arrays = {key: z[key] for key in keys if key in z.files}
+    except _READ_ERRORS as err:
+        raise ExamplesError(f"{path} cannot be read: {type(err).__name__}: {err}") from err
+    missing = [key for key in keys if key not in arrays]
+    if missing:
+        raise ExamplesError(f"{path} has no {', '.join(missing)}")
+    return arrays
+
+
+def _calibration_images_key(meta: dict) -> str:
+    """Key of the images behind `cal_score`; a `run_patchcore` run (no "method") calls them its pool."""
+    return "cal_images" if meta.get("method") else "pool_images"
+
+
+def _check_scored_images(
+    run_dir: Path, names: list[str], cal_key: str, sealed: bool
+) -> tuple[dict[str, ManifestRow], dict[str, dict[str, np.ndarray]]]:
+    """Check every image the run scored against the manifest before any score is read.
+
+    Only the image lists and the evaluation labels are read. Every evaluation and calibration image must
+    be a manifest image of its category, with the manifest's label (calibration images are normal), and
+    no evaluation image may be listed twice. A run that is not a test-protocol run must hold no sealed
+    test image in either list, drawn or not: its scores would set a threshold or move the picks.
+    Returns the manifest rows by image and the arrays read, by category.
+    """
+    try:
+        manifest = read_manifest(paths.VISA_MANIFEST)
+    except (OSError, ValueError) as err:
+        raise ExamplesError(f"the manifest {paths.VISA_MANIFEST} cannot be read: {err}") from err
+    by_image = {row.image: row for row in manifest}
+    known = {row.category for row in manifest}
+    for category in names:
+        if category not in known:
+            raise ExamplesError(f"{category} is not a category of the manifest {paths.VISA_MANIFEST}")
+    lists = {}
+    for category in names:
+        path = run_dir / f"{category}.npz"
+        arrays = _npz_arrays(path, ("eval_images", "eval_labels", cal_key))
+        evaluated, labels, calibration = arrays["eval_images"], arrays["eval_labels"], arrays[cal_key]
+        if evaluated.ndim != 1 or calibration.ndim != 1 or labels.shape != evaluated.shape:
+            shapes = {key: values.shape for key, values in arrays.items()}
+            raise ExamplesError(f"{path}: {shapes} are not lists, one label per evaluation image")
+        images = [str(image) for image in evaluated]
+        scored = [*zip(images, labels.tolist(), strict=True), *((str(image), 0) for image in calibration)]
+        for image, label in scored:
+            row = by_image.get(image)
+            if row is None:
+                raise ExamplesError(
+                    f"{path} lists {image}, which is not in the manifest {paths.VISA_MANIFEST}"
+                )
+            if row.role in SEALED_ROLES and not sealed:
+                raise SealedTestError(
+                    f"{path} scores {image}, a sealed test image, although the run is not a test-protocol run"
+                )
+            if row.category != category or (row.label == "anomaly") != (label == 1):
+                raise ExamplesError(
+                    f"the manifest has {image} as {row.label} of {row.category}; the run has it as "
+                    f"label {label} of {category}"
+                )
+        twice = [image for image, n in Counter(images).items() if n > 1]
+        if twice:
+            raise ExamplesError(f"{path} lists {', '.join(twice)} twice in eval_images")
+        lists[category] = arrays
+    return by_image, lists
+
+
+def _load_scores(run_dir: Path, meta: dict, names: list[str]) -> MethodRun:
+    """The run as `compare` loads it: a `run_patchcore` run (no "method" in run.json) or the common format."""
+    try:
+        if meta.get("method"):
+            config = meta.get("config") or {}
+            run = load_common(run_dir, str(config.get("name") or meta["method"]), names)
+        else:
+            run = load_patchcore(run_dir)
+    except (AttributeError, KeyError, *_READ_ERRORS) as err:
+        raise ExamplesError(
+            f"{run_dir} is not a complete evaluation run: {type(err).__name__}: {err}"
+        ) from err
+    if list(run.cats) != names:
+        raise ExamplesError(f"{run_dir}: the categories read {list(run.cats)} are not those of run.json")
+    for category, cat in run.cats.items():
+        missing = [key for key in (*_EVAL_KEYS, "cal_score") if key not in cat]
+        if missing:
+            raise ExamplesError(f"{run_dir / f'{category}.npz'} has no {', '.join(missing)}")
+        sizes = {key: len(cat[key]) for key in _EVAL_KEYS}
+        if len(set(sizes.values())) != 1:
+            raise ExamplesError(
+                f"{run_dir / f'{category}.npz'}: evaluation arrays of different lengths {sizes}"
+            )
+    return run
+
+
+def _check_maps(path: Path, n: int) -> None:
+    """The maps file holds one 2-d map per evaluation image (only its header is read)."""
+    try:
+        maps = np.load(path, mmap_mode="r")
+    except _READ_ERRORS as err:
+        raise ExamplesError(f"{path} cannot be read: {type(err).__name__}: {err}") from err
+    shape = getattr(maps, "shape", None)  # an .npz under this name loads as an NpzFile
+    del maps
+    if shape is None or len(shape) != 3 or shape[0] != n:
+        raise ExamplesError(f"{path} has shape {shape}: expected {n} maps, one per evaluation image")
+
+
+def _read_map(path: Path, index: int) -> np.ndarray:
+    maps = np.load(path, mmap_mode="r")
+    row = np.array(maps[index], dtype=np.float64)
+    del maps  # Windows keeps a mapped file locked
+    return row
+
+
+def _examples_title(label: str, protocol: str, picks: dict[str, list[Example]]) -> str:
+    title = f"Example inspections: {label} on the {PROTOCOLS[protocol]}"
+    short = [(group, len(picks[group])) for group in EXAMPLE_GROUPS if len(picks[group]) < PER_GROUP]
+    if short:
+        counts = ", ".join(f"{n} {group}{'' if n == 1 else 's'}" for group, n in short)
+        title += f"\nFewer than {PER_GROUP} found (one per category at most): {counts}"
+    return title
+
+
+def _examples_caption(label: str, calibration: str) -> str:
+    source = _CALIBRATION_SOURCE.get(calibration, f"its {calibration} calibration scores")
+    lines = [
+        f"{DATA_CREDIT}. Method: {label}. Threshold per category: split-conformal at a {ALPHA:.0%} target "
+        f"false-alarm rate, from {source}. An image is flagged when its score/threshold is above 1.",
+        "Rows picked by a fixed rule, at most one image per category in each group, ties broken by path: "
+        "the detected defects whose score/threshold is closest to the median of all detected defects, the "
+        "missed defects with the lowest and the false alarms with the highest score/threshold.",
+        "The line on a map marks pixels above the image threshold; the image score is not the map's "
+        "maximum, so near the threshold the line and the decision can disagree.",
+    ]
+    return "\n".join(textwrap.fill(line, _CAPTION_CHARS, break_on_hyphens=False) for line in lines)
+
+
+def examples(run_dir: Path, out: Path, name: str = "examples", *, allow_test: bool = False) -> Path:
+    """Draw the example inspections of an evaluation run and write `<out>/<name>.png`.
+
+    `run_dir` is an evaluation folder: run.json, `<category>.npz` and `<category>_maps.npy` (one map per
+    evaluation image, in `eval_images` order). Scores are loaded as `compare` loads them and each
+    category gets the threshold `compare` fixes at `compare.ALPHA`: cross-fit for a PatchCore run,
+    hold-out for a run in the common format (Dinomaly). The rows follow the rule of `pick_examples`:
+    two detected defects nearest the median score/threshold of all detected defects, the two missed
+    defects with the lowest and the two false alarms with the highest score/threshold, at most one image
+    per category in each group, ties broken by image path; a group that has fewer keeps what it has and
+    the figure title says so.
+
+    A test-protocol run is refused unless `allow_test is True`. Before any score is read, every image the
+    run scored (evaluation and calibration) is checked against the manifest: a run that is not a
+    test-protocol run holding a sealed test image anywhere is refused. Images and masks come from the
+    256 px cache (`paths.CACHE`) through the manifest rows of the picked images; for a test-protocol run
+    one line goes to the test ledger after every check that can be made without them and before the
+    first image is read. The maps of the picked rows are read after the images (a map shows where the
+    defect of its image is). Raises ExamplesError or SealedTestError; then no PNG is written, and the
+    ledger line only when images were read.
+    """
+    run_dir, out = Path(run_dir), Path(out)
+    meta = _run_meta(run_dir)
+    protocol = meta.get("protocol")
+    if not isinstance(protocol, str) or protocol not in PROTOCOLS:
+        raise ExamplesError(f"{run_dir / 'run.json'} names no known protocol: {protocol!r}")
+    sealed = protocol == "test"
+    if sealed and allow_test is not True:  # not truthiness, as in splits.select
+        raise SealedTestError(
+            f"{run_dir} is a test-protocol run: its images are the sealed test set. Pass --allow-test "
+            "(the read is logged in the test ledger) to draw them"
+        )
+    names = _run_categories(meta, run_dir / "run.json")
+    wanted = [run_dir / f"{c}{suffix}" for c in names for suffix in (".npz", "_maps.npy")]
+    missing = [path.name for path in wanted if not path.is_file()]
+    if missing:
+        raise ExamplesError(f"{run_dir} is incomplete: it has no {', '.join(missing)}")
+    cal_key = _calibration_images_key(meta)
+    by_image, checked = _check_scored_images(run_dir, names, cal_key, sealed)
+    run = _load_scores(run_dir, meta, names)
+    for category, cat in run.cats.items():  # the second read must hold the images the first one checked
+        if any(not np.array_equal(cat.get(key), checked[category][key]) for key in ("eval_images", cal_key)):
+            raise ExamplesError(f"{run_dir / f'{category}.npz'} changed while it was being read")
+    thresholds = example_thresholds(run)
+    picks = pick_examples(run.cats, thresholds)
+    chosen = [example for group in EXAMPLE_GROUPS for example in picks[group]]
+    if not chosen:
+        raise ExamplesError(f"no image of {run_dir} falls in any group")
+    for category in dict.fromkeys(example.category for example in chosen):
+        _check_maps(run_dir / f"{category}_maps.npy", len(run.cats[category]["eval_images"]))
+    rows = [by_image[example.image] for example in chosen]
+    try:
+        cache = ImageCache(paths.CACHE, MASK_SIZE)
+    except FileNotFoundError as err:
+        raise ExamplesError(
+            f"no {MASK_SIZE} px image cache in {paths.CACHE}: build it with "
+            f"`python -m defect_inspect.cache --size {MASK_SIZE}`"
+        ) from err
+    except ValueError as err:
+        raise ExamplesError(f"the image cache in {paths.CACHE} cannot be used: {err}") from err
+    try:
+        try:
+            cache._rows(rows)  # index lookup only: a missing image stops the run before the ledger line
+        except KeyError as err:
+            raise ExamplesError(
+                f"{paths.CACHE}: {err.args[0]} (rebuild the cache from the manifest)"
+            ) from None
+        if sealed:
+            ledger.record_test_access(
+                paths.TEST_LEDGER, stage=EXAMPLES_STAGE, config=f"examples-{run.name}", note=EXAMPLES_NOTE
+            )
+        images, masks = cache.images(rows), cache.masks(rows)
+    finally:
+        cache.close()
+    panel = []
+    for example, image, mask in zip(chosen, images, masks, strict=True):
+        path = run_dir / f"{example.category}_maps.npy"
+        try:
+            scores = _read_map(path, example.index)
+        except _READ_ERRORS as err:
+            raise ExamplesError(f"{path} cannot be read: {type(err).__name__}: {err}") from err
+        if not np.isfinite(scores).all():
+            raise ExamplesError(f"{path}: the map of {example.image} (row {example.index}) is not all finite")
+        panel.append(
+            {
+                "image": image,
+                "mask": mask.astype(bool) if example.label == 1 else None,
+                "map": scores,
+                "title": example.wrapped_title(),
+                "threshold": thresholds[example.category],
+            }
+        )
+    label = _method(run.name)[0]
+    fig = fig_examples(
+        panel,
+        title=_examples_title(label, protocol, picks),
+        caption=_examples_caption(label, run.calibration),
+    )
+    return save(fig, out / f"{name}.png")
+
+
+def _examples_main(args: argparse.Namespace) -> None:
+    try:
+        path = examples(args.examples, args.out, args.name, allow_test=args.allow_test)
+    except (ExamplesError, SealedTestError) as err:
+        print(f"examples not drawn: {err}", file=sys.stderr)
+        raise SystemExit(2) from None
+    print(f"wrote {path}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--reports", type=Path, default=paths.REPORTS, help="folder of the report files")
@@ -1065,9 +1532,32 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--only", nargs="+", choices=list(FIGURES), default=None, metavar="NAME", help="default: all figures"
     )
+    parser.add_argument(
+        "--examples",
+        type=Path,
+        default=None,
+        metavar="RUN_DIR",
+        help="draw only the example inspections of this evaluation run folder",
+    )
+    parser.add_argument(
+        "--allow-test", action="store_true", help="with --examples: read sealed test images (logged)"
+    )
+    parser.add_argument(
+        "--name", default=None, help="with --examples: PNG name without .png (default examples)"
+    )
     args = parser.parse_args(argv)
+    if args.examples is None and (args.allow_test or args.name is not None):
+        parser.error("--allow-test and --name go with --examples")
+    if args.examples is not None and args.only is not None:
+        parser.error("--only names report figures; it does not go with --examples")
+    if args.name is not None and (not args.name or Path(args.name).name != args.name):
+        parser.error(f"--name must be a plain file name, got {args.name!r}")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")  # output paths outside the console code page
+    if args.examples is not None:
+        args.name = args.name or "examples"
+        _examples_main(args)
+        return
     failed = []
     for name in args.only or FIGURES:
         inputs, build = FIGURES[name]
