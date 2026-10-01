@@ -1,0 +1,602 @@
+{
+  "wrn50-256-r0.1": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 7.984050000004572,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 91.44109999999728,
+      "backbone_p95_ms": 93.48140499998578,
+      "search_ms": 449.1242500000112,
+      "search_p95_ms": 491.2184249999853,
+      "map_ms": 1.9056000000148288,
+      "map_p95_ms": 2.779510000004848,
+      "total_ms": 541.8453499999885,
+      "total_p95_ms": 585.810075000026,
+      "repeats": 50,
+      "bank_rows": 49254,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 549.829399999993
+    },
+    "cpu_int8": {
+      "backbone_ms": 84.96989999997595,
+      "backbone_p95_ms": 93.10928499998852,
+      "search_ms": 451.8752000000177,
+      "search_p95_ms": 497.11072999999146,
+      "map_ms": 1.9327500000088094,
+      "map_p95_ms": 2.315825000005134,
+      "total_ms": 539.2175500000178,
+      "total_p95_ms": 582.2156950000192,
+      "repeats": 50,
+      "bank_rows": 49254,
+      "precision": "int8",
+      "threads": null,
+      "total_with_resize_ms": 547.2016000000224
+    },
+    "gpu_fp16": {
+      "total_ms": 25.01464999997438,
+      "total_p95_ms": 26.486969999982076,
+      "bank_setup_ms": 749.7866999999587,
+      "repeats": 50,
+      "bank_rows": 49254,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "wrn50-256-r0.01": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 7.65030000002298,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 91.1293999999998,
+      "backbone_p95_ms": 93.50998000001027,
+      "search_ms": 83.72169999998391,
+      "search_p95_ms": 97.61436999999376,
+      "map_ms": 1.9523000000276625,
+      "map_p95_ms": 2.247670000014068,
+      "total_ms": 176.55824999999936,
+      "total_p95_ms": 191.41119000001368,
+      "repeats": 50,
+      "bank_rows": 4925,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 184.20855000002234
+    },
+    "cpu_int8": {
+      "backbone_ms": 90.08385000004182,
+      "backbone_p95_ms": 96.24553499999138,
+      "search_ms": 80.41934999999967,
+      "search_p95_ms": 112.83787500000525,
+      "map_ms": 2.0465999999998985,
+      "map_p95_ms": 2.6357200000177268,
+      "total_ms": 171.51830000000245,
+      "total_p95_ms": 204.0893299999993,
+      "repeats": 50,
+      "bank_rows": 4925,
+      "precision": "int8",
+      "threads": null,
+      "total_with_resize_ms": 179.16860000002544
+    },
+    "gpu_fp16": {
+      "total_ms": 10.781999999977643,
+      "total_p95_ms": 12.184525000006374,
+      "bank_setup_ms": 80.85789999995541,
+      "repeats": 50,
+      "bank_rows": 4925,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "wrn50-256-r0.001": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 7.729799999964371,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 91.18244999999092,
+      "backbone_p95_ms": 92.57932000001858,
+      "search_ms": 14.691949999985354,
+      "search_p95_ms": 15.628405000001067,
+      "map_ms": 2.736849999990909,
+      "map_p95_ms": 2.8473399999683124,
+      "total_ms": 108.32880000003797,
+      "total_p95_ms": 110.03580000002273,
+      "repeats": 50,
+      "bank_rows": 493,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 116.05860000000234
+    },
+    "cpu_int8": {
+      "backbone_ms": 88.48464999999806,
+      "backbone_p95_ms": 95.75264999997728,
+      "search_ms": 14.67285000001084,
+      "search_p95_ms": 15.695910000033564,
+      "map_ms": 2.773649999994632,
+      "map_p95_ms": 2.814285000027894,
+      "total_ms": 105.3021999999828,
+      "total_p95_ms": 113.60982500000887,
+      "repeats": 50,
+      "bank_rows": 493,
+      "precision": "int8",
+      "threads": null,
+      "total_with_resize_ms": 113.03199999994717
+    },
+    "gpu_fp16": {
+      "total_ms": 10.500699999994367,
+      "total_p95_ms": 10.969539999962308,
+      "bank_setup_ms": 70.85920000002943,
+      "repeats": 50,
+      "bank_rows": 493,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "wrn50-384-r0.1": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 8.900350000004664,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 205.74834999996483,
+      "backbone_p95_ms": 213.34526000000835,
+      "search_ms": 2110.3341999999543,
+      "search_p95_ms": 2219.451445000044,
+      "map_ms": 4.153449999989789,
+      "map_p95_ms": 5.981545000014421,
+      "total_ms": 2317.087649999962,
+      "total_p95_ms": 2438.6913950000403,
+      "repeats": 50,
+      "bank_rows": 110822,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 2325.9879999999666
+    },
+    "cpu_int8": {
+      "backbone_ms": 197.3487999999861,
+      "backbone_p95_ms": 216.1386950000633,
+      "search_ms": 2209.2340499999636,
+      "search_p95_ms": 2900.6649199999283,
+      "map_ms": 4.325950000009016,
+      "map_p95_ms": 6.598149999985026,
+      "total_ms": 2421.3885499999037,
+      "total_p95_ms": 3102.181845000035,
+      "repeats": 50,
+      "bank_rows": 110822,
+      "precision": "int8",
+      "threads": null,
+      "total_with_resize_ms": 2430.2888999999086
+    },
+    "gpu_fp16": {
+      "total_ms": 93.67825000003904,
+      "total_p95_ms": 94.57799499998032,
+      "bank_setup_ms": 239.49659999993855,
+      "repeats": 50,
+      "bank_rows": 110822,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "wrn50-384-r0.01": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.305150000045614,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 204.1095499999983,
+      "backbone_p95_ms": 207.2865949999823,
+      "search_ms": 228.285249999999,
+      "search_p95_ms": 248.78484499996034,
+      "map_ms": 4.189350000046943,
+      "map_p95_ms": 5.462754999945217,
+      "total_ms": 435.64470000001165,
+      "total_p95_ms": 457.1799200000669,
+      "repeats": 50,
+      "bank_rows": 11082,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 444.94985000005727
+    },
+    "cpu_int8": {
+      "backbone_ms": 201.9951500000161,
+      "backbone_p95_ms": 213.32638500003327,
+      "search_ms": 228.3525999999938,
+      "search_p95_ms": 244.98806499999546,
+      "map_ms": 4.344050000042898,
+      "map_p95_ms": 4.6139449999486715,
+      "total_ms": 435.7212000000459,
+      "total_p95_ms": 455.814654999989,
+      "repeats": 50,
+      "bank_rows": 11082,
+      "precision": "int8",
+      "threads": null,
+      "total_with_resize_ms": 445.0263500000915
+    },
+    "gpu_fp16": {
+      "total_ms": 16.53870000001234,
+      "total_p95_ms": 18.9917400000013,
+      "bank_setup_ms": 83.04900000007365,
+      "repeats": 50,
+      "bank_rows": 11082,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "wrn50-384-r0.001": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 8.978800000022602,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 200.5556999999385,
+      "backbone_p95_ms": 205.72692000000643,
+      "search_ms": 39.61200000003373,
+      "search_p95_ms": 48.10896999996998,
+      "map_ms": 4.246350000016719,
+      "map_p95_ms": 4.71050500000274,
+      "total_ms": 244.49959999998327,
+      "total_p95_ms": 255.2691849999519,
+      "repeats": 50,
+      "bank_rows": 1108,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 253.47840000000588
+    },
+    "cpu_int8": {
+      "backbone_ms": 184.80274999996027,
+      "backbone_p95_ms": 197.14002500002152,
+      "search_ms": 38.904950000016925,
+      "search_p95_ms": 45.460294999998034,
+      "map_ms": 4.321099999970102,
+      "map_p95_ms": 4.638585000009243,
+      "total_ms": 229.3329999999969,
+      "total_p95_ms": 245.23739000003957,
+      "repeats": 50,
+      "bank_rows": 1108,
+      "precision": "int8",
+      "threads": null,
+      "total_with_resize_ms": 238.3118000000195
+    },
+    "gpu_fp16": {
+      "total_ms": 12.003649999996924,
+      "total_p95_ms": 12.542500000034806,
+      "bank_setup_ms": 67.43329999994785,
+      "repeats": 50,
+      "bank_rows": 1108,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-252-r0.1": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 7.479700000033063,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 79.75169999997433,
+      "backbone_p95_ms": 86.64944000004198,
+      "search_ms": 76.20409999998401,
+      "search_p95_ms": 87.53068000004305,
+      "map_ms": 2.2586000000046624,
+      "map_p95_ms": 3.0220500000439188,
+      "total_ms": 158.0074500000137,
+      "total_p95_ms": 172.93166500001007,
+      "repeats": 50,
+      "bank_rows": 15584,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 165.48715000004677
+    },
+    "gpu_fp16": {
+      "total_ms": 13.115699999957542,
+      "total_p95_ms": 13.732535000008284,
+      "bank_setup_ms": 71.75150000000485,
+      "repeats": 50,
+      "bank_rows": 15584,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-252-r0.01": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 7.387249999965206,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 75.12869999999339,
+      "backbone_p95_ms": 83.76616500000296,
+      "search_ms": 4.289200000016535,
+      "search_p95_ms": 38.753445000031654,
+      "map_ms": 2.978249999955551,
+      "map_p95_ms": 3.3193499999526916,
+      "total_ms": 86.09189999998534,
+      "total_p95_ms": 116.69422999999027,
+      "repeats": 50,
+      "bank_rows": 1558,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 93.47914999995055
+    },
+    "gpu_fp16": {
+      "total_ms": 11.589050000054613,
+      "total_p95_ms": 13.81802000001926,
+      "bank_setup_ms": 68.00409999993917,
+      "repeats": 50,
+      "bank_rows": 1558,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-252-r0.001": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 7.376500000020769,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 74.09560000002102,
+      "backbone_p95_ms": 85.47871500001634,
+      "search_ms": 0.8088000000157081,
+      "search_p95_ms": 0.9524150000345343,
+      "map_ms": 3.0309000000556807,
+      "map_p95_ms": 3.186189999951239,
+      "total_ms": 77.19614999996338,
+      "total_p95_ms": 89.1239899999789,
+      "repeats": 50,
+      "bank_rows": 156,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 84.57264999998415
+    },
+    "gpu_fp16": {
+      "total_ms": 12.985549999996238,
+      "total_p95_ms": 13.65721500002337,
+      "bank_setup_ms": 63.45920000001115,
+      "repeats": 50,
+      "bank_rows": 156,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-392-r0.1": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 8.941999999990458,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 188.26500000000124,
+      "backbone_p95_ms": 200.14597999996224,
+      "search_ms": 155.93325000003233,
+      "search_p95_ms": 178.15834999997261,
+      "map_ms": 4.314500000020871,
+      "map_p95_ms": 5.740370000057737,
+      "total_ms": 348.7157999999795,
+      "total_p95_ms": 373.0548849999934,
+      "repeats": 50,
+      "bank_rows": 37710,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 357.65779999996994
+    },
+    "gpu_fp16": {
+      "total_ms": 14.555799999982355,
+      "total_p95_ms": 15.749330000005557,
+      "bank_setup_ms": 78.17809999994552,
+      "repeats": 50,
+      "bank_rows": 37710,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-392-r0.01": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.021300000028987,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 188.3375500000284,
+      "backbone_p95_ms": 197.6199100000713,
+      "search_ms": 19.7663499999976,
+      "search_p95_ms": 41.87531499998157,
+      "map_ms": 6.165850000002138,
+      "map_p95_ms": 6.629305000063823,
+      "total_ms": 213.59075000009398,
+      "total_p95_ms": 237.7108999999848,
+      "repeats": 50,
+      "bank_rows": 3771,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 222.61205000012296
+    },
+    "gpu_fp16": {
+      "total_ms": 11.79445000002488,
+      "total_p95_ms": 13.16423000002942,
+      "bank_setup_ms": 68.60219999998662,
+      "repeats": 50,
+      "bank_rows": 3771,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-392-r0.001": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.040700000014112,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 190.4368500000828,
+      "backbone_p95_ms": 198.23555999996643,
+      "search_ms": 3.543900000067879,
+      "search_p95_ms": 3.916345000095589,
+      "map_ms": 6.619049999926574,
+      "map_p95_ms": 7.189754999933484,
+      "total_ms": 200.34829999997328,
+      "total_p95_ms": 209.0589999999679,
+      "repeats": 50,
+      "bank_rows": 377,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 209.3889999999874
+    },
+    "gpu_fp16": {
+      "total_ms": 13.256300000080046,
+      "total_p95_ms": 14.051699999959055,
+      "bank_setup_ms": 67.212599999948,
+      "repeats": 50,
+      "bank_rows": 377,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-448-r0.1": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.588699999994788,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 270.31560000000354,
+      "backbone_p95_ms": 282.2376499999791,
+      "search_ms": 239.43399999996018,
+      "search_p95_ms": 261.0539499999163,
+      "map_ms": 5.410050000023148,
+      "map_p95_ms": 5.815320000169777,
+      "total_ms": 514.9290499999779,
+      "total_p95_ms": 535.6903799999827,
+      "repeats": 50,
+      "bank_rows": 49254,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 524.5177499999727
+    },
+    "gpu_fp16": {
+      "total_ms": 18.030799999905867,
+      "total_p95_ms": 19.04907999999068,
+      "bank_setup_ms": 83.00099999996746,
+      "repeats": 50,
+      "bank_rows": 49254,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-448-r0.01": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.679300000016156,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 270.20035000009557,
+      "backbone_p95_ms": 276.27057999990257,
+      "search_ms": 32.257250000043314,
+      "search_p95_ms": 68.26078999995389,
+      "map_ms": 8.25675000010051,
+      "map_p95_ms": 8.674565000069379,
+      "total_ms": 313.40494999994917,
+      "total_p95_ms": 344.67184999996334,
+      "repeats": 50,
+      "bank_rows": 4925,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 323.0842499999653
+    },
+    "gpu_fp16": {
+      "total_ms": 12.939599999867823,
+      "total_p95_ms": 13.414495000097304,
+      "bank_setup_ms": 66.34689999987131,
+      "repeats": 50,
+      "bank_rows": 4925,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  },
+  "dinov2_vits14-448-r0.001": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.56745000007686,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "cpu_fp32": {
+      "backbone_ms": 269.96619999999893,
+      "backbone_p95_ms": 274.7340799999506,
+      "search_ms": 4.804150000040863,
+      "search_p95_ms": 5.215274999955,
+      "map_ms": 8.754049999993185,
+      "map_p95_ms": 9.709315000065999,
+      "total_ms": 282.56920000001173,
+      "total_p95_ms": 287.66506000013123,
+      "repeats": 50,
+      "bank_rows": 493,
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 292.1366500000886
+    },
+    "gpu_fp16": {
+      "total_ms": 12.833499999828746,
+      "total_p95_ms": 16.365019999943797,
+      "bank_setup_ms": 66.91019999993841,
+      "repeats": 50,
+      "bank_rows": 493,
+      "device": "cuda"
+    },
+    "gpu": "NVIDIA GeForce RTX 2080 Ti"
+  }
+}
