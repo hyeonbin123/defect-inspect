@@ -374,6 +374,174 @@ class Inspector:
         return self.threshold
 
 
+RECONSTRUCTION = "reconstruction"
+# Model files of a reconstruction (Dinomaly) artifact set; INT8 is dynamic quantization of MatMul only.
+RECONSTRUCTION_PRECISIONS = {"fp32": "model_fp32.onnx", "int8-dynamic": "model_int8_dynamic.onnx"}
+RECONSTRUCTION_META_KEYS = ("version", "kind", "name", "category", "img_size", "map_size", "threshold")
+
+
+def check_reconstruction_meta(meta: dict) -> None:
+    """Raise ValueError unless `meta` describes a usable reconstruction artifact."""
+    if not isinstance(meta, dict):
+        raise ValueError(f"artifact meta must be a JSON object, got {type(meta).__name__}")
+    missing = [k for k in RECONSTRUCTION_META_KEYS if k not in meta]
+    if missing:
+        raise ValueError(f"artifact meta lacks {missing}")
+    if meta["kind"] != RECONSTRUCTION:
+        raise ValueError(f"artifact kind {meta['kind']!r} is not {RECONSTRUCTION!r}")
+    if not _is_int(meta["version"]) or meta["version"] != ARTIFACT_VERSION:
+        raise ValueError(f"artifact version {meta['version']!r} is not {ARTIFACT_VERSION}")
+    for key in ("img_size", "map_size"):
+        if not _is_int(meta[key]) or meta[key] <= 0:
+            raise ValueError(f"artifact meta: {key} must be a positive integer, got {meta[key]!r}")
+    if not _is_finite_number(meta["threshold"]):
+        raise ValueError(f"artifact meta: threshold must be a finite number, got {meta['threshold']!r}")
+
+
+def artifact_kind(artifact_dir: Path) -> str:
+    """ "patchcore" or "reconstruction", from the `kind` of the folder's meta.json (absent: patchcore)."""
+    try:
+        with open(Path(artifact_dir) / "meta.json", encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError) as err:
+        raise ValueError(f"{Path(artifact_dir) / 'meta.json'} is not readable JSON: {err}") from err
+    return str(meta.get("kind", "patchcore")) if isinstance(meta, dict) else "patchcore"
+
+
+class ReconstructionInspector:
+    """One category's inspector for a model that scores by itself (Dinomaly): no memory bank.
+
+    The ONNX model takes `image` [1, 3, S, S] (ImageNet-normalised) and returns `score` [1] (the image
+    score: the mean of the top 1% of the blurred map) and `map` [1, M, M] (the anomaly map). The model is
+    shared by all categories; the threshold is per category. A score that is not finite raises
+    `FloatingPointError` instead of reaching a verdict.
+    """
+
+    kind = RECONSTRUCTION
+    precision = "fp32"
+    threads: int | None = None
+    bank_rows = 0
+
+    def __init__(self, session, meta: dict):
+        check_reconstruction_meta(meta)
+        self.size = int(meta["img_size"])
+        self.map_size = int(meta["map_size"])
+        if hasattr(session, "get_inputs") and hasattr(session, "get_outputs"):
+            self._check_io(session)
+        self.session = session
+        self.meta = dict(meta)
+        self.threshold = float(meta["threshold"])
+
+    def _check_io(self, session) -> None:
+        inputs = {node.name: list(node.shape) for node in session.get_inputs()}
+        outputs = {node.name: list(node.shape) for node in session.get_outputs()}
+        wanted = (
+            ("input", inputs, "image", [1, 3, self.size, self.size]),
+            ("output", outputs, "score", [1]),
+            ("output", outputs, "map", [1, self.map_size, self.map_size]),
+        )
+        for kind, shapes, name, want in wanted:
+            if name not in shapes:
+                raise ValueError(f"the model has no {kind} named {name!r} (it has {sorted(shapes)})")
+            shape = shapes[name]
+            if len(shape) != len(want) or any(
+                _is_int(a) and a != b for a, b in zip(shape, want, strict=True)
+            ):
+                raise ValueError(f"the model's {kind} {name!r} is {shape}, the artifact meta needs {want}")
+
+    @classmethod
+    def load(
+        cls, artifact_dir: Path, *, precision: str = "fp32", threads: int | None = None
+    ) -> "ReconstructionInspector":
+        """An inspector from a category folder (the model may sit in its parent folder)."""
+        import onnxruntime as ort
+
+        artifact_dir = Path(artifact_dir)
+        if precision not in RECONSTRUCTION_PRECISIONS:
+            raise ValueError(
+                f"precision must be one of {sorted(RECONSTRUCTION_PRECISIONS)}, got {precision!r}"
+            )
+        model = artifact_dir / RECONSTRUCTION_PRECISIONS[precision]
+        if not model.exists():
+            model = artifact_dir.parent / RECONSTRUCTION_PRECISIONS[precision]
+        for path in (artifact_dir / "meta.json", model):
+            if not path.exists():
+                raise ValueError(f"not a reconstruction artifact: {path} is missing")
+        try:
+            with open(artifact_dir / "meta.json", encoding="utf-8") as f:
+                meta = json.load(f)
+            check_reconstruction_meta(meta)
+        except (OSError, ValueError) as err:
+            raise ValueError(f"{artifact_dir / 'meta.json'}: {err}") from err
+        options = ort.SessionOptions()
+        if threads is not None:
+            options.intra_op_num_threads = int(threads)
+        try:
+            session = ort.InferenceSession(
+                str(model), sess_options=options, providers=["CPUExecutionProvider"]
+            )
+        except Exception as err:  # onnxruntime has its own exception types for files it cannot load
+            raise ValueError(f"{model} is not a loadable ONNX model: {err}") from err
+        try:
+            inspector = cls(session, meta)
+        except ValueError as err:
+            raise ValueError(f"{artifact_dir} ({model.name}): {err}") from err
+        inspector.precision = precision
+        inspector.threads = None if threads is None else int(threads)
+        return inspector
+
+    def run(self, image: Image.Image | np.ndarray) -> tuple[float, np.ndarray]:
+        """(image score, float32 map [M, M]) of one image."""
+        score, amap = self.session.run(["score", "map"], {"image": preprocess(image, self.size)})
+        score = np.asarray(score, dtype=np.float32).reshape(-1)
+        amap = np.asarray(amap, dtype=np.float32)
+        if score.shape != (1,) or amap.shape != (1, self.map_size, self.map_size):
+            raise ValueError(
+                f"model returned score {score.shape} and map {amap.shape}, "
+                f"expected (1,) and (1, {self.map_size}, {self.map_size})"
+            )
+        if not np.isfinite(score).all():
+            raise FloatingPointError("the anomaly score is not finite")
+        return float(score[0]), amap[0]
+
+    def inspect(self, image: Image.Image | np.ndarray, *, heatmap: bool = True) -> Inspection:
+        score, amap = self.run(image)
+        return Inspection(
+            score=score,
+            threshold=self.threshold,
+            is_defect=score > self.threshold,
+            heatmap=amap if heatmap else None,
+        )
+
+    def scores(self, images: np.ndarray) -> np.ndarray:
+        """Image scores float32 [N] of uint8 images [N, S, S, 3] that are already at the input size."""
+        out = np.empty(len(images), dtype=np.float32)
+        for i, image in enumerate(images):
+            out[i] = self.run(image)[0]
+        return out
+
+    def set_threshold(self, value: float) -> None:
+        if not _is_finite_number(value):
+            raise ValueError(f"the threshold must be a finite number, got {value!r}")
+        self.threshold = float(value)
+        self.meta["threshold"] = float(value)
+
+    def calibrate(self, images: Sequence[Image.Image | np.ndarray], alpha: float = 0.05) -> float:
+        """Set the threshold from normal images of the current condition (conformal rank at `alpha`)."""
+        if len(images) == 0:
+            raise ValueError("calibration needs at least one normal image")
+        scores = np.array([self.run(image)[0] for image in images], dtype=np.float32)
+        thr = conformal_threshold(scores, alpha)
+        self.set_threshold(thr.value)
+        self.meta["alpha"] = float(alpha)
+        self.meta["calibration"] = {
+            "strategy": "holdout",
+            "n": len(images),
+            "guaranteed": bool(thr.guaranteed),
+        }
+        return self.threshold
+
+
 def save_artifact(
     artifact_dir: Path, *, onnx_fp32: Path, bank: np.ndarray, meta: dict, onnx_int8: Path | None = None
 ) -> None:

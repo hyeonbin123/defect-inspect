@@ -18,3 +18,6 @@
 {"time": "2026-10-01T09:25:26+00:00", "commit": "5f8759b+dirty", "stage": "4", "config": "export-serving-wrn50-256-r0.01", "note": "stage 4 test: CPU pipeline of the serving configuration, FP32 and INT8"}
 {"time": "2026-10-01T10:22:25+00:00", "commit": "28c1fbb+dirty", "stage": "5", "config": "examples-dm", "note": "README example panel: images and masks of the picked rows read for a figure only, no scores"}
 {"time": "2026-10-01T10:22:30+00:00", "commit": "28c1fbb+dirty", "stage": "5", "config": "examples-p0", "note": "README example panel: images and masks of the picked rows read for a figure only, no scores"}
+{"time": "2026-10-03T09:43:24+00:00", "commit": "f1466fd", "stage": "cache", "config": "cache-280", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-10-03T09:48:02+00:00", "commit": "f1466fd+dirty", "stage": "cache", "config": "cache-294", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-10-03T09:54:28+00:00", "commit": "f1466fd+dirty", "stage": "cache", "config": "cache-308", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}

@@ -692,13 +692,16 @@ def toy_project(tmp_path, monkeypatch):
     cache = FakeCache(manifest, ledger=ledger)
     built = []
     initial = []
+    sizes = []
+    options = []
 
     def fake_cache(root, size):
-        assert size == run_dinomaly.IMG_SIZE == 392
+        sizes.append(size)
         return cache
 
-    def fake_build(encoder_name=run_dinomaly.ENCODER):
+    def fake_build(encoder_name=run_dinomaly.ENCODER, **build_options):
         built.append((encoder_name, TinyModel()))
+        options.append(build_options)
         initial.append(built[-1][1].decoder.weight.detach().clone())
         return built[-1][1]
 
@@ -715,6 +718,8 @@ def toy_project(tmp_path, monkeypatch):
         "initial": initial,
         "ledger": ledger,
         "outputs": tmp_path / "outputs",
+        "sizes": sizes,
+        "options": options,
     }
 
 
@@ -726,6 +731,8 @@ def test_cli_train_then_eval_dev(toy_project, capsys):
     outputs = toy_project["outputs"]
     torch.manual_seed(123)
     run_dinomaly.main(TRAIN_ARGS + TOY)
+    # The stage 2 model: the 392 px cache and anomalib's model without any option.
+    assert toy_project["sizes"] == [run_dinomaly.IMG_SIZE] == [392] and toy_project["options"] == [{}]
 
     # Trained on the dev normal pool (folds 1-4) only: no fold-0 normal, no defect, no test image.
     pool = [f"toy/n{i}.JPG" for i in range(40) if i % 5 != 0]
@@ -926,3 +933,182 @@ def test_cli_eval_precision_follows_the_training_run(toy_project, monkeypatch):
     asked_amp, config = evaluate(None, "--no-amp")
     assert asked_amp is False and config["train_amp"] is None
     assert evaluate(None, "--amp")[0] is True
+
+
+# ---------------------------------------------------------------- stage 6: configurations and the gate
+
+
+def test_registered_configs():
+    configs = run_dinomaly.CONFIGS
+    assert set(configs) == {"dm", "dms-252", "dms-280", "dms-294", "dms-308", "dms-252-car", "dms-280-car"}
+    dm = configs["dm"]
+    # Stage 2 is unchanged: the constants it was registered with, and no option for build_model.
+    assert (dm.encoder, dm.img_size, dm.steps, dm.batch_size) == (run_dinomaly.ENCODER, 392, 5000, 16)
+    assert dm.build_options() == {} and dm.build_options("original") == {}
+    for name, cfg in configs.items():
+        if name == "dm":
+            continue
+        size = int(name.split("-")[1])
+        assert cfg.encoder == run_dinomaly.ENCODER_S == "vit_small_patch14_reg4_dinov2"
+        assert (cfg.img_size, cfg.steps, cfg.batch_size, cfg.encoder_blocks) == (size, 10_000, 16, 10)
+        assert cfg.fixed_size and cfg.context_recentering == name.endswith("-car")
+        expected = {"img_size": size, "encoder_blocks": 10, "attention": "scaled"}
+        if cfg.context_recentering:
+            expected["context_recentering"] = True
+        assert cfg.build_options() == expected
+        assert "attention" not in cfg.build_options("original")
+        assert cfg.build_options("fp32")["attention"] == "fp32"
+    with pytest.raises(ValueError):
+        configs["dms-280"].build_options("fast")
+
+
+def test_gate_verdict():
+    ref = [1.0] * 30
+    ok = run_dinomaly.gate_verdict(ref, [1.02] * 30, skipped=0)
+    assert ok["passed"] and ok["window_rel_diff"] == pytest.approx([0.02] * 3)
+    # One noisy step inside a window passes when the window mean stays within 3%.
+    noisy = [1.0] * 30
+    noisy[4] = 1.25
+    assert run_dinomaly.gate_verdict(ref, noisy, skipped=0)["passed"]
+    assert not run_dinomaly.gate_verdict(ref, [1.0] * 20 + [1.04] * 10, skipped=0)["passed"]
+    assert not run_dinomaly.gate_verdict(ref, [1.0] * 30, skipped=1)["passed"]
+    assert not run_dinomaly.gate_verdict(ref, [1.0] * 29 + [float("nan")], skipped=0)["passed"]
+    short = run_dinomaly.gate_verdict(ref, [1.0] * 14, skipped=0)
+    assert not short["passed"] and "14 of 30" in short["reason"]
+    with pytest.raises(ValueError):
+        run_dinomaly.gate_verdict([1.0] * 25, [1.0] * 25, skipped=0)
+
+
+def test_attention_parity_and_save_load_of_a_stage6_model(monkeypatch, tmp_path):
+    timm = pytest.importorskip("timm")
+    import timm.models.vision_transformer as vit
+
+    from defect_inspect.dinomaly_model import attention_mode
+
+    real_create = timm.create_model
+
+    def create_without_download(name, *args, **kwargs):
+        kwargs["pretrained"] = False
+        return real_create(name, *args, **kwargs)
+
+    monkeypatch.setattr(timm, "create_model", create_without_download)
+    monkeypatch.setattr(vit, "resample_abs_pos_embed", vit.resample_abs_pos_embed)
+    cfg = run_dinomaly.CONFIGS["dms-252-car"]
+    size = 56
+    options = {**cfg.build_options(), "img_size": size}
+
+    def build(attention):
+        return run_dinomaly.build_model(cfg.encoder, **{**options, "attention": attention})
+
+    images = _images(12, seed=7, size=size)
+    result = run_dinomaly.attention_parity(build, images, steps=2, batch_size=4, device="cpu")
+    assert result["passed"] and len(result["loss_rel_diff"]) == 2
+    assert max(result["loss_rel_diff"]) <= 1e-5 and result["map_abs_diff"] <= 1e-5
+    assert result["losses_original"] == pytest.approx(result["losses_scaled"], rel=1e-5)
+
+    torch.manual_seed(0)
+    model = run_dinomaly.build_model(cfg.encoder, **options)
+    assert model.use_context_recentering and attention_mode(model) == "scaled"
+    assert len(model.encoder.feature_extractor.blocks) == 10
+    train(model, images, steps=2, batch_size=4, device="cpu", log_every=1)
+    path = tmp_path / "model.pt"
+    run_dinomaly.save_model(
+        path, model, encoder=cfg.encoder, steps=2, amp=False, config=cfg.name, options=options
+    )
+    torch.manual_seed(0)  # the same random "pretrained" encoder
+    loaded, meta = run_dinomaly.load_model(path)
+    assert meta == {"encoder": cfg.encoder, "steps": 2, "amp": False, "config": cfg.name, "options": options}
+    assert loaded.use_context_recentering and attention_mode(loaded) == "scaled"
+    assert loaded.fixed_img_size == size and len(loaded.encoder.feature_extractor.blocks) == 10
+    a = predict(model, images[:3], batch_size=3, device="cpu", amp=False)
+    b = predict(loaded, images[:3], batch_size=3, device="cpu", amp=False)
+    assert np.array_equal(a.image_scores, b.image_scores)
+
+
+def test_cli_trains_and_evaluates_a_stage6_config(toy_project, capsys):
+    outputs = toy_project["outputs"]
+    run_dinomaly.main(TRAIN_ARGS + TOY + ["--config", "dms-280"])
+    assert toy_project["sizes"] == [280]
+    assert toy_project["options"] == [{"img_size": 280, "encoder_blocks": 10, "attention": "scaled"}]
+    info = json.loads((outputs / "dms-280" / "train.json").read_text(encoding="utf-8"))
+    cfg = info["config"]
+    assert (cfg["name"], cfg["encoder"], cfg["img_size"]) == ("dms-280", run_dinomaly.ENCODER_S, 280)
+    assert cfg["steps"] == 6 and cfg["attention"] == "scaled" and "gate" not in cfg
+    saved = torch.load(outputs / "dms-280" / "model.pt", map_location="cpu", weights_only=True)
+    assert saved["config"] == "dms-280" and saved["options"] == toy_project["options"][0]
+
+    # A dm evaluation cannot pick up the stage 6 model, and the other way round.
+    stage6_model = ["--model", str(outputs / "dms-280" / "model.pt")]
+    with pytest.raises(SystemExit):
+        run_dinomaly.main(["eval", "--protocol", "dev", "--device", "cpu"] + TOY + stage6_model)
+    run_dinomaly.main(TRAIN_ARGS + TOY)
+    dm_model = ["--model", str(outputs / "dm" / "model.pt")]
+    with pytest.raises(SystemExit):
+        run_dinomaly.main(
+            ["eval", "--protocol", "dev", "--device", "cpu", "--config", "dms-280"] + TOY + dm_model
+        )
+    capsys.readouterr()
+
+    base = ["eval", "--protocol", "test", "--device", "cpu", "--config", "dms-280", "--no-amp"] + TOY
+    run_dinomaly.main(base + ["--allow-test", "--stage", "6"])
+    run = json.loads((outputs / "dms-280-test" / "run.json").read_text(encoding="utf-8"))
+    assert run["config"]["name"] == "dms-280" and run["config"]["img_size"] == 280
+    assert run["config"]["options"] == toy_project["options"][0]
+    assert run["config"]["score_precision"] == "fp32"
+    assert toy_project["sizes"][-1] == 280
+    line = json.loads(toy_project["ledger"].read_text(encoding="utf-8").splitlines()[-1])
+    assert line["stage"] == "6" and line["config"] == "dms-280"
+
+
+def test_cli_train_takes_precision_and_attention_from_a_gate_file(toy_project, tmp_path):
+    outputs = toy_project["outputs"]
+    gate = tmp_path / "gate.json"
+    gate.write_text(json.dumps({"config": "dms-280", "choice": {"amp": True, "attention": "fp32"}}), "utf-8")
+    base = TRAIN_ARGS + TOY + ["--config", "dms-308"]
+    run_dinomaly.main(base + ["--precision-from", str(gate)])
+    info = json.loads((outputs / "dms-308" / "train.json").read_text(encoding="utf-8"))
+    assert info["config"]["attention"] == "fp32" and toy_project["options"][-1]["attention"] == "fp32"
+    assert info["config"]["gate"]["file"] == str(gate) and len(info["config"]["gate"]["sha256"]) == 64
+    assert info["config"]["amp"] is False  # asked for fp16, but the CPU has no fp16 autocast
+
+    again = base + ["--overwrite", "--precision-from", str(gate)]
+    for extra in (["--no-amp"], ["--attention", "scaled"]):
+        with pytest.raises(SystemExit):
+            run_dinomaly.main(again + extra)
+    gate.write_text("{}", "utf-8")
+    with pytest.raises(SystemExit):
+        run_dinomaly.main(again)
+    with pytest.raises(SystemExit):  # the encoder of a registered stage 6 config is fixed
+        run_dinomaly.main(TRAIN_ARGS + TOY + ["--config", "dms-252", "--encoder", run_dinomaly.ENCODER])
+
+
+def test_cli_gate_needs_cuda(toy_project):
+    with pytest.raises(SystemExit):
+        run_dinomaly.main(["gate", "--device", "cpu"] + TOY)
+    assert toy_project["sizes"] == []
+
+
+def test_run_gate_picks_the_first_fp16_variant_that_passes(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(build, attention, amp, images, *, log_path, **common):
+        calls.append((attention, amp))
+        losses = [1.0] * 20
+        if attention == "scaled":
+            losses = [1.0] * 10 + [1.2] * 10  # too far from fp32
+        return {"attention": attention, "amp": amp, "error": "", "losses": losses, "skipped": 0}
+
+    monkeypatch.setattr(run_dinomaly, "_gate_run", fake_run)
+    result = run_dinomaly.run_gate(None, None, out_dir=tmp_path, steps=20)
+    assert calls == [("original", False), ("scaled", True), ("fp32", True)]
+    assert result["choice"] == {"amp": True, "attention": "fp32"}
+    assert [v["verdict"]["passed"] for v in result["variants"]] == [False, True]
+
+    def failing(build, attention, amp, images, *, log_path, **common):
+        losses, error = ([1.0] * 5, "non-finite loss") if amp else ([1.0] * 20, "")
+        return {"attention": attention, "amp": amp, "error": error, "losses": losses, "skipped": 0}
+
+    monkeypatch.setattr(run_dinomaly, "_gate_run", failing)
+    result = run_dinomaly.run_gate(None, None, out_dir=tmp_path, steps=20)
+    assert result["choice"] == {"amp": False, "attention": "original"}
+    assert all(not v["verdict"]["passed"] for v in result["variants"])

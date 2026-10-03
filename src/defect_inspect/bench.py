@@ -3,6 +3,9 @@
 The CPU latency that the serving budget is judged on is resize + inference: `resize_ms` (a camera-sized
 photo down to the input size) plus the median of the inference path. Every `cpu_<precision>` entry of the
 latency file carries that sum as `total_with_resize_ms` (`analyze_grid` adds the same two numbers).
+
+A reconstruction (Dinomaly) artifact has no bank: its inference path is the normalisation and one ONNX
+call that returns the score and the map (`time_reconstruction`).
 """
 
 import argparse
@@ -15,7 +18,13 @@ import numpy as np
 from PIL import Image
 
 from . import paths
-from .inspector import Inspector, score_map
+from .inspector import (
+    RECONSTRUCTION,
+    RECONSTRUCTION_PRECISIONS,
+    Inspector,
+    ReconstructionInspector,
+    score_map,
+)
 
 RESIZE_SOURCE = (1500, 1000)  # width, height of the photo whose resize is added to the CPU latency
 
@@ -63,6 +72,35 @@ def time_inspector(inspector: Inspector, images: np.ndarray, *, warmup: int = 5,
         threads=getattr(inspector, "threads", None),  # None = onnxruntime's default
     )
     return out
+
+
+def time_reconstruction(inspector, images: np.ndarray, *, warmup: int = 5, repeats: int = 50) -> dict:
+    """Latency of a reconstruction inspector on uint8 images [N, S, S, 3] (cycled), in milliseconds.
+
+    One call covers the normalisation and the ONNX model, which returns the score and the map. The
+    first `warmup` calls are not timed; `total_ms` is the median over `repeats` timed calls.
+    """
+    if len(images) == 0:
+        raise ValueError("need at least one image")
+    if warmup < 0 or repeats < 1:
+        raise ValueError(f"need warmup >= 0 and repeats >= 1, got {warmup} and {repeats}")
+    total = []
+    for i in range(warmup + repeats):
+        image = images[i % len(images)]
+        t0 = time.perf_counter()
+        inspector.run(image)
+        t1 = time.perf_counter()
+        if i >= warmup:
+            total.append((t1 - t0) * 1e3)
+    stats = _stats(total)
+    return {
+        "total_ms": stats["median"],
+        "total_p95_ms": stats["p95"],
+        "repeats": repeats,
+        "kind": RECONSTRUCTION,
+        "precision": inspector.precision,
+        "threads": getattr(inspector, "threads", None),
+    }
 
 
 class _TorchScorer:
@@ -225,7 +263,13 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--artifacts", type=Path, required=True, help="artifact set directory")
     parser.add_argument("--category", default="pcb1")
-    parser.add_argument("--precision", nargs="+", default=["fp32"], choices=["fp32", "int8"])
+    parser.add_argument(
+        "--precision",
+        nargs="+",
+        default=["fp32"],
+        choices=sorted({"fp32", "int8", *RECONSTRUCTION_PRECISIONS}),
+        help="fp32 and int8 (PatchCore artifacts) or fp32 and int8-dynamic (reconstruction artifacts)",
+    )
     parser.add_argument(
         "--threads", type=int, default=None, help="onnxruntime intra-op threads (default: its own)"
     )
@@ -246,6 +290,13 @@ def main(argv: list[str] | None = None) -> None:
     rows = select(manifest, protocol="dev", part="pool_normal", category=args.category)[: args.images]
     images = ImageCache(paths.CACHE, meta["img_size"]).images(rows)
 
+    reconstruction = meta.get("kind") == RECONSTRUCTION
+    allowed = set(RECONSTRUCTION_PRECISIONS) if reconstruction else {"fp32", "int8"}
+    if not set(args.precision) <= allowed:
+        parser.error(f"precisions of this artifact: {sorted(allowed)}")
+    if reconstruction and args.gpu:
+        parser.error("--gpu times the PatchCore torch pipeline; a reconstruction artifact has none")
+
     resize_ms = time_resize(meta["img_size"])
     entry: dict = {
         "category": args.category,
@@ -254,6 +305,17 @@ def main(argv: list[str] | None = None) -> None:
         "resize_ms": resize_ms,
         "resize_source": list(RESIZE_SOURCE),
     }
+    if reconstruction:
+        entry["artifacts"] = str(args.artifacts)
+        entry["source"] = meta.get("source")
+        for precision in args.precision:
+            inspector = ReconstructionInspector.load(art_dir, precision=precision, threads=args.threads)
+            timing = time_reconstruction(inspector, images, repeats=len(images))
+            timing["total_with_resize_ms"] = resize_ms + timing["total_ms"]
+            entry[f"cpu_{precision}"] = timing
+        data = merge_into(latency_path, args.key, entry)
+        print(json.dumps({args.key: data[args.key]}, ensure_ascii=False, indent=2))
+        return
     for precision in args.precision:
         inspector = Inspector.load(art_dir, precision=precision, threads=args.threads)
         timing = time_inspector(inspector, images, repeats=len(images))
