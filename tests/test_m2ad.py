@@ -475,3 +475,12 @@ def test_count_table_lists_every_label(tmp_path):
     assert motor_000.split()[2:] == ["1/2/1"] * 10
     motor_120 = next(line for line in table if line.startswith("Motor 120"))
     assert motor_120.split()[2:] == ["1/1/2"] * 10
+
+
+def test_illumination_groups_follow_the_sha256_order_of_the_labels():
+    a, b = m2ad.illumination_groups()
+    ranked = sorted((f"{i:02d}" for i in range(2, 11)), key=lambda s: hashlib.sha256(s.encode()).hexdigest())
+    assert a == tuple(sorted(ranked[:4])) and b == tuple(sorted(ranked[4:]))
+    # The registered split (docs/experiments.md, stage 7), written out.
+    assert a == ("03", "07", "08", "09") and b == ("02", "04", "05", "06", "10")
+    assert m2ad.REFERENCE not in a + b and sorted(a + b) == [f"{i:02d}" for i in range(2, 11)]

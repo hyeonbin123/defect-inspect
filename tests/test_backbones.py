@@ -237,3 +237,48 @@ def test_make_extractor_names():
     assert base.name == "dinov2_vitb14" and base.dim == 768
     with pytest.raises(ValueError):
         make_extractor("resnet18", img_size=256, pretrained=False)
+
+
+class _Shift(torch.nn.Module):
+    """Stand-in extractor: a fixed grid of features plus a per-image offset taken from the input."""
+
+    name = "shift"
+    dim = 2
+
+    def forward(self, x):
+        base = torch.arange(8, dtype=torch.float32).view(1, 2, 2, 2)
+        offset = x.mean(dim=(1, 2, 3)).view(-1, 1, 1, 1)
+        return (base + offset).to(x.dtype)
+
+
+def test_centred_patches_remove_each_images_mean_feature():
+    from defect_inspect.backbones import CentredPatches
+
+    centred = CentredPatches(_Shift())
+    assert centred.name == "shift-centred" and centred.dim == 2
+    x = torch.stack([torch.zeros(3, 4, 4), torch.full((3, 4, 4), 5.0)])
+    with torch.no_grad():
+        out = centred(x)
+    assert out.shape == (2, 2, 2, 2) and out.dtype == torch.float32
+    # The per-image offset is gone: both images give the same centred grid, with zero mean per channel.
+    assert torch.allclose(out[0], out[1])
+    assert torch.allclose(out.mean(dim=(1, 2)), torch.zeros(2, 2))
+    base = torch.arange(8, dtype=torch.float32).view(2, 2, 2)
+    assert torch.allclose(out[0], base - base.mean(dim=(0, 1), keepdim=True))
+    # Frozen like every extractor: no trainable parameter, and train() keeps eval mode.
+    assert not centred.train().training
+
+
+def test_make_extractor_wraps_in_centring_on_request():
+    from defect_inspect.backbones import CentredPatches
+
+    torch.manual_seed(0)
+    plain = make_extractor("wrn50", img_size=64, pretrained=False)
+    torch.manual_seed(0)
+    centred = make_extractor("wrn50", img_size=64, pretrained=False, centre=True)
+    assert isinstance(centred, CentredPatches) and centred.name == "wrn50-centred" and centred.dim == 1536
+    assert all(not p.requires_grad for p in centred.parameters())
+    x = torch.randn(2, 3, 64, 64)
+    with torch.no_grad():
+        a, b = plain(x), centred(x)
+    assert torch.allclose(b, a - a.mean(dim=(1, 2), keepdim=True), atol=1e-5)

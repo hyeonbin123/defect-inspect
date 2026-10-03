@@ -187,7 +187,8 @@ def main(argv: list[str] | None = None) -> None:
             paths.TEST_LEDGER, stage=args.stage, config=cfg.name, note=args.note, commit=commit
         )
 
-    extractor = make_extractor(cfg.backbone, img_size=cfg.img_size).to(args.device).eval()
+    extractor = make_extractor(cfg.backbone, img_size=cfg.img_size, centre=cfg.centre)
+    extractor = extractor.to(args.device).eval()
     summaries = []
     started = time.perf_counter()
     for category in args.categories:

@@ -119,11 +119,37 @@ class DinoV2Patches(_FrozenExtractor):
         return tokens.reshape(x.shape[0], h, w, tokens.shape[-1])
 
 
-def make_extractor(name: str, *, img_size: int, pretrained: bool = True) -> torch.nn.Module:
-    """Build an extractor by short name: "wrn50", "dinov2_vits14" or "dinov2_vitb14"."""
+class CentredPatches(_FrozenExtractor):
+    """Stage 7 (E1): another extractor's patch features minus each image's mean patch feature.
+
+    The mean is taken over the patch grid of one image, in fp32, so the same transform reaches the bank
+    and the queries. Nothing is learnt.
+    """
+
+    def __init__(self, inner: torch.nn.Module) -> None:
+        super().__init__()
+        self.inner = inner
+        self.name = f"{inner.name}-centred"
+        self.dim = int(inner.dim)
+        self._freeze()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        feats = self.inner(x).float()  # [B, H, W, D]
+        return feats - feats.mean(dim=(1, 2), keepdim=True)
+
+
+def make_extractor(
+    name: str, *, img_size: int, pretrained: bool = True, centre: bool = False
+) -> torch.nn.Module:
+    """Build an extractor by short name: "wrn50", "dinov2_vits14" or "dinov2_vitb14".
+
+    `centre=True` wraps it in CentredPatches (stage 7, E1).
+    """
     if name == "wrn50":
         # Fully convolutional: the grid follows the input size, so img_size is not needed here.
-        return WideResNetPatches(pretrained=pretrained)
-    if name in DINOV2_ARCHS:
-        return DinoV2Patches(DINOV2_ARCHS[name], img_size=img_size, pretrained=pretrained)
-    raise ValueError(f"unknown extractor {name!r}; expected one of {['wrn50', *DINOV2_ARCHS]}")
+        extractor = WideResNetPatches(pretrained=pretrained)
+    elif name in DINOV2_ARCHS:
+        extractor = DinoV2Patches(DINOV2_ARCHS[name], img_size=img_size, pretrained=pretrained)
+    else:
+        raise ValueError(f"unknown extractor {name!r}; expected one of {['wrn50', *DINOV2_ARCHS]}")
+    return CentredPatches(extractor) if centre else extractor

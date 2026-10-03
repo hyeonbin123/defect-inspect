@@ -18,13 +18,14 @@ import numpy as np
 from . import paths
 from .cache import ImageCache
 from .conditions import CLEAN, apply_condition, condition_names
-from .configs import get_config
+from .configs import get_config, same_config
 from .download import sha256_file
 from .ledger import git_commit, record_test_access
 from .splits import ManifestRow, read_manifest, select
 from .visa import CATEGORIES
 
-PATCHCORE_METHODS = ("p0", "d-s")
+# p0-c and d-s-c: the stage 7 (E1) centred variants, dev protocol only by the rules.
+PATCHCORE_METHODS = ("p0", "d-s", "p0-c", "d-s-c")
 DINOMALY = "dm"
 METHODS = (*PATCHCORE_METHODS, DINOMALY)
 # The clean scores must reproduce the source run's scores within this relative difference.
@@ -164,6 +165,19 @@ def dinomaly_scorer(model, device: str, batch_size: int, amp: bool) -> Scorer:
     return score
 
 
+def select_conditions(requested: list[str] | None = None) -> list[str]:
+    """The conditions to score, in the registered order: all of them, or `requested` (clean included)."""
+    names = condition_names()
+    if requested is None:
+        return names
+    unknown = sorted(set(requested) - set(names))
+    if unknown:
+        raise ValueError(f"unknown conditions {unknown}; known: {names}")
+    if CLEAN not in requested:
+        raise ValueError(f"the {CLEAN!r} condition is needed: it checks the source run's scores")
+    return [name for name in names if name in requested]
+
+
 def run_category(
     protocol: str,
     category: str,
@@ -175,17 +189,19 @@ def run_category(
     out_dir: Path,
     *,
     rtol: float = CLEAN_RTOL,
+    conditions: list[str] | None = None,
 ) -> dict:
     """Score one category's evaluation set under every condition and write `<category>.npz`.
 
-    The clean condition comes first and must reproduce `source.eval_score` (CleanScoreMismatch otherwise,
+    `conditions` defaults to all of them; a subset keeps the registered order and must hold the clean
+    condition. That comes first and must reproduce `source.eval_score` (CleanScoreMismatch otherwise,
     before any other condition is scored).
     """
     eval_normal, eval_defect = evaluation_rows(protocol, category, manifest, source, allow_test)
     rows = eval_normal + eval_defect
     names = [r.image for r in rows]
     labels = np.array([0] * len(eval_normal) + [1] * len(eval_defect), dtype=np.int8)
-    conditions = condition_names()
+    conditions = select_conditions(conditions)
     if conditions[0] != CLEAN:
         raise RuntimeError("the clean condition must come first")
 
@@ -274,10 +290,17 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--note", default="")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--conditions", nargs="+", default=None, help="a subset in the registered order (clean included)"
+    )
     args = parser.parse_args(argv)
 
     if args.protocol == "test" and (not args.allow_test or not args.stage):
         parser.error("--protocol test needs --allow-test and --stage")
+    try:
+        conditions = select_conditions(args.conditions)
+    except ValueError as err:
+        parser.error(str(err))
     if args.model is not None and args.method != DINOMALY:
         parser.error("--model is only used with --method dm")
     source_dir = args.source or paths.OUTPUTS / f"{args.method}-{args.protocol}"
@@ -347,7 +370,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         cfg = get_config(args.method)
         img_size = cfg.img_size
-        if source_config != asdict(cfg):
+        if not same_config(source_config, cfg):
             parser.error(
                 f"{source_dir} was not made with the registered config {cfg.name!r}: {source_config}"
             )
@@ -375,7 +398,8 @@ def main(argv: list[str] | None = None) -> None:
             )
         from .backbones import make_extractor
 
-        extractor = make_extractor(cfg.backbone, img_size=cfg.img_size).to(args.device).eval()
+        extractor = make_extractor(cfg.backbone, img_size=cfg.img_size, centre=cfg.centre)
+        extractor = extractor.to(args.device).eval()
         config = asdict(cfg)
 
         def scorer_for(category: str) -> Scorer:
@@ -412,6 +436,7 @@ def main(argv: list[str] | None = None) -> None:
             sources[category],
             args.allow_test,
             out_dir,
+            conditions=conditions,
         )
         info["peak_vram_mb"] = round(torch.cuda.max_memory_allocated() / 2**20, 1) if cuda else 0.0
         info["seconds"] = round(time.perf_counter() - t0, 1)
@@ -427,7 +452,7 @@ def main(argv: list[str] | None = None) -> None:
         "source_commit": source_meta.get("commit"),
         "source_device": source_meta.get("device"),
         "config": config,
-        "conditions": condition_names(),
+        "conditions": conditions,
         "clean_rtol": CLEAN_RTOL,
         "categories": summaries,
         "total_s": round(time.perf_counter() - started, 1),

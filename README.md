@@ -230,6 +230,16 @@ uv run python -m defect_inspect.dinomaly_serving score --artifacts artifacts/dms
 uv run python -m defect_inspect.analyze_stage6 supplement --clean outputs/dms-280-car-onnx-fp32-dev --conditions outputs/dms-280-car-onnx-fp32-dev-shift-1 outputs/dms-280-car-onnx-fp32-dev-blur-2 --int8 outputs/dms-280-car-onnx-int8-dynamic-dev
 uv run python -m defect_inspect.dinomaly_serving calibrate --artifacts artifacts/dms-280-car --scores outputs/dms-280-car-onnx-fp32-test   # 서비스용 임계값
 
+# 7단계: 조명 변화 대응(M2AD)과 라벨 없는 변화 감지
+uv run python -m defect_inspect.drift                     # 저장된 점수만 읽는다 (reports/stage7/drift.json)
+uv run python -m defect_inspect.run_m2ad_enrol val --method p0   # d-s 도. 학습 시편만 읽는다
+uv run python -m defect_inspect.analyze_m2ad_enrol val           # 후보 선택 (reports/stage7/val.json)
+uv run python -m defect_inspect.run_patchcore --config p0-c --protocol dev --save-bank   # d-s-c 도, E0은 --config p0 --out outputs/p0-dev7
+uv run python -m defect_inspect.run_perturb --method p0-c --protocol dev --conditions clean brightness-3 gamma-3
+uv run python -m defect_inspect.analyze_m2ad_enrol visa-dev
+uv run python -m defect_inspect.run_m2ad_enrol test --method p0 --pick-from reports/stage7/val.json --loop --allow-test --stage 7-m2ad
+uv run python -m defect_inspect.analyze_m2ad_enrol test
+
 # README 그림 (reports/ 의 리포트에서 docs/figures/*.png 를 다시 그린다)
 uv run python -m defect_inspect.figures
 uv run python -m defect_inspect.figures --examples outputs/dm-test --allow-test --name examples-dinomaly

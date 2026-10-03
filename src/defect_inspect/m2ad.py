@@ -144,6 +144,13 @@ def recal_specimens(specimens: Sequence[str], n: int) -> list[str]:
     return ordered[:n]
 
 
+def illumination_groups() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Stage 7: the nine non-reference illuminations in SHA-256 order of their two-digit label, cut into
+    the first four (group A) and the other five (group B). Each group is returned in label order."""
+    ranked = sorted((light for light in ILLUMINATIONS if light != REFERENCE), key=path_key)
+    return tuple(sorted(ranked[:4])), tuple(sorted(ranked[4:]))
+
+
 def count_table(rows: Sequence[M2adRow]) -> str:
     """Image counts per (category, split, label) and, for the test split, per view and illumination."""
     lines = [f"{'category':<10}{'split':<7}{'specimens':>10}{'normal':>8}{'defect':>8}{'excluded':>9}"]

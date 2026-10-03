@@ -650,7 +650,8 @@ def test_perturb_of_three_methods_keeps_its_legend_and_note_inside_the_figure(tm
 
 def test_scaled_strengths_follow_the_input_size_of_each_method():
     # The input sizes of stage 3, and the conditions that conditions.strength scales with them.
-    assert figures.INPUT_SIZES == {"p0": 256, "d-s": 448, "d-b": 448, "dm": 392}
+    # p0-c and d-s-c: the stage 7 centred variants, same input sizes as their base configs.
+    assert figures.INPUT_SIZES == {"p0": 256, "d-s": 448, "d-b": 448, "dm": 392, "p0-c": 256, "d-s-c": 448}
     assert figures._SCALED == ("blur", "shift")
     assert [figures._condition(f"P:{kind}-1")[0] for kind in ("gamma", "blur", "shift")] == [
         "gamma",

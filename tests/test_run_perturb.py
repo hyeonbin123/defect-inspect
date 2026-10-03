@@ -371,8 +371,8 @@ def _project(tmp_path, monkeypatch, categories=("toy",)):
         assert size == SIZE
         return cache
 
-    def fake_extractor(name, *, img_size, pretrained=True):
-        assert (name, img_size) == ("gridmean", SIZE)
+    def fake_extractor(name, *, img_size, pretrained=True, centre=False):
+        assert (name, img_size, centre) == ("gridmean", SIZE, CFG.centre)
         return extractor
 
     def fake_config(name):
@@ -838,3 +838,47 @@ def test_load_dinomaly_without_a_loader_follows_the_model_file_layout(tmp_path, 
     _save_dm(tmp_path / "odd.pt", 4.0, state_key="bias")
     with pytest.raises(ValueError, match="trainable parameters"):
         run_perturb.load_dinomaly(tmp_path / "odd.pt")
+
+
+# ---------------------------------------------------------------- stage 7: condition subsets, centred configs
+
+
+def test_select_conditions_keeps_the_registered_order_and_needs_clean():
+    assert run_perturb.select_conditions() == condition_names()
+    picked = run_perturb.select_conditions(["gamma-3", "clean", "brightness-3"])
+    assert picked == ["clean", "brightness-3", "gamma-3"]
+    with pytest.raises(ValueError, match="clean"):
+        run_perturb.select_conditions(["brightness-3"])
+    with pytest.raises(ValueError, match="unknown"):
+        run_perturb.select_conditions(["clean", "fog-1"])
+    assert {"p0-c", "d-s-c"} <= set(run_perturb.PATCHCORE_METHODS)
+
+
+def test_cli_scores_a_subset_of_the_conditions(toy_project):
+    outputs = toy_project.outputs
+    _make_source(outputs / "p0-dev", "dev")
+    run_perturb.main(DEV + ["--conditions", "gamma-3", "clean", "brightness-3"])
+    out = outputs / "perturb-p0-dev"
+    run = json.loads((out / "run.json").read_text(encoding="utf-8"))
+    assert run["conditions"] == ["clean", "brightness-3", "gamma-3"]
+    with np.load(out / "toy.npz") as z:
+        assert z["conditions"].tolist() == run["conditions"] and z["scores"].shape == (3, 14)
+    assert toy_project.extractor.batches == [8, 6] * 3
+    # Without the clean condition nothing is read: it is what checks the source run.
+    with pytest.raises(SystemExit):
+        run_perturb.main(DEV + ["--overwrite", "--conditions", "brightness-3"])
+    assert (out / "run.json").exists()
+
+
+def test_cli_accepts_a_source_recorded_before_the_centre_field(toy_project):
+    outputs = toy_project.outputs
+    _make_source(outputs / "p0-dev", "dev")
+    meta = json.loads((outputs / "p0-dev" / "run.json").read_text(encoding="utf-8"))
+    del meta["config"]["centre"]
+    (outputs / "p0-dev" / "run.json").write_text(json.dumps(meta), encoding="utf-8")
+    run_perturb.main(DEV + ["--conditions", "clean"])
+    # A source made with the centring on is not this config.
+    meta["config"]["centre"] = True
+    (outputs / "p0-dev" / "run.json").write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        run_perturb.main(DEV + ["--overwrite", "--conditions", "clean"])

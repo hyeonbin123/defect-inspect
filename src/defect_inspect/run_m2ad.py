@@ -270,7 +270,7 @@ def run_inspector(
 def _make_extractor(cfg: PatchCoreConfig, device: str):
     from .backbones import make_extractor
 
-    return make_extractor(cfg.backbone, img_size=cfg.img_size).to(device).eval()
+    return make_extractor(cfg.backbone, img_size=cfg.img_size, centre=cfg.centre).to(device).eval()
 
 
 def main(argv: list[str] | None = None) -> None:
