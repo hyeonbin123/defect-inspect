@@ -1,0 +1,31 @@
+{
+  "check": "parity",
+  "config": "dms-280",
+  "commit": "f8dd91c",
+  "device": "cpu",
+  "seed": 0,
+  "train_images": 4615,
+  "passed": true,
+  "tolerance": 1e-05,
+  "batch_size": 8,
+  "steps": 3,
+  "score_rel_diff": 0.0,
+  "map_abs_diff": 2.384185791015625e-07,
+  "loss_rel_diff": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "losses_original": [
+    1.0091495513916016,
+    1.0080915689468384,
+    0.8648872971534729
+  ],
+  "losses_scaled": [
+    1.0091495513916016,
+    1.0080915689468384,
+    0.8648872971534729
+  ],
+  "weight_abs_diff_after": 1.1920928955078125e-07,
+  "seconds": 52.0
+}

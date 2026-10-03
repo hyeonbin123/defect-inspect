@@ -1,0 +1,244 @@
+{
+  "dms-252-untrained": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 8.279299996502232,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "artifacts": "artifacts\\dms-252-untrained",
+    "source": {
+      "config": "dms-252",
+      "untrained": true,
+      "seed": 0,
+      "options": {
+        "img_size": 252,
+        "encoder_blocks": 10,
+        "attention": "scaled"
+      },
+      "onnx_sha256": "36129c5113ee108c8b1da8cba15fc5a8014acf188f4da0bddb4a62a83c2c2408"
+    },
+    "cpu_fp32": {
+      "total_ms": 130.496249999851,
+      "total_p95_ms": 137.54316000413382,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 138.77554999635322
+    },
+    "cpu_int8-dynamic": {
+      "total_ms": 112.44509999960428,
+      "total_p95_ms": 118.14529500625213,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "int8-dynamic",
+      "threads": null,
+      "total_with_resize_ms": 120.72439999610651
+    }
+  },
+  "dms-280-untrained": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 8.982449995528441,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "artifacts": "artifacts\\dms-280-untrained",
+    "source": {
+      "config": "dms-280",
+      "untrained": true,
+      "seed": 0,
+      "options": {
+        "img_size": 280,
+        "encoder_blocks": 10,
+        "attention": "scaled"
+      },
+      "onnx_sha256": "add56d38b914326d0d0c04494f561ce03289f228120ea33f266e554a8ffc90b5"
+    },
+    "cpu_fp32": {
+      "total_ms": 160.04414999770233,
+      "total_p95_ms": 381.3314650025858,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 169.02659999323077
+    },
+    "cpu_int8-dynamic": {
+      "total_ms": 139.07545000256505,
+      "total_p95_ms": 154.12017499329522,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "int8-dynamic",
+      "threads": null,
+      "total_with_resize_ms": 148.0578999980935
+    }
+  },
+  "dms-294-untrained": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.262450003006961,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "artifacts": "artifacts\\dms-294-untrained",
+    "source": {
+      "config": "dms-294",
+      "untrained": true,
+      "seed": 0,
+      "options": {
+        "img_size": 294,
+        "encoder_blocks": 10,
+        "attention": "scaled"
+      },
+      "onnx_sha256": "423c27ebcaddd1e889a1b8c6bb1fc2de364ee8e101a493b3d87efe583c2dde2c"
+    },
+    "cpu_fp32": {
+      "total_ms": 167.59119999915129,
+      "total_p95_ms": 198.88900500009186,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 176.85365000215825
+    },
+    "cpu_int8-dynamic": {
+      "total_ms": 150.29230000800453,
+      "total_p95_ms": 165.9069799934514,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "int8-dynamic",
+      "threads": null,
+      "total_with_resize_ms": 159.5547500110115
+    }
+  },
+  "dms-308-untrained": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.686199999123346,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "artifacts": "artifacts\\dms-308-untrained",
+    "source": {
+      "config": "dms-308",
+      "untrained": true,
+      "seed": 0,
+      "options": {
+        "img_size": 308,
+        "encoder_blocks": 10,
+        "attention": "scaled"
+      },
+      "onnx_sha256": "84d69ffae6f5999bac0ebe409be6886e5b3ec08f448564cdbfeb063b251b0a75"
+    },
+    "cpu_fp32": {
+      "total_ms": 187.84365000465186,
+      "total_p95_ms": 212.19532000468462,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 197.5298500037752
+    },
+    "cpu_int8-dynamic": {
+      "total_ms": 172.77650000323774,
+      "total_p95_ms": 190.4705049935728,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "int8-dynamic",
+      "threads": null,
+      "total_with_resize_ms": 182.4627000023611
+    }
+  },
+  "dms-252-car-untrained": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 8.398849997320212,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "artifacts": "artifacts\\dms-252-car-untrained",
+    "source": {
+      "config": "dms-252-car",
+      "untrained": true,
+      "seed": 0,
+      "options": {
+        "img_size": 252,
+        "encoder_blocks": 10,
+        "context_recentering": true,
+        "attention": "scaled"
+      },
+      "onnx_sha256": "35c0f904613f67138cf7957f62d4816a21f4a47dc0dbfa365d8df135241773e5"
+    },
+    "cpu_fp32": {
+      "total_ms": 126.51720000576461,
+      "total_p95_ms": 134.77861000210396,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 134.91605000308482
+    },
+    "cpu_int8-dynamic": {
+      "total_ms": 109.80089999793563,
+      "total_p95_ms": 113.15717999605113,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "int8-dynamic",
+      "threads": null,
+      "total_with_resize_ms": 118.19974999525584
+    }
+  },
+  "dms-280-car-untrained": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 9.097050002310425,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "artifacts": "artifacts\\dms-280-car-untrained",
+    "source": {
+      "config": "dms-280-car",
+      "untrained": true,
+      "seed": 0,
+      "options": {
+        "img_size": 280,
+        "encoder_blocks": 10,
+        "context_recentering": true,
+        "attention": "scaled"
+      },
+      "onnx_sha256": "c2a65c6a291062c41b56b87c62140dfb1872279783fb0949f269a95ec485c5a2"
+    },
+    "cpu_fp32": {
+      "total_ms": 153.77565000380855,
+      "total_p95_ms": 172.99763500559493,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 162.87270000611898
+    },
+    "cpu_int8-dynamic": {
+      "total_ms": 137.56705000560032,
+      "total_p95_ms": 156.0481200052891,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "int8-dynamic",
+      "threads": null,
+      "total_with_resize_ms": 146.66410000791075
+    }
+  }
+}
