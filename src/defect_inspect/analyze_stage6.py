@@ -217,6 +217,7 @@ def sealed_report(
                 "macro_image_auroc_ci",
                 "macro_aupro",
                 "macro_aupro_ci",
+                "macro_pixel_auroc",
                 "fixed_threshold",
             )
         },

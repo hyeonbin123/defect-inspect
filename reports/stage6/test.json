@@ -35,6 +35,7 @@
       0.9418725460616811,
       0.9664351314232285
     ],
+    "macro_pixel_auroc": 0.9914002660744435,
     "fixed_threshold": {
       "calibration": "holdout",
       "n_cal": 1158,

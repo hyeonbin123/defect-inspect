@@ -144,6 +144,10 @@ def test_sealed_report_judges_h16_and_h17(tmp_path):
     assert report["name"] == "dms-280" and report["H17"]["verdict"] == "지지"
     assert report["onnx_fp32"]["macro_image_auroc"] > report["serving_patchcore_auroc"]
     assert report["score_rel_diff_onnx_vs_torch"]["max"] == 0.0
+    # The registered torch metrics include the mean pixel AUROC next to the per-category values.
+    per_cat = [v["pixel_auroc"] for v in report["torch_per_category"].values()]
+    assert report["torch"]["macro_pixel_auroc"] == pytest.approx(np.mean(per_cat))
+    assert report["torch"]["macro_pixel_auroc"] == pytest.approx(0.9)
     # The same scores and calibration normals: the torch thresholds give the ONNX pipeline's own rates.
     own = report["onnx_fp32"]["fixed_threshold"]
     assert report["onnx_at_torch_thresholds"]["fpr"] == pytest.approx(own["fpr"])
