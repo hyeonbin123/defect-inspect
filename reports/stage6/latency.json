@@ -240,5 +240,49 @@
       "threads": null,
       "total_with_resize_ms": 146.66410000791075
     }
+  },
+  "dms-280-car": {
+    "category": "pcb1",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "threads": null,
+    "resize_ms": 7.964699994772673,
+    "resize_source": [
+      1500,
+      1000
+    ],
+    "artifacts": "artifacts\\dms-280-car",
+    "source": {
+      "config": "dms-280-car",
+      "untrained": false,
+      "model": "outputs\\dms-280-car\\model.pt",
+      "model_sha256": "d1f8e6e5a8746950a30973bd255c8e0032b1246abf5e4de91fc15ba2469145ab",
+      "train_steps": 10000,
+      "train_amp": true,
+      "options": {
+        "img_size": 280,
+        "encoder_blocks": 10,
+        "context_recentering": true,
+        "attention": "scaled"
+      },
+      "onnx_sha256": "3bcf8e04d771681178103bb23b2384455548d9dbf336ecfb9736a1ba343c2382"
+    },
+    "cpu_fp32": {
+      "total_ms": 141.69379999657394,
+      "total_p95_ms": 149.70218500238843,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "fp32",
+      "threads": null,
+      "total_with_resize_ms": 149.65849999134662
+    },
+    "cpu_int8-dynamic": {
+      "total_ms": 115.18454999895766,
+      "total_p95_ms": 116.36294500203803,
+      "repeats": 50,
+      "kind": "reconstruction",
+      "precision": "int8-dynamic",
+      "threads": null,
+      "total_with_resize_ms": 123.14924999373034
+    }
   }
 }

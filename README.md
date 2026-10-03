@@ -17,10 +17,10 @@
 | 1. 결함 라벨 몇 장부터 지도 학습이 이기나 | 범주당 결함 5장(검증 포함 25장)이면 Dinomaly와 구별되지 않고, 20장(검증 포함 40장)부터 분명히 앞선다(+1.6%p). 그러나 k = 5·10에서 학습에 없던 결함 유형만 보면 2.1~3.5%p 뒤진다(k = 20 이상은 그런 결함이 거의 남지 않아 재지 못했다) |
 | 2. 정상 이미지로 고정한 임계값은 목표를 지키나 | 빼 둔 정상으로 잡으면 목표 5%에 실제 5.6%로 유한표본 이론 구간(3.6~6.3%) 안이고, 교차 적합은 4.0%로 목표를 넘지 않는 보수적인 쪽이다. 뱅크를 만든 이미지로 잡으면 86%다. 단, 촬영 조건이 그대로일 때만 그렇다. WideResNet PatchCore 기준으로 조명이 바뀌면(M2AD) 97%, 20~30% 어두워지면(VisA) 15~41%가 된다. M2AD에서 새 조명의 정상 30장을 뱅크에 더하고 임계값을 다시 잡으면 4.4%로 돌아온다(8장으로도 3.5%) |
 | 3. 합성 교란이 실제 조명 변화를 대신하나 | 미리 적은 가설("합성 교란은 실제 조명 변화의 절반에도 못 미친다")은 기각됐다. 가장 센 흐림·JPEG는 실제 조명 변화(평균 +95%p)의 85% 안팎까지 오검출을 늘렸다. 그러나 조명을 흉내 낸 밝기 배율(+14%p)과 감마(+52%p)는 실제 조명(모든 조건 +78%p 이상)에 못 미쳐, 밝기 교란만으로는 실제 조명 변화를 어림할 수 없다(이 부분은 규칙 밖의 해석이다) |
-| 4. CPU 200ms 안에 들면서 기준을 지키는 구성이 남나 | 규칙대로 고른 구성(PatchCore WRN-50 256px, 코어셋 1%)은 기준을 지키지 못했다(가설 기각). 배포용 뱅크로 CPU 214ms이고, AUROC가 Dinomaly보다 6.8%p 낮다. dev에서 200ms 안에 든 다섯 구성 모두 dev AUROC가 Dinomaly보다 5%p 넘게 낮았다. INT8은 점수가 크게 달라져 쓸 수 없었다 |
+| 4. CPU 200ms 안에 들면서 기준을 지키는 구성이 남나 | PatchCore로는 남지 않았다. 4단계에서 규칙대로 고른 구성(WRN-50 256px, 코어셋 1%)은 배포용 뱅크로 CPU 214ms이고 AUROC가 Dinomaly보다 6.8%p 낮아 기준을 지키지 못했다(가설 기각). INT8은 점수가 크게 달라져 쓸 수 없었다. 6단계에서 Dinomaly의 인코더를 DINOv2 ViT-S로 줄여 280px로 학습한 모델은 세 기준을 모두 지켰다(가설 지지): CPU 150ms, 실제 오검출률 4.3%, AUROC 96.5로 GPU Dinomaly(96.8)와 0.3%p 차이, PatchCore보다 +6.4%p [+5.1, +7.8] |
 
 ## 결과
-0~4단계를 모두 쟀다. 자세한 표와 판정, 규칙 변경 기록은 [docs/experiments.md](docs/experiments.md)에 있다.
+0~4단계와 6단계를 쟀다(5단계는 이 README와 그림이다). 자세한 표와 판정, 규칙 변경 기록은 [docs/experiments.md](docs/experiments.md)에 있다.
 
 **기준선 (PatchCore, WideResNet-50, 256px).** VisA 공식 `2cls_highshot` 테스트(정상 3,848장, 결함 480장)에서 평균 이미지 AUROC 89.3 [87.8, 90.8], AUPRO 90.5. 결함의 95%를 잡으려면 정상의 34%를 불량으로 돌려야 한다.
 
@@ -110,6 +110,23 @@
 
 ![PatchCore 구성별 CPU 지연과 dev AUROC](docs/figures/grid.png)
 
+**CPU 서빙 모델을 Dinomaly ViT-S로 바꾸면** (6단계. 학습하지 않은 모델로 CPU 지연 관문을 먼저 열고, 통과한 네 모델(252·280·308px, 280px + CAR)을 학습해 dev로 하나를 고른 뒤, 그 모델만 봉인 테스트로 잼)
+
+| 구성 | 이미지 AUROC | 실제 오검출률 (목표 5%) | 검출률 | CPU 지연 (Ryzen 5 3600) |
+|---|---|---|---|---|
+| PatchCore WRN-50 256px, 코어셋 1% (4단계 서빙 구성), onnxruntime CPU FP32 | 90.0 [88.5, 91.5] | 4.2% | 67.1% | 214ms (배포용 뱅크) |
+| **Dinomaly ViT-S 280px + CAR (6단계), onnxruntime CPU FP32** | **96.5 [95.5, 97.3]** | 4.3% | 83.3% | **150ms** |
+| Dinomaly ViT-B 392px (2단계, 참고), torch GPU | 96.8 [96.1, 97.5] | 4.9% | 80.2% | 재지 않음 |
+
+(CPU 지연은 원본 1500×1000 사진의 리사이즈(약 8ms)를 포함한 장당 중앙값이고, CPU가 한가할 때 쟀다. 6단계 모델의 임계값은 학습에 쓰지 않은 정상(겹 0)으로 정했다)
+
+- 미리 적은 두 가설이 모두 지지됐다. "CPU 200ms + 오검출률 6% 이하 + GPU Dinomaly보다 2%p 넘게 낮지 않음"을 함께 만족했고, 서빙 PatchCore보다 AUROC가 +6.4%p [+5.1, +7.8] 높다. 차이는 작은 결함이 많은 macaroni2(+28.8), capsules(+16.0), macaroni1(+13.3)에서 크다
+- 인코더를 ViT-S로 줄이고, 읽지 않는 마지막 두 블록을 자르고, 입력 크기를 고정해 ONNX로 내보냈다. 메모리 뱅크가 없어서 dev에서 잰 그래프가 그대로 배포되고(4단계처럼 배포용 뱅크로 지연이 늘지 않는다), 12개 범주가 모델 하나를 같이 쓴다. CPU 점수는 GPU 점수와 상대 차이가 최대 7e-6이다
+- 결함을 95% 잡는 지점의 오검출률은 17.6%로 GPU Dinomaly(12.0%)보다 높다. capsules(88.3)와 pcb3(92.5)은 GPU Dinomaly보다 낮다
+- 2단계에서 Dinomaly가 fp16으로 학습되지 않던 문제(디코더 선형 어텐션의 합이 fp16 최댓값을 넘음)는 키를 토큰 수로 나누는 패치로 풀렸다. 출력은 수식상 같고(fp32에서 손실 차이 0), 모델 하나 학습에 약 15분(fp16, VRAM 1.6GB)이다
+- Dinomaly2의 CAR(Context-Aware Recentering)을 켜면 dev AUROC가 +0.8%p [+0.1, +1.6] 올랐다(판정하지 않는 보조 수치). 동적 INT8(행렬 곱만)은 18% 빨라지지만(123ms) dev AUROC가 1.4%p 떨어졌다
+- 촬영 조건 전제는 그대로다. dev에서 흐림 σ 1.0을 주면 정상의 28.5%가 불량으로 나왔다. 1px 이동은 dev에서 +1.4%p였지만 3단계와 같은 절차로 재지 않았으므로 지그와 위치 맞춤을 전제로 둔다
+
 ## 실패 사례
 미리 정한 규칙으로 고른 예시다. 이미지 점수를 그 범주의 임계값(목표 5%)으로 나눈 비를 기준으로, 검출된 결함 가운데 이 비가 전체 검출의 중앙값에 가장 가까운 2장(전형적인 검출), 놓친 결함 가운데 가장 낮은 2장, 오검출 가운데 가장 높은 2장을 골랐다. 한 묶음 안에서 같은 범주는 한 장까지다.
 
@@ -125,7 +142,8 @@
 
 ## 한계
 - 결론은 VisA 12개 범주(범주당 테스트 결함 40장)와 M2AD 2개 범주에서 나온 것이다. 범주별 수치는 구간이 넓어 참고로만 본다
-- 비지도 방법의 구성은 문헌 기본값으로 고정했고 범주별로 맞추지 않았다. Dinomaly는 fp16에서 학습이 깨져 fp32·배치 8로 돌렸고 시드는 하나다
+- 비지도 방법의 구성은 문헌 기본값으로 고정했고 범주별로 맞추지 않았다. 2단계 Dinomaly(ViT-B)는 fp16에서 학습이 깨져 fp32·배치 8로 돌렸다(6단계 ViT-S는 어텐션 패치로 fp16·배치 16). 학습한 모델은 모두 시드 하나다
+- 6단계 서빙 모델은 dev 결함 240장(범주당 20장)으로 네 후보 가운데 골랐다. 봉인 테스트는 고른 모델 하나만 쟀다
 - 지도 학습과 Dinomaly는 백본(ViT-S, ViT-B)과 모델 수(범주별, 통합)가 달라 조건을 맞춘 비교가 아니다
 - 합성 교란은 줄인 이미지에 준 것이라 실제 노출·초점 변화와 같지 않다. 실제 조명 변화는 M2AD 2개 범주로만 쟀다
 - 지연은 한 대의 PC(Ryzen 5 3600, RTX 2080 Ti)에서 범주 하나로 쟀다. 임베디드 장비는 재지 않았다
@@ -193,6 +211,25 @@ uv run python -m defect_inspect.analyze_export outputs/export-serving-wrn50-256-
 uv run python -m defect_inspect.analyze_grid --protocol test --settings wrn50-256
 uv run python -m defect_inspect.bench --artifacts artifacts/serving-wrn50-256-r0.01 --category pcb1 --precision fp32 int8 --gpu --key serving-wrn50-256-r0.01-test
 
+# 6단계: CPU 서빙용 Dinomaly ViT-S (관문 → 학습 → dev 선택 → 봉인 테스트)
+# (크기는 dms-252/280/294/308, CAR은 dms-252-car/280-car. 캐시는 cache --size 280 처럼 크기마다)
+uv run python -m defect_inspect.dinomaly_serving export --config dms-280 --untrained --int8-dynamic   # 관문 1: 학습 전 지연
+uv run python -m defect_inspect.bench --artifacts artifacts/dms-280-untrained --category pcb1 --precision fp32 int8-dynamic --key dms-280-untrained --out reports/stage6/latency.json
+uv run python -m defect_inspect.analyze_stage6 gate
+uv run python -m defect_inspect.run_dinomaly parity --config dms-280 --device cpu   # 관문 2 (가)
+uv run python -m defect_inspect.run_dinomaly gate --config dms-280                  # 관문 2 (나), GPU
+uv run python -m defect_inspect.run_dinomaly train --config dms-280-car --precision-from outputs/gate-dms-280/gate.json   # dms-252, dms-280, dms-308 도
+uv run python -m defect_inspect.run_dinomaly eval --config dms-280-car --protocol dev --no-amp
+uv run python -m defect_inspect.analyze_stage6 dev --runs outputs/dms-252-dev outputs/dms-280-dev outputs/dms-308-dev outputs/dms-280-car-dev
+uv run python -m defect_inspect.run_dinomaly eval --config dms-280-car --protocol test --allow-test --stage 6 --no-amp
+uv run python -m defect_inspect.dinomaly_serving export --config dms-280-car --model outputs/dms-280-car/model.pt --int8-dynamic
+uv run python -m defect_inspect.dinomaly_serving score --artifacts artifacts/dms-280-car --protocol test --allow-test --stage 6
+uv run python -m defect_inspect.bench --artifacts artifacts/dms-280-car --category pcb1 --precision fp32 int8-dynamic --key dms-280-car --out reports/stage6/latency.json
+uv run python -m defect_inspect.analyze_stage6 test --torch outputs/dms-280-car-test --onnx outputs/dms-280-car-onnx-fp32-test --latency-key dms-280-car
+uv run python -m defect_inspect.dinomaly_serving score --artifacts artifacts/dms-280-car --protocol dev   # --condition shift-1, --condition blur-2, --precision int8-dynamic 도
+uv run python -m defect_inspect.analyze_stage6 supplement --clean outputs/dms-280-car-onnx-fp32-dev --conditions outputs/dms-280-car-onnx-fp32-dev-shift-1 outputs/dms-280-car-onnx-fp32-dev-blur-2 --int8 outputs/dms-280-car-onnx-int8-dynamic-dev
+uv run python -m defect_inspect.dinomaly_serving calibrate --artifacts artifacts/dms-280-car --scores outputs/dms-280-car-onnx-fp32-test   # 서비스용 임계값
+
 # README 그림 (reports/ 의 리포트에서 docs/figures/*.png 를 다시 그린다)
 uv run python -m defect_inspect.figures
 uv run python -m defect_inspect.figures --examples outputs/dm-test --allow-test --name examples-dinomaly
@@ -201,7 +238,7 @@ uv run python -m defect_inspect.figures --examples outputs/p0-test --allow-test 
 `--allow-test`가 붙은 실행은 봉인 테스트 이미지(`run_m2ad`는 M2AD 테스트 이미지)를 읽고, 읽을 때마다 `reports/test_ledger.jsonl`에 한 줄을 남긴다. 테스트 이미지를 캐시로 옮기는 `cache`와 `m2ad`도 한 줄을 남긴다. `--protocol test`만 붙은 분석 명령(`compare`, `analyze_perturb`, `analyze_grid`)은 저장된 점수만 읽는다. 지연은 다른 프로그램이 CPU를 쓰지 않을 때 잰다(규칙 변경 6).
 
 ## 검사 서비스
-torch 없이 onnxruntime만으로 CPU에서 돈다. `defect_inspect.export`가 만든 아티팩트 폴더(ONNX 모델, 범주별 메모리 뱅크와 임계값)를 읽는다. 4단계에서 고른 구성(WRN-50 256px, 코어셋 1%, FP32)이 기본이다. 모델과 뱅크는 저장소에 없으므로 위 재현 명령으로 만든다.
+torch 없이 onnxruntime만으로 CPU에서 돈다. `defect_inspect.export`가 만든 아티팩트 폴더(ONNX 모델, 범주별 메모리 뱅크와 임계값)를 읽는다. 4단계에서 고른 구성(WRN-50 256px, 코어셋 1%, FP32)이 기본이다. 모델과 뱅크는 저장소에 없으므로 위 재현 명령으로 만든다. 6단계에서 가설을 지지한 Dinomaly ViT-S 모델(`artifacts/dms-280-car`, 메모리 뱅크 없음)은 아직 이 서비스가 읽지 못한다.
 
 ```bash
 # 모델 파일 없이 도는 합성 범주(demo)로 띄워 보기

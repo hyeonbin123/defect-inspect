@@ -21,3 +21,5 @@
 {"time": "2026-10-03T09:43:24+00:00", "commit": "f1466fd", "stage": "cache", "config": "cache-280", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-10-03T09:48:02+00:00", "commit": "f1466fd+dirty", "stage": "cache", "config": "cache-294", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-10-03T09:54:28+00:00", "commit": "f1466fd+dirty", "stage": "cache", "config": "cache-308", "note": "resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-10-03T15:01:33+00:00", "commit": "9e1e4f8", "stage": "6", "config": "dms-280-car", "note": "stage 6 pick, torch fp32"}
+{"time": "2026-10-03T15:03:07+00:00", "commit": "9e1e4f8+dirty", "stage": "6", "config": "dms-280-car-onnx-fp32", "note": "stage 6 pick, onnxruntime CPU FP32"}

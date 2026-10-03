@@ -1,0 +1,45 @@
+{
+  "thresholds": "clean fold-0 normal scores (in-sample in the dev protocol)",
+  "rows": [
+    {
+      "condition": "clean",
+      "macro_image_auroc": 0.9698098982934091,
+      "fpr": 0.038860103626943004,
+      "tpr": 0.8458333333333333,
+      "fp": 45,
+      "n_neg": 1158,
+      "tp": 203,
+      "n_pos": 240
+    },
+    {
+      "condition": "shift-1",
+      "macro_image_auroc": 0.9649087640847154,
+      "fpr": 0.05267702936096719,
+      "tpr": 0.8416666666666667,
+      "fp": 61,
+      "n_neg": 1158,
+      "tp": 202,
+      "n_pos": 240
+    },
+    {
+      "condition": "blur-2",
+      "macro_image_auroc": 0.9453179722268107,
+      "fpr": 0.2849740932642487,
+      "tpr": 0.8833333333333333,
+      "fp": 330,
+      "n_neg": 1158,
+      "tp": 212,
+      "n_pos": 240
+    }
+  ],
+  "int8_dynamic": {
+    "macro_image_auroc": 0.9554533176398862,
+    "fp32_macro_image_auroc": 0.9698098982934091,
+    "diff": -0.014356580653522966,
+    "ci": [
+      -0.024733200611034418,
+      -0.004778717415578907
+    ],
+    "verdict": "차이 있음"
+  }
+}
