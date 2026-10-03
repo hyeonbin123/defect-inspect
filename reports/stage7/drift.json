@@ -1,0 +1,4106 @@
+{
+ "settings": {
+  "epsilons": [
+   1.0,
+   0.5,
+   0.2,
+   0.05
+  ],
+  "jump": 0.01,
+  "delta": 0.01,
+  "rates": [
+   0.0,
+   0.05,
+   0.1
+  ],
+  "fa_streams_per_category": 1000,
+  "delay_streams_per_category": 200,
+  "m2ad_streams_per_inspector": 1000
+ },
+ "false_alarms": {
+  "p0": {
+   "0.00": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 9,
+     "rate": 0.00075
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 29,
+     "rate": 0.002416666666666667
+    },
+    "mixed_defects": {
+     "candle": 0,
+     "capsules": 0,
+     "cashew": 0,
+     "chewinggum": 0,
+     "fryum": 0,
+     "macaroni1": 0,
+     "macaroni2": 0,
+     "pcb1": 0,
+     "pcb2": 0,
+     "pcb3": 0,
+     "pcb4": 0,
+     "pipe_fryum": 0
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.0,
+      "transductive": 0.003
+     },
+     "capsules": {
+      "inductive": 0.005,
+      "transductive": 0.001
+     },
+     "cashew": {
+      "inductive": 0.0,
+      "transductive": 0.001
+     },
+     "chewinggum": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "fryum": {
+      "inductive": 0.0,
+      "transductive": 0.001
+     },
+     "macaroni1": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "macaroni2": {
+      "inductive": 0.002,
+      "transductive": 0.003
+     },
+     "pcb1": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "pcb2": {
+      "inductive": 0.0,
+      "transductive": 0.004
+     },
+     "pcb3": {
+      "inductive": 0.001,
+      "transductive": 0.002
+     },
+     "pcb4": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "pipe_fryum": {
+      "inductive": 0.001,
+      "transductive": 0.006
+     }
+    }
+   },
+   "0.05": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 992,
+     "rate": 0.08266666666666667
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 33,
+     "rate": 0.00275
+    },
+    "mixed_defects": {
+     "candle": 21,
+     "capsules": 13,
+     "cashew": 11,
+     "chewinggum": 11,
+     "fryum": 11,
+     "macaroni1": 21,
+     "macaroni2": 21,
+     "pcb1": 21,
+     "pcb2": 21,
+     "pcb3": 21,
+     "pcb4": 21,
+     "pipe_fryum": 11
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.01,
+      "transductive": 0.002
+     },
+     "capsules": {
+      "inductive": 0.02,
+      "transductive": 0.001
+     },
+     "cashew": {
+      "inductive": 0.085,
+      "transductive": 0.005
+     },
+     "chewinggum": {
+      "inductive": 0.161,
+      "transductive": 0.003
+     },
+     "fryum": {
+      "inductive": 0.034,
+      "transductive": 0.002
+     },
+     "macaroni1": {
+      "inductive": 0.001,
+      "transductive": 0.002
+     },
+     "macaroni2": {
+      "inductive": 0.002,
+      "transductive": 0.004
+     },
+     "pcb1": {
+      "inductive": 0.075,
+      "transductive": 0.004
+     },
+     "pcb2": {
+      "inductive": 0.021,
+      "transductive": 0.004
+     },
+     "pcb3": {
+      "inductive": 0.202,
+      "transductive": 0.001
+     },
+     "pcb4": {
+      "inductive": 0.302,
+      "transductive": 0.002
+     },
+     "pipe_fryum": {
+      "inductive": 0.079,
+      "transductive": 0.003
+     }
+    }
+   },
+   "0.10": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 5677,
+     "rate": 0.47308333333333336
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 23,
+     "rate": 0.0019166666666666666
+    },
+    "mixed_defects": {
+     "candle": 40,
+     "capsules": 27,
+     "cashew": 22,
+     "chewinggum": 22,
+     "fryum": 22,
+     "macaroni1": 40,
+     "macaroni2": 40,
+     "pcb1": 40,
+     "pcb2": 40,
+     "pcb3": 40,
+     "pcb4": 40,
+     "pipe_fryum": 22
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.193,
+      "transductive": 0.004
+     },
+     "capsules": {
+      "inductive": 0.07,
+      "transductive": 0.004
+     },
+     "cashew": {
+      "inductive": 0.809,
+      "transductive": 0.003
+     },
+     "chewinggum": {
+      "inductive": 0.962,
+      "transductive": 0.001
+     },
+     "fryum": {
+      "inductive": 0.267,
+      "transductive": 0.002
+     },
+     "macaroni1": {
+      "inductive": 0.005,
+      "transductive": 0.001
+     },
+     "macaroni2": {
+      "inductive": 0.001,
+      "transductive": 0.004
+     },
+     "pcb1": {
+      "inductive": 0.62,
+      "transductive": 0.001
+     },
+     "pcb2": {
+      "inductive": 0.183,
+      "transductive": 0.001
+     },
+     "pcb3": {
+      "inductive": 0.914,
+      "transductive": 0.001
+     },
+     "pcb4": {
+      "inductive": 1.0,
+      "transductive": 0.001
+     },
+     "pipe_fryum": {
+      "inductive": 0.653,
+      "transductive": 0.0
+     }
+    }
+   }
+  },
+  "d-s": {
+   "0.00": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 1,
+     "rate": 8.333333333333333e-05
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 27,
+     "rate": 0.00225
+    },
+    "mixed_defects": {
+     "candle": 0,
+     "capsules": 0,
+     "cashew": 0,
+     "chewinggum": 0,
+     "fryum": 0,
+     "macaroni1": 0,
+     "macaroni2": 0,
+     "pcb1": 0,
+     "pcb2": 0,
+     "pcb3": 0,
+     "pcb4": 0,
+     "pipe_fryum": 0
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "capsules": {
+      "inductive": 0.0,
+      "transductive": 0.001
+     },
+     "cashew": {
+      "inductive": 0.0,
+      "transductive": 0.001
+     },
+     "chewinggum": {
+      "inductive": 0.0,
+      "transductive": 0.003
+     },
+     "fryum": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "macaroni1": {
+      "inductive": 0.0,
+      "transductive": 0.008
+     },
+     "macaroni2": {
+      "inductive": 0.0,
+      "transductive": 0.0
+     },
+     "pcb1": {
+      "inductive": 0.0,
+      "transductive": 0.005
+     },
+     "pcb2": {
+      "inductive": 0.0,
+      "transductive": 0.0
+     },
+     "pcb3": {
+      "inductive": 0.0,
+      "transductive": 0.001
+     },
+     "pcb4": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "pipe_fryum": {
+      "inductive": 0.001,
+      "transductive": 0.002
+     }
+    }
+   },
+   "0.05": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 571,
+     "rate": 0.04758333333333333
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 23,
+     "rate": 0.0019166666666666666
+    },
+    "mixed_defects": {
+     "candle": 21,
+     "capsules": 13,
+     "cashew": 11,
+     "chewinggum": 11,
+     "fryum": 11,
+     "macaroni1": 21,
+     "macaroni2": 21,
+     "pcb1": 21,
+     "pcb2": 21,
+     "pcb3": 21,
+     "pcb4": 21,
+     "pipe_fryum": 11
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.003,
+      "transductive": 0.002
+     },
+     "capsules": {
+      "inductive": 0.004,
+      "transductive": 0.003
+     },
+     "cashew": {
+      "inductive": 0.03,
+      "transductive": 0.001
+     },
+     "chewinggum": {
+      "inductive": 0.088,
+      "transductive": 0.002
+     },
+     "fryum": {
+      "inductive": 0.066,
+      "transductive": 0.001
+     },
+     "macaroni1": {
+      "inductive": 0.11,
+      "transductive": 0.001
+     },
+     "macaroni2": {
+      "inductive": 0.003,
+      "transductive": 0.001
+     },
+     "pcb1": {
+      "inductive": 0.023,
+      "transductive": 0.002
+     },
+     "pcb2": {
+      "inductive": 0.011,
+      "transductive": 0.003
+     },
+     "pcb3": {
+      "inductive": 0.01,
+      "transductive": 0.001
+     },
+     "pcb4": {
+      "inductive": 0.007,
+      "transductive": 0.004
+     },
+     "pipe_fryum": {
+      "inductive": 0.216,
+      "transductive": 0.002
+     }
+    }
+   },
+   "0.10": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 4126,
+     "rate": 0.3438333333333333
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 24,
+     "rate": 0.002
+    },
+    "mixed_defects": {
+     "candle": 40,
+     "capsules": 27,
+     "cashew": 22,
+     "chewinggum": 22,
+     "fryum": 22,
+     "macaroni1": 40,
+     "macaroni2": 40,
+     "pcb1": 40,
+     "pcb2": 40,
+     "pcb3": 40,
+     "pcb4": 40,
+     "pipe_fryum": 22
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.063,
+      "transductive": 0.001
+     },
+     "capsules": {
+      "inductive": 0.137,
+      "transductive": 0.001
+     },
+     "cashew": {
+      "inductive": 0.288,
+      "transductive": 0.003
+     },
+     "chewinggum": {
+      "inductive": 0.856,
+      "transductive": 0.003
+     },
+     "fryum": {
+      "inductive": 0.584,
+      "transductive": 0.001
+     },
+     "macaroni1": {
+      "inductive": 0.642,
+      "transductive": 0.002
+     },
+     "macaroni2": {
+      "inductive": 0.047,
+      "transductive": 0.001
+     },
+     "pcb1": {
+      "inductive": 0.313,
+      "transductive": 0.003
+     },
+     "pcb2": {
+      "inductive": 0.136,
+      "transductive": 0.001
+     },
+     "pcb3": {
+      "inductive": 0.035,
+      "transductive": 0.004
+     },
+     "pcb4": {
+      "inductive": 0.03,
+      "transductive": 0.002
+     },
+     "pipe_fryum": {
+      "inductive": 0.995,
+      "transductive": 0.002
+     }
+    }
+   }
+  },
+  "dm": {
+   "0.00": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 185,
+     "rate": 0.015416666666666667
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 34,
+     "rate": 0.0028333333333333335
+    },
+    "mixed_defects": {
+     "candle": 0,
+     "capsules": 0,
+     "cashew": 0,
+     "chewinggum": 0,
+     "fryum": 0,
+     "macaroni1": 0,
+     "macaroni2": 0,
+     "pcb1": 0,
+     "pcb2": 0,
+     "pcb3": 0,
+     "pcb4": 0,
+     "pipe_fryum": 0
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.003,
+      "transductive": 0.001
+     },
+     "capsules": {
+      "inductive": 0.003,
+      "transductive": 0.003
+     },
+     "cashew": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "chewinggum": {
+      "inductive": 0.0,
+      "transductive": 0.003
+     },
+     "fryum": {
+      "inductive": 0.001,
+      "transductive": 0.004
+     },
+     "macaroni1": {
+      "inductive": 0.0,
+      "transductive": 0.005
+     },
+     "macaroni2": {
+      "inductive": 0.016,
+      "transductive": 0.002
+     },
+     "pcb1": {
+      "inductive": 0.161,
+      "transductive": 0.004
+     },
+     "pcb2": {
+      "inductive": 0.0,
+      "transductive": 0.0
+     },
+     "pcb3": {
+      "inductive": 0.001,
+      "transductive": 0.004
+     },
+     "pcb4": {
+      "inductive": 0.0,
+      "transductive": 0.001
+     },
+     "pipe_fryum": {
+      "inductive": 0.0,
+      "transductive": 0.005
+     }
+    }
+   },
+   "0.05": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 1909,
+     "rate": 0.15908333333333333
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 36,
+     "rate": 0.003
+    },
+    "mixed_defects": {
+     "candle": 21,
+     "capsules": 13,
+     "cashew": 11,
+     "chewinggum": 11,
+     "fryum": 11,
+     "macaroni1": 21,
+     "macaroni2": 21,
+     "pcb1": 21,
+     "pcb2": 21,
+     "pcb3": 21,
+     "pcb4": 21,
+     "pipe_fryum": 11
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.149,
+      "transductive": 0.001
+     },
+     "capsules": {
+      "inductive": 0.034,
+      "transductive": 0.002
+     },
+     "cashew": {
+      "inductive": 0.004,
+      "transductive": 0.004
+     },
+     "chewinggum": {
+      "inductive": 0.007,
+      "transductive": 0.002
+     },
+     "fryum": {
+      "inductive": 0.017,
+      "transductive": 0.002
+     },
+     "macaroni1": {
+      "inductive": 0.001,
+      "transductive": 0.002
+     },
+     "macaroni2": {
+      "inductive": 0.334,
+      "transductive": 0.006
+     },
+     "pcb1": {
+      "inductive": 1.0,
+      "transductive": 0.002
+     },
+     "pcb2": {
+      "inductive": 0.095,
+      "transductive": 0.003
+     },
+     "pcb3": {
+      "inductive": 0.064,
+      "transductive": 0.006
+     },
+     "pcb4": {
+      "inductive": 0.169,
+      "transductive": 0.006
+     },
+     "pipe_fryum": {
+      "inductive": 0.035,
+      "transductive": 0.0
+     }
+    }
+   },
+   "0.10": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 6566,
+     "rate": 0.5471666666666667
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 25,
+     "rate": 0.0020833333333333333
+    },
+    "mixed_defects": {
+     "candle": 40,
+     "capsules": 27,
+     "cashew": 22,
+     "chewinggum": 22,
+     "fryum": 22,
+     "macaroni1": 40,
+     "macaroni2": 40,
+     "pcb1": 40,
+     "pcb2": 40,
+     "pcb3": 40,
+     "pcb4": 40,
+     "pipe_fryum": 22
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.877,
+      "transductive": 0.002
+     },
+     "capsules": {
+      "inductive": 0.319,
+      "transductive": 0.002
+     },
+     "cashew": {
+      "inductive": 0.062,
+      "transductive": 0.001
+     },
+     "chewinggum": {
+      "inductive": 0.184,
+      "transductive": 0.004
+     },
+     "fryum": {
+      "inductive": 0.194,
+      "transductive": 0.002
+     },
+     "macaroni1": {
+      "inductive": 0.002,
+      "transductive": 0.002
+     },
+     "macaroni2": {
+      "inductive": 0.966,
+      "transductive": 0.002
+     },
+     "pcb1": {
+      "inductive": 1.0,
+      "transductive": 0.002
+     },
+     "pcb2": {
+      "inductive": 0.897,
+      "transductive": 0.001
+     },
+     "pcb3": {
+      "inductive": 0.702,
+      "transductive": 0.004
+     },
+     "pcb4": {
+      "inductive": 0.991,
+      "transductive": 0.002
+     },
+     "pipe_fryum": {
+      "inductive": 0.372,
+      "transductive": 0.001
+     }
+    }
+   }
+  },
+  "dms-280-car": {
+   "0.00": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 210,
+     "rate": 0.0175
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 34,
+     "rate": 0.0028333333333333335
+    },
+    "mixed_defects": {
+     "candle": 0,
+     "capsules": 0,
+     "cashew": 0,
+     "chewinggum": 0,
+     "fryum": 0,
+     "macaroni1": 0,
+     "macaroni2": 0,
+     "pcb1": 0,
+     "pcb2": 0,
+     "pcb3": 0,
+     "pcb4": 0,
+     "pipe_fryum": 0
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.0,
+      "transductive": 0.004
+     },
+     "capsules": {
+      "inductive": 0.007,
+      "transductive": 0.001
+     },
+     "cashew": {
+      "inductive": 0.0,
+      "transductive": 0.004
+     },
+     "chewinggum": {
+      "inductive": 0.0,
+      "transductive": 0.001
+     },
+     "fryum": {
+      "inductive": 0.002,
+      "transductive": 0.001
+     },
+     "macaroni1": {
+      "inductive": 0.001,
+      "transductive": 0.006
+     },
+     "macaroni2": {
+      "inductive": 0.051,
+      "transductive": 0.002
+     },
+     "pcb1": {
+      "inductive": 0.148,
+      "transductive": 0.005
+     },
+     "pcb2": {
+      "inductive": 0.0,
+      "transductive": 0.003
+     },
+     "pcb3": {
+      "inductive": 0.001,
+      "transductive": 0.003
+     },
+     "pcb4": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     },
+     "pipe_fryum": {
+      "inductive": 0.0,
+      "transductive": 0.002
+     }
+    }
+   },
+   "0.05": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 2283,
+     "rate": 0.19025
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 22,
+     "rate": 0.0018333333333333333
+    },
+    "mixed_defects": {
+     "candle": 21,
+     "capsules": 13,
+     "cashew": 11,
+     "chewinggum": 11,
+     "fryum": 11,
+     "macaroni1": 21,
+     "macaroni2": 21,
+     "pcb1": 21,
+     "pcb2": 21,
+     "pcb3": 21,
+     "pcb4": 21,
+     "pipe_fryum": 11
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.093,
+      "transductive": 0.002
+     },
+     "capsules": {
+      "inductive": 0.065,
+      "transductive": 0.002
+     },
+     "cashew": {
+      "inductive": 0.018,
+      "transductive": 0.002
+     },
+     "chewinggum": {
+      "inductive": 0.029,
+      "transductive": 0.002
+     },
+     "fryum": {
+      "inductive": 0.049,
+      "transductive": 0.002
+     },
+     "macaroni1": {
+      "inductive": 0.012,
+      "transductive": 0.001
+     },
+     "macaroni2": {
+      "inductive": 0.731,
+      "transductive": 0.0
+     },
+     "pcb1": {
+      "inductive": 1.0,
+      "transductive": 0.001
+     },
+     "pcb2": {
+      "inductive": 0.104,
+      "transductive": 0.001
+     },
+     "pcb3": {
+      "inductive": 0.086,
+      "transductive": 0.006
+     },
+     "pcb4": {
+      "inductive": 0.059,
+      "transductive": 0.001
+     },
+     "pipe_fryum": {
+      "inductive": 0.037,
+      "transductive": 0.002
+     }
+    }
+   },
+   "0.10": {
+    "inductive": {
+     "streams": 12000,
+     "alarms": 7368,
+     "rate": 0.614
+    },
+    "transductive": {
+     "streams": 12000,
+     "alarms": 27,
+     "rate": 0.00225
+    },
+    "mixed_defects": {
+     "candle": 40,
+     "capsules": 27,
+     "cashew": 22,
+     "chewinggum": 22,
+     "fryum": 22,
+     "macaroni1": 40,
+     "macaroni2": 40,
+     "pcb1": 40,
+     "pcb2": 40,
+     "pcb3": 40,
+     "pcb4": 40,
+     "pipe_fryum": 22
+    },
+    "per_category": {
+     "candle": {
+      "inductive": 0.947,
+      "transductive": 0.002
+     },
+     "capsules": {
+      "inductive": 0.558,
+      "transductive": 0.003
+     },
+     "cashew": {
+      "inductive": 0.214,
+      "transductive": 0.006
+     },
+     "chewinggum": {
+      "inductive": 0.41,
+      "transductive": 0.001
+     },
+     "fryum": {
+      "inductive": 0.477,
+      "transductive": 0.002
+     },
+     "macaroni1": {
+      "inductive": 0.117,
+      "transductive": 0.002
+     },
+     "macaroni2": {
+      "inductive": 1.0,
+      "transductive": 0.001
+     },
+     "pcb1": {
+      "inductive": 1.0,
+      "transductive": 0.001
+     },
+     "pcb2": {
+      "inductive": 0.798,
+      "transductive": 0.001
+     },
+     "pcb3": {
+      "inductive": 0.651,
+      "transductive": 0.003
+     },
+     "pcb4": {
+      "inductive": 0.649,
+      "transductive": 0.003
+     },
+     "pipe_fryum": {
+      "inductive": 0.547,
+      "transductive": 0.002
+     }
+    }
+   }
+  }
+ },
+ "visa_delay": {
+  "p0": {
+   "brightness-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.1668752607425949,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.15538847117794485,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.05,
+      "alarmed_share": 0.218859649122807,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.10262828535669587,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.31625,
+      "alarmed_share": 0.5009140767824497,
+      "median_delay": 218.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00375,
+      "alarmed_share": 0.04642409033877039,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "brightness-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.5010429703796412,
+      "median_delay": 127.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.004166666666666667,
+      "alarmed_share": 0.40460251046025103,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.051666666666666666,
+      "alarmed_share": 0.5896309314586995,
+      "median_delay": 53.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.33597662771285475,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.30833333333333335,
+      "alarmed_share": 0.6439759036144578,
+      "median_delay": 31.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00375,
+      "alarmed_share": 0.29945629443747385,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "brightness-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.7738840216937839,
+      "median_delay": 18.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.004166666666666667,
+      "alarmed_share": 0.7213389121338912,
+      "median_delay": 21.0,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.04625,
+      "alarmed_share": 0.8623853211009175,
+      "median_delay": 14.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.688517745302714,
+      "median_delay": 34.0,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.31958333333333333,
+      "alarmed_share": 0.8511941212492345,
+      "median_delay": 11.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.6129436325678497,
+      "median_delay": 56.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.04541666666666667,
+      "alarmed_share": 0.03360977738978612,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.30666666666666664,
+      "alarmed_share": 0.2764423076923077,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.1000416840350146,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.004583333333333333,
+      "alarmed_share": 0.05609041439933026,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.05458333333333333,
+      "alarmed_share": 0.4133979726751873,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00375,
+      "alarmed_share": 0.012128816394813885,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3145833333333333,
+      "alarmed_share": 0.7258358662613982,
+      "median_delay": 80.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0016701461377870565,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.8784461152882206,
+      "median_delay": 28.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00375,
+      "alarmed_share": 0.835633626097867,
+      "median_delay": 29.0,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.04583333333333333,
+      "alarmed_share": 0.9157205240174673,
+      "median_delay": 22.0,
+      "p90_delay": 151.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.7676261994159366,
+      "median_delay": 47.0,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.31125,
+      "alarmed_share": 0.8796128251663642,
+      "median_delay": 20.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.6612432206925324,
+      "median_delay": 69.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "blur-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.3893989983305509,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.27056367432150313,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.04875,
+      "alarmed_share": 0.6701708278580815,
+      "median_delay": 78.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.14327485380116958,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3225,
+      "alarmed_share": 0.7539975399753998,
+      "median_delay": 53.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.08395989974937343,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "blur-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 9.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.04875,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 9.0,
+      "p90_delay": 17.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3275,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 5.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 12.0,
+      "p90_delay": 26.0
+     }
+    }
+   },
+   "blur-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 4.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 7.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.050416666666666665,
+      "alarmed_share": 1.0,
+      "median_delay": 3.0,
+      "p90_delay": 4.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 14.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3075,
+      "alarmed_share": 1.0,
+      "median_delay": 3.0,
+      "p90_delay": 4.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 19.0
+     }
+    }
+   },
+   "shift-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.0008343763037129745,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.0004177109440267335,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.051666666666666666,
+      "alarmed_share": 0.014059753954305799,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3204166666666667,
+      "alarmed_share": 0.19251992642550583,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "shift-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0016701461377870565,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.05333333333333334,
+      "alarmed_share": 0.05237676056338028,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.0004170141784820684,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.32458333333333333,
+      "alarmed_share": 0.27884022208513265,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.0008347245409015025,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "shift-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.6758448060075094,
+      "median_delay": 17.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.6690317195325542,
+      "median_delay": 17.0,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.056666666666666664,
+      "alarmed_share": 0.7570671378091873,
+      "median_delay": 15.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.6676409185803758,
+      "median_delay": 27.0,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.32375,
+      "alarmed_share": 0.7658656808379544,
+      "median_delay": 15.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.6631886477462438,
+      "median_delay": 41.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "jpeg-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.49561586638830896,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.33667083854818525,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.04791666666666667,
+      "alarmed_share": 0.8708971553610503,
+      "median_delay": 58.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.189640768588137,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.31708333333333333,
+      "alarmed_share": 0.9353264185478951,
+      "median_delay": 42.0,
+      "p90_delay": 155.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.16666666666666666,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "jpeg-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 14.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 1.0,
+      "median_delay": 10.0,
+      "p90_delay": 17.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.05125,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 13.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 1.0,
+      "median_delay": 17.0,
+      "p90_delay": 25.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.31625,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 12.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 1.0,
+      "median_delay": 24.0,
+      "p90_delay": 36.0
+     }
+    }
+   },
+   "jpeg-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 10.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.04125,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 12.0,
+      "p90_delay": 17.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3095833333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 16.0,
+      "p90_delay": 25.0
+     }
+    }
+   }
+  },
+  "d-s": {
+   "brightness-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.025833333333333333,
+      "alarmed_share": 0.0106928999144568,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.21125,
+      "alarmed_share": 0.13206550449022716,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "brightness-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.02666666666666667,
+      "alarmed_share": 0.008561643835616438,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.2,
+      "alarmed_share": 0.13802083333333334,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "brightness-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0,
+      "alarmed_share": 0.0008333333333333334,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.020416666666666666,
+      "alarmed_share": 0.012760527435133985,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.21125,
+      "alarmed_share": 0.12519809825673534,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0004175365344467641,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.025416666666666667,
+      "alarmed_share": 0.011970927746900385,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.20541666666666666,
+      "alarmed_share": 0.1263765076035658,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0004175365344467641,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00375,
+      "alarmed_share": 0.000836470096194061,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.024166666666666666,
+      "alarmed_share": 0.03202391118701964,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.004583333333333333,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.21583333333333332,
+      "alarmed_share": 0.16524973432518597,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.25010421008753647,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.2149415692821369,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.029166666666666667,
+      "alarmed_share": 0.2626609442060086,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.1525282072712077,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.1975,
+      "alarmed_share": 0.34890965732087226,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 0.11162207357859531,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "blur-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.0016673614005835765,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00375,
+      "alarmed_share": 0.003345880384776244,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.025833333333333333,
+      "alarmed_share": 0.07228400342172797,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.215,
+      "alarmed_share": 0.2760084925690021,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "blur-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0,
+      "alarmed_share": 0.6904166666666667,
+      "median_delay": 62.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.004583333333333333,
+      "alarmed_share": 0.6299706990372541,
+      "median_delay": 58.0,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.019166666666666665,
+      "alarmed_share": 0.9507221750212405,
+      "median_delay": 37.0,
+      "p90_delay": 154.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.46096033402922754,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.21,
+      "alarmed_share": 0.9978902953586498,
+      "median_delay": 27.0,
+      "p90_delay": 105.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.39264828738512947,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "blur-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 14.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 13.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0325,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 13.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 1.0,
+      "median_delay": 11.0,
+      "p90_delay": 20.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.225,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 13.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 1.0,
+      "median_delay": 13.0,
+      "p90_delay": 28.0
+     }
+    }
+   },
+   "shift-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.5835764902042517,
+      "median_delay": 30.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.587228714524207,
+      "median_delay": 33.5,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.03333333333333333,
+      "alarmed_share": 0.6327586206896552,
+      "median_delay": 25.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 0.5288461538461539,
+      "median_delay": 84.0,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.2175,
+      "alarmed_share": 0.7539936102236422,
+      "median_delay": 18.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.48080133555926546,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "shift-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 11.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.004166666666666667,
+      "alarmed_share": 0.992050209205021,
+      "median_delay": 6.0,
+      "p90_delay": 12.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.024166666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 11.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.9519632414369257,
+      "median_delay": 6.0,
+      "p90_delay": 21.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.22833333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 3.0,
+      "p90_delay": 19.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.9449081803005008,
+      "median_delay": 6.0,
+      "p90_delay": 35.0
+     }
+    }
+   },
+   "shift-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 4.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.027916666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 3.0,
+      "p90_delay": 4.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.22083333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 3.0,
+      "p90_delay": 4.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 9.0
+     }
+    }
+   },
+   "jpeg-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.0008347245409015025,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.022916666666666665,
+      "alarmed_share": 0.019189765458422176,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.22041666666666668,
+      "alarmed_share": 0.16622127204703366,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "jpeg-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0,
+      "alarmed_share": 0.40958333333333335,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.3336116910229645,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.022083333333333333,
+      "alarmed_share": 0.4196847038772902,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.20868113522537562,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.2125,
+      "alarmed_share": 0.44126984126984126,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 0.16847826086956522,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "jpeg-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.0,
+      "alarmed_share": 0.5645833333333333,
+      "median_delay": 98.5,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.5018789144050104,
+      "median_delay": 169.0,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.022083333333333333,
+      "alarmed_share": 0.7025990626331488,
+      "median_delay": 57.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.37985791893021315,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.21541666666666667,
+      "alarmed_share": 0.8821030270844398,
+      "median_delay": 49.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.35031315240083505,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   }
+  },
+  "dm": {
+   "brightness-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.015833333333333335,
+      "alarmed_share": 0.0021168501270110076,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.13083333333333333,
+      "alarmed_share": 0.03355704697986577,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.37041666666666667,
+      "alarmed_share": 0.21045665122435472,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "brightness-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.011666666666666667,
+      "alarmed_share": 0.0021079258010118043,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.12,
+      "alarmed_share": 0.036931818181818184,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.385,
+      "alarmed_share": 0.19579945799457996,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "brightness-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.012083333333333333,
+      "alarmed_share": 0.004217629692113032,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0004175365344467641,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.12041666666666667,
+      "alarmed_share": 0.041212695405021316,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.38666666666666666,
+      "alarmed_share": 0.25883152173913043,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.012083333333333333,
+      "alarmed_share": 0.005061155630535639,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.12333333333333334,
+      "alarmed_share": 0.04847908745247148,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.38708333333333333,
+      "alarmed_share": 0.2895989123045547,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.01,
+      "alarmed_share": 0.03367003367003367,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.001669449081803005,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.12625,
+      "alarmed_share": 0.16785884597043396,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.39458333333333334,
+      "alarmed_share": 0.4390915347556779,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00375,
+      "alarmed_share": 0.0,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "gamma-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.007916666666666667,
+      "alarmed_share": 0.6094078118437631,
+      "median_delay": 100.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.29866332497911446,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.11958333333333333,
+      "alarmed_share": 0.8277330809275911,
+      "median_delay": 49.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 0.21980777267028834,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.4008333333333333,
+      "alarmed_share": 0.8755215577190543,
+      "median_delay": 25.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.14977054651647892,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "blur-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.010416666666666666,
+      "alarmed_share": 0.20884210526315788,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.02542726135889954,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.12083333333333333,
+      "alarmed_share": 0.32606635071090045,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.004171881518564873,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.38166666666666665,
+      "alarmed_share": 0.7088948787061995,
+      "median_delay": 92.5,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.0012520868113522537,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "blur-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.01375,
+      "alarmed_share": 1.0,
+      "median_delay": 11.0,
+      "p90_delay": 20.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 1.0,
+      "median_delay": 13.0,
+      "p90_delay": 22.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.11458333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 10.0,
+      "p90_delay": 17.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.9987484355444305,
+      "median_delay": 21.0,
+      "p90_delay": 36.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3933333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 16.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.9770450751252087,
+      "median_delay": 26.0,
+      "p90_delay": 60.0
+     }
+    }
+   },
+   "blur-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.01875,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 7.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.13,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 14.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.38458333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 19.0
+     }
+    }
+   },
+   "shift-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.01625,
+      "alarmed_share": 0.7458703939008895,
+      "median_delay": 16.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 0.6768267223382046,
+      "median_delay": 13.0,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.13041666666666665,
+      "alarmed_share": 0.7297556300910397,
+      "median_delay": 14.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.6140350877192983,
+      "median_delay": 22.0,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3904166666666667,
+      "alarmed_share": 0.8755980861244019,
+      "median_delay": 14.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 0.5944026733500418,
+      "median_delay": 33.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "shift-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.009583333333333333,
+      "alarmed_share": 0.9877997475809844,
+      "median_delay": 5.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 0.9319983312473926,
+      "median_delay": 6.0,
+      "p90_delay": 9.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.11541666666666667,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.9174311926605505,
+      "median_delay": 6.0,
+      "p90_delay": 18.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.38166666666666665,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.004583333333333333,
+      "alarmed_share": 0.9162829635830891,
+      "median_delay": 7.0,
+      "p90_delay": 29.0
+     }
+    }
+   },
+   "shift-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.016666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0020833333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 7.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.11375,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.002916666666666667,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 7.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.35583333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 4.0,
+      "p90_delay": 6.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.00125,
+      "alarmed_share": 1.0,
+      "median_delay": 5.0,
+      "p90_delay": 7.0
+     }
+    }
+   },
+   "jpeg-1": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.01,
+      "alarmed_share": 0.14646464646464646,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0004166666666666667,
+      "alarmed_share": 0.028761984160066693,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.11916666666666667,
+      "alarmed_share": 0.36045411542100286,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.007512520868113523,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.38166666666666665,
+      "alarmed_share": 0.8207547169811321,
+      "median_delay": 74.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.004173622704507512,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "jpeg-2": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.015,
+      "alarmed_share": 1.0,
+      "median_delay": 18.0,
+      "p90_delay": 60.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.9245204336947456,
+      "median_delay": 20.0,
+      "p90_delay": 117.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.12375,
+      "alarmed_share": 1.0,
+      "median_delay": 15.0,
+      "p90_delay": 35.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 0.7784280936454849,
+      "median_delay": 30.0,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.38125,
+      "alarmed_share": 1.0,
+      "median_delay": 11.0,
+      "p90_delay": 21.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.656093489148581,
+      "median_delay": 50.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "jpeg-3": {
+    "0.00": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.01125,
+      "alarmed_share": 1.0,
+      "median_delay": 9.0,
+      "p90_delay": 23.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 11.0,
+      "p90_delay": 27.0
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.11583333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 17.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0025,
+      "alarmed_share": 1.0,
+      "median_delay": 19.0,
+      "p90_delay": 43.0
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 2400,
+      "early_share": 0.3825,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 11.0
+     },
+     "transductive": {
+      "streams": 2400,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.9924874791318865,
+      "median_delay": 28.0,
+      "p90_delay": 69.0
+     }
+    }
+   }
+  }
+ },
+ "m2ad_delay": {
+  "p0": {
+   "02": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0026666666666666666,
+      "alarmed_share": 0.37767379679144386,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0005,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.38365304420350294,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0006666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.3979966611018364,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "03": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.00016666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 0.46730063396730065,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.00016666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 0.4510261972301018,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.002,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.47195325542570954,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "04": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.48981975967957275,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0005,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 0.4865676622726514,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0005,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.5096795727636849,
+      "median_delay": 22.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "05": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.48355867134034386,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0003333333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.5262016021361816,
+      "median_delay": 20.0,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0005,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0006666666666666666,
+      "alarmed_share": 0.5725483655770514,
+      "median_delay": 20.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "06": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 0.48122809944935757,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.5020026702269693,
+      "median_delay": 21.0,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0003333333333333333,
+      "alarmed_share": 0.5180060020006669,
+      "median_delay": 22.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "07": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.445260347129506,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.00016666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0006666666666666666,
+      "alarmed_share": 0.47131420947298197,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0018333333333333333,
+      "alarmed_share": 0.5042578059776256,
+      "median_delay": 22.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "08": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0003333333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 11.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.36548731642189586,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0005,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 11.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.3501919545985645,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 10.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.3504587155963303,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "09": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.47120681021532296,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0005,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.47680240320427236,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 0.5116783450116783,
+      "median_delay": 22.0,
+      "p90_delay": null
+     }
+    }
+   },
+   "10": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0003333333333333333,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.47654815556668334,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0006666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 8.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 0.499916569330886,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 7.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 0.5374603704321709,
+      "median_delay": 21.0,
+      "p90_delay": null
+     }
+    }
+   }
+  },
+  "d-s": {
+   "02": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 0.49983316649983317,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 0.2269314199899883,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.003,
+      "alarmed_share": 0.49916415914409895,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.23869891576313595,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0031666666666666666,
+      "alarmed_share": 0.5022571476341748,
+      "median_delay": 20.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.24753797362710733,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "03": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 15.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.4189617759973293,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0028333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 15.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.4011016524787181,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0036666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 15.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0018333333333333333,
+      "alarmed_share": 0.3860410753047253,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "04": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 18.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.42201834862385323,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 17.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.4118530884808013,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0036666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 17.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.39936582109479307,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "05": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 13.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0023333333333333335,
+      "alarmed_share": 0.4599064483795523,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 13.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.4543481889500918,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.003,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 13.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.46870305458187284,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "06": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 15.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.4824766355140187,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 15.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.4707256046705588,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.004833333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 14.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 0.45895895895895894,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "07": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0011666666666666668,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 12.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.44553794829024185,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.003,
+      "alarmed_share": 1.0,
+      "median_delay": 7.0,
+      "p90_delay": 11.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.4289052069425901,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.004666666666666667,
+      "alarmed_share": 1.0,
+      "median_delay": 6.0,
+      "p90_delay": 10.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.43825100133511347,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "08": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 0.4994994994994995,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 0.23152627189324437,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0031666666666666666,
+      "alarmed_share": 0.4985788329710751,
+      "median_delay": null,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.20400667779632722,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0033333333333333335,
+      "alarmed_share": 0.5001672240802676,
+      "median_delay": 21.0,
+      "p90_delay": null
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.002,
+      "alarmed_share": 0.19839679358717435,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "09": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0008333333333333334,
+      "alarmed_share": 1.0,
+      "median_delay": 9.0,
+      "p90_delay": 18.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0015,
+      "alarmed_share": 0.3775663495242864,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0023333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 17.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0005,
+      "alarmed_share": 0.34633983658495915,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0028333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 17.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0016666666666666668,
+      "alarmed_share": 0.3297161936560935,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   },
+   "10": {
+    "0.00": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0006666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 9.0,
+      "p90_delay": 18.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.0013333333333333333,
+      "alarmed_share": 0.39102136181575436,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.05": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0028333333333333335,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 18.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.002,
+      "alarmed_share": 0.3513694054776219,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    },
+    "0.10": {
+     "inductive": {
+      "streams": 6000,
+      "early_share": 0.0036666666666666666,
+      "alarmed_share": 1.0,
+      "median_delay": 8.0,
+      "p90_delay": 17.0
+     },
+     "transductive": {
+      "streams": 6000,
+      "early_share": 0.001,
+      "alarmed_share": 0.3333333333333333,
+      "median_delay": null,
+      "p90_delay": null
+     }
+    }
+   }
+  }
+ }
+}
