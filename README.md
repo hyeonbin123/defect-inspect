@@ -184,6 +184,7 @@ uv sync                                   # 지표·분할·임계값 보정 코
 uv sync --group serve                     # 검사 서비스까지 (onnxruntime, FastAPI; torch 없음)
 uv sync --group train --group dinomaly --group serve   # 특징 추출·학습·내보내기까지 (torch CUDA 12.8 빌드)
 uv sync --group figures                   # README 그림을 다시 그릴 때 (matplotlib)
+uv sync --inexact --group openvino        # CPU 런타임 대조의 OpenVINO 팔 (서비스에는 필요 없다)
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
@@ -259,6 +260,10 @@ uv run python -m defect_inspect.analyze_m2ad_enrol visa-dev
 uv run python -m defect_inspect.run_m2ad_enrol test --method p0 --pick-from reports/stage7/val.json --loop --allow-test --stage 7-m2ad   # d-s 는 --loop 없이
 uv run python -m defect_inspect.analyze_m2ad_enrol test
 
+# CPU 런타임 대조: 같은 ONNX를 onnxruntime(기본, 12스레드)과 OpenVINO로 (dev만, 지연은 한가할 때까지 기다린 뒤)
+uv run python -m defect_inspect.runtime_compare parity --artifacts artifacts/dms-280-car --recorded outputs/dms-280-car-onnx-fp32-dev
+uv run python -m defect_inspect.runtime_compare latency --artifacts artifacts/dms-280-car --parity reports/runtime/parity.json
+
 # README 그림 (reports/ 의 리포트에서 docs/figures/*.png 를 다시 그린다)
 uv run python -m defect_inspect.figures
 uv run python -m defect_inspect.figures --examples outputs/dm-test --allow-test --name examples-dinomaly
@@ -291,6 +296,7 @@ docker compose up --build
 - 받는 형식은 PNG, JPEG, BMP, TIFF, WebP(채널당 8비트, 투명도 없음)이고 업로드는 파일당 20MB까지다. 16비트 이미지는 조용히 잘리지 않게 거절한다
 - 재보정한 임계값은 메모리에만 있다. 다시 띄우면 아티팩트의 값으로 돌아간다
 - 촬영 조건이 그대로일 때만 임계값이 목표를 지킨다. 임계값은 학습에 쓰지 않은 정상(겹 0)으로 정했고, dev에서 흐림 σ 1.0을 주면 정상의 28.5%가 불량으로 나왔다. 위치 어긋남은 3단계와 같은 절차로 재지 않았으므로 지그와 위치 맞춤을 전제로 둔다. 조건이 바뀌면 그 조건의 정상 사진으로 `/calibrate`를 부른다(조명이 바뀐 경우의 한계는 3·7단계)
+- CPU 런타임: 같은 ONNX 파일을 OpenVINO 2026.4.1로 돌리면 dev 1,398장의 점수가 상대 2e-5 안에서 같고(AUROC, 그리고 각 런타임의 점수로 다시 잡은 임계값의 판정이 완전히 같다) 모델 경로가 같은 세션의 onnxruntime 141.1ms에서 91.8ms로 35% 짧았다. 규칙대로 서빙은 onnxruntime을 그대로 쓰고, OpenVINO는 더 큰 입력을 열 때의 후보로 둔다. 바꾸면 임계값을 OpenVINO 점수로 다시 잡아야 한다([기록](docs/experiments.md#cpu-런타임-대조-openvino-대-onnxruntime-규칙-2026-10-04-측정-전))
 - `DEFECT_INSPECT_PRECISION=int8-dynamic`으로 동적 INT8 모델(모델 경로 지연 123ms)도 띄울 수 있지만, 아티팩트의 임계값은 FP32 점수로 정한 것이라 INT8 점수에 그대로 쓸 때의 오검출률은 재지 않았고, dev AUROC도 1.4%p 낮다. 서빙은 FP32다
 - 보안 점검: 서비스를 OpenAPI 명세와 실제 업로드 요청(HAR 시드, `hawk/`)으로 DAST 스캔한다. 설정은 HawkScan(StackHawk, `stackhawk.yml`)과 OWASP ZAP 2.17.0(`zap/automation.yaml`, `zap/run_zap.sh`) 두 가지이고, 관리자 토큰은 실행할 때 환경 변수로 준다. 2026-10-04에 모델 교체 전후를 두 도구로 스캔했고 교체 뒤에 새로 나온 High·Medium은 없었다. HawkScan의 지적은 데모 페이지 폼의 Anti-CSRF 토큰 1건(Medium)뿐이고, 폼은 `fetch()`로만 보내며 서비스가 쿠키를 쓰지 않고 다른 출처의 쓰기 요청을 거절하므로 오탐으로 표시했다. ZAP은 Informational 2건만 냈다. HawkScan 체험이 2026-10-05에 끝나 이후로는 ZAP을 쓴다. 두 도구는 규칙이 달라 결과를 직접 비교하지 않는다. 기록은 [docs/security.md](docs/security.md)
 - 기본으로 `localhost`, `127.0.0.1`(uvicorn으로 직접 띄우면 `[::1]`도) 이름으로만 응답한다. 다른 이름이나 주소로 열려면 `DEFECT_INSPECT_ALLOWED_HOSTS`에 쉼표로 적는다. 이 값은 기본 목록을 대신하므로 `localhost,127.0.0.1`도 함께 적는다(compose의 상태 점검이 127.0.0.1로 접속한다)

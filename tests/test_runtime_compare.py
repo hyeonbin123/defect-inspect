@@ -124,6 +124,20 @@ def test_idle_rule_and_wait():
     idle, log = runtime_compare.wait_idle(2, minute=lambda: {"cpu_pct": 50.0, "gpu_pct": 0.0}, clock=str)
     assert not idle and len(log) == 2
 
+    # `end` is read after the minute was measured.
+    events = []
+
+    def minute():
+        events.append("minute")
+        return {"cpu_pct": 1.0, "gpu_pct": 0.0}
+
+    def clock(fmt):
+        events.append("clock")
+        return "t"
+
+    runtime_compare.wait_idle(1, minute=minute, clock=clock)
+    assert events == ["minute", "clock"]
+
 
 def test_busy_percent():
     assert runtime_compare.busy_percent((50, 100), (80, 200)) == pytest.approx(70.0)

@@ -376,7 +376,8 @@ def wait_idle(max_minutes: int, minute=load_minute, clock=time.strftime) -> tupl
     """Measure one minute at a time until the machine is idle or `max_minutes` have passed."""
     log = []
     for i in range(max_minutes):
-        record = {"minute": i + 1, "end": clock("%Y-%m-%d %H:%M:%S"), **minute()}
+        load = minute()  # measure first: `end` is the time the minute ended (2026-10-04 fix)
+        record = {"minute": i + 1, "end": clock("%Y-%m-%d %H:%M:%S"), **load}
         record["idle"] = is_idle(record)
         log.append(record)
         print(json.dumps(record), flush=True)
