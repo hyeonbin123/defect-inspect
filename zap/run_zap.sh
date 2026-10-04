@@ -15,8 +15,11 @@ seed=${2:-$root/hawk/seed.har}
 : "${ZAP_DIR:?set ZAP_DIR to the folder that holds zap-<version>.jar}"
 : "${ADMIN_TOKEN:?set ADMIN_TOKEN to the token the service was started with}"
 
-native() { # a path that Java understands (the Windows form under Git Bash)
-  if command -v cygpath > /dev/null; then cygpath -m "$1"; else realpath "$1"; fi
+native() { # the absolute path in a form Java understands (the Windows form under Git Bash). ZAP resolves a
+  # relative path against the plan's folder (zap/), not the working directory.
+  local abs
+  abs=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+  if command -v cygpath > /dev/null; then cygpath -m "$abs"; else printf '%s\n' "$abs"; fi
 }
 
 out=$root/work/zap/$name
