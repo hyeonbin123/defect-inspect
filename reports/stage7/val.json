@@ -1,0 +1,530 @@
+{
+  "n_boot": 2000,
+  "seed": 0,
+  "methods": {
+    "p0": {
+      "commit": "1e91ba3",
+      "device": "cuda",
+      "groups": {
+        "A": [
+          "03",
+          "07",
+          "08",
+          "09"
+        ],
+        "B": [
+          "02",
+          "04",
+          "05",
+          "06",
+          "10"
+        ]
+      },
+      "inspectors": [
+        "Motor_000",
+        "Motor_120",
+        "Motor_240",
+        "Bird_000",
+        "Bird_120",
+        "Bird_240"
+      ],
+      "candidates": {
+        "e0": {
+          "unseen": {
+            "false_positives": 1552,
+            "n_normal": 1620,
+            "fpr": 0.9580246913580247,
+            "fpr_ci": [
+              0.9506172839506173,
+              0.9654320987654321
+            ]
+          },
+          "seen": {
+            "false_positives": 9,
+            "n_normal": 180,
+            "fpr": 0.05,
+            "fpr_ci": [
+              0.022222222222222223,
+              0.08888888888888889
+            ]
+          },
+          "unseen_by_light": {
+            "02": {
+              "false_positives": 159,
+              "n_normal": 180
+            },
+            "03": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "04": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "05": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "06": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "07": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "08": {
+              "false_positives": 133,
+              "n_normal": 180
+            },
+            "09": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "10": {
+              "false_positives": 180,
+              "n_normal": 180
+            }
+          }
+        },
+        "e1": {
+          "unseen": {
+            "false_positives": 1545,
+            "n_normal": 1620,
+            "fpr": 0.9537037037037037,
+            "fpr_ci": [
+              0.945679012345679,
+              0.9623456790123457
+            ]
+          },
+          "seen": {
+            "false_positives": 8,
+            "n_normal": 180,
+            "fpr": 0.044444444444444446,
+            "fpr_ci": [
+              0.016666666666666666,
+              0.07222222222222222
+            ]
+          },
+          "unseen_by_light": {
+            "02": {
+              "false_positives": 151,
+              "n_normal": 180
+            },
+            "03": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "04": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "05": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "06": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "07": {
+              "false_positives": 179,
+              "n_normal": 180
+            },
+            "08": {
+              "false_positives": 135,
+              "n_normal": 180
+            },
+            "09": {
+              "false_positives": 180,
+              "n_normal": 180
+            },
+            "10": {
+              "false_positives": 180,
+              "n_normal": 180
+            }
+          }
+        },
+        "e2": {
+          "unseen": {
+            "false_positives": 865,
+            "n_normal": 1620,
+            "fpr": 0.5339506172839507,
+            "fpr_ci": [
+              0.4981481481481482,
+              0.571604938271605
+            ]
+          },
+          "seen": {
+            "false_positives": 81,
+            "n_normal": 1980,
+            "fpr": 0.04090909090909091,
+            "fpr_ci": [
+              0.021704545454545476,
+              0.06313131313131314
+            ]
+          },
+          "unseen_by_light": {
+            "02": {
+              "false_positives": 83,
+              "n_normal": 180
+            },
+            "03": {
+              "false_positives": 120,
+              "n_normal": 180
+            },
+            "04": {
+              "false_positives": 122,
+              "n_normal": 180
+            },
+            "05": {
+              "false_positives": 165,
+              "n_normal": 180
+            },
+            "06": {
+              "false_positives": 105,
+              "n_normal": 180
+            },
+            "07": {
+              "false_positives": 149,
+              "n_normal": 180
+            },
+            "08": {
+              "false_positives": 93,
+              "n_normal": 180
+            },
+            "09": {
+              "false_positives": 9,
+              "n_normal": 180
+            },
+            "10": {
+              "false_positives": 19,
+              "n_normal": 180
+            }
+          }
+        },
+        "e3": {
+          "unseen": {
+            "false_positives": 865,
+            "n_normal": 1620,
+            "fpr": 0.5339506172839507,
+            "fpr_ci": [
+              0.49691358024691357,
+              0.5728395061728395
+            ]
+          },
+          "seen": {
+            "false_positives": 84,
+            "n_normal": 1980,
+            "fpr": 0.04242424242424243,
+            "fpr_ci": [
+              0.019696969696969695,
+              0.06767676767676768
+            ]
+          },
+          "unseen_by_light": {
+            "02": {
+              "false_positives": 85,
+              "n_normal": 180
+            },
+            "03": {
+              "false_positives": 117,
+              "n_normal": 180
+            },
+            "04": {
+              "false_positives": 122,
+              "n_normal": 180
+            },
+            "05": {
+              "false_positives": 166,
+              "n_normal": 180
+            },
+            "06": {
+              "false_positives": 117,
+              "n_normal": 180
+            },
+            "07": {
+              "false_positives": 142,
+              "n_normal": 180
+            },
+            "08": {
+              "false_positives": 87,
+              "n_normal": 180
+            },
+            "09": {
+              "false_positives": 13,
+              "n_normal": 180
+            },
+            "10": {
+              "false_positives": 16,
+              "n_normal": 180
+            }
+          }
+        }
+      },
+      "pick": "e2"
+    },
+    "d-s": {
+      "commit": "1e91ba3",
+      "device": "cuda",
+      "groups": {
+        "A": [
+          "03",
+          "07",
+          "08",
+          "09"
+        ],
+        "B": [
+          "02",
+          "04",
+          "05",
+          "06",
+          "10"
+        ]
+      },
+      "inspectors": [
+        "Motor_000",
+        "Motor_120",
+        "Motor_240",
+        "Bird_000",
+        "Bird_120",
+        "Bird_240"
+      ],
+      "candidates": {
+        "e0": {
+          "unseen": {
+            "false_positives": 926,
+            "n_normal": 1620,
+            "fpr": 0.571604938271605,
+            "fpr_ci": [
+              0.5469135802469136,
+              0.5950617283950618
+            ]
+          },
+          "seen": {
+            "false_positives": 5,
+            "n_normal": 180,
+            "fpr": 0.027777777777777776,
+            "fpr_ci": [
+              0.005555555555555556,
+              0.05555555555555555
+            ]
+          },
+          "unseen_by_light": {
+            "02": {
+              "false_positives": 57,
+              "n_normal": 180
+            },
+            "03": {
+              "false_positives": 108,
+              "n_normal": 180
+            },
+            "04": {
+              "false_positives": 114,
+              "n_normal": 180
+            },
+            "05": {
+              "false_positives": 138,
+              "n_normal": 180
+            },
+            "06": {
+              "false_positives": 129,
+              "n_normal": 180
+            },
+            "07": {
+              "false_positives": 141,
+              "n_normal": 180
+            },
+            "08": {
+              "false_positives": 56,
+              "n_normal": 180
+            },
+            "09": {
+              "false_positives": 95,
+              "n_normal": 180
+            },
+            "10": {
+              "false_positives": 88,
+              "n_normal": 180
+            }
+          }
+        },
+        "e1": {
+          "unseen": {
+            "false_positives": 815,
+            "n_normal": 1620,
+            "fpr": 0.5030864197530864,
+            "fpr_ci": [
+              0.47901234567901235,
+              0.5259259259259259
+            ]
+          },
+          "seen": {
+            "false_positives": 6,
+            "n_normal": 180,
+            "fpr": 0.03333333333333333,
+            "fpr_ci": [
+              0.011111111111111112,
+              0.06111111111111111
+            ]
+          },
+          "unseen_by_light": {
+            "02": {
+              "false_positives": 61,
+              "n_normal": 180
+            },
+            "03": {
+              "false_positives": 94,
+              "n_normal": 180
+            },
+            "04": {
+              "false_positives": 99,
+              "n_normal": 180
+            },
+            "05": {
+              "false_positives": 103,
+              "n_normal": 180
+            },
+            "06": {
+              "false_positives": 96,
+              "n_normal": 180
+            },
+            "07": {
+              "false_positives": 127,
+              "n_normal": 180
+            },
+            "08": {
+              "false_positives": 54,
+              "n_normal": 180
+            },
+            "09": {
+              "false_positives": 91,
+              "n_normal": 180
+            },
+            "10": {
+              "false_positives": 90,
+              "n_normal": 180
+            }
+          }
+        },
+        "e2": {
+          "unseen": {
+            "false_positives": 232,
+            "n_normal": 1620,
+            "fpr": 0.14320987654320988,
+            "fpr_ci": [
+              0.1228240740740741,
+              0.1648148148148148
+            ]
+          },
+          "seen": {
+            "false_positives": 75,
+            "n_normal": 1980,
+            "fpr": 0.03787878787878788,
+            "fpr_ci": [
+              0.02070707070707071,
+              0.05707070707070707
+            ]
+          },
+          "unseen_by_light": {
+            "02": {
+              "false_positives": 4,
+              "n_normal": 180
+            },
+            "03": {
+              "false_positives": 16,
+              "n_normal": 180
+            },
+            "04": {
+              "false_positives": 18,
+              "n_normal": 180
+            },
+            "05": {
+              "false_positives": 55,
+              "n_normal": 180
+            },
+            "06": {
+              "false_positives": 16,
+              "n_normal": 180
+            },
+            "07": {
+              "false_positives": 93,
+              "n_normal": 180
+            },
+            "08": {
+              "false_positives": 9,
+              "n_normal": 180
+            },
+            "09": {
+              "false_positives": 6,
+              "n_normal": 180
+            },
+            "10": {
+              "false_positives": 15,
+              "n_normal": 180
+            }
+          }
+        },
+        "e3": {
+          "unseen": {
+            "false_positives": 184,
+            "n_normal": 1620,
+            "fpr": 0.11358024691358025,
+            "fpr_ci": [
+              0.09442901234567903,
+              0.1345679012345679
+            ]
+          },
+          "seen": {
+            "false_positives": 74,
+            "n_normal": 1980,
+            "fpr": 0.03737373737373737,
+            "fpr_ci": [
+              0.021704545454545476,
+              0.05505050505050505
+            ]
+          },
+          "unseen_by_light": {
+            "02": {
+              "false_positives": 5,
+              "n_normal": 180
+            },
+            "03": {
+              "false_positives": 6,
+              "n_normal": 180
+            },
+            "04": {
+              "false_positives": 14,
+              "n_normal": 180
+            },
+            "05": {
+              "false_positives": 37,
+              "n_normal": 180
+            },
+            "06": {
+              "false_positives": 14,
+              "n_normal": 180
+            },
+            "07": {
+              "false_positives": 79,
+              "n_normal": 180
+            },
+            "08": {
+              "false_positives": 8,
+              "n_normal": 180
+            },
+            "09": {
+              "false_positives": 5,
+              "n_normal": 180
+            },
+            "10": {
+              "false_positives": 16,
+              "n_normal": 180
+            }
+          }
+        }
+      },
+      "pick": "e3"
+    }
+  }
+}
