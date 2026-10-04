@@ -46,3 +46,21 @@ ZAP_DIR=<폴더> ADMIN_TOKEN=$ADMIN_TOKEN zap/run_zap.sh <이름> [시드 HAR]
 - ZAP active scan은 120분에서 끊는다. 끊기면 그 사실을 적는다
 - 결과 요약은 `reports/dast/`에 JSON으로 남긴다(경보 이름, 위험도, 신뢰도, 건수, 경로. 토큰과 요청 본문은 넣지 않는다)
 - 2026-10-05 이후 다시 스캔할 때는 ZAP을 쓰고, 이 날의 ZAP 기록과 비교한다
+
+### 2026-10-04 결과 (도구가 바뀌었다: HawkScan → OWASP ZAP. 두 도구의 결과는 직접 비교하지 않는다)
+규칙 커밋(`55c6149`) 뒤 같은 저녁에 (1) → 교체 커밋(`7d590d2`) → (2) 순서로 돌렸다. 요약 `reports/dast/2026-10-04.json`(경보, 서비스가 스캔 중에 낸 응답 코드 집계).
+
+| 도구 | 대상 | High | Medium | Low | Informational | 스캔 중 요청 (처리 코드에 닿은 업로드) |
+|---|---|---|---|---|---|---|
+| HawkScan v6.4.0 | (1) 교체 전, 오프라인 (`9b683118`) | 0 | 1 (Anti-CSRF Tokens Check) | 0 | 0 | 3,186 (`POST /inspect` 200 13회, `POST /calibrate` 200 109회) |
+| HawkScan v6.4.0 | (2) 교체 후, dms-280-car (`81b66cb7`) | 0 | 1 (Anti-CSRF Tokens Check) | 0 | 0 | 3,184 (13회, 109회) |
+| OWASP ZAP 2.17.0 | (1) 교체 전, 오프라인 | 0 | 0 | 0 | 2 (Modern Web Application, User Agent Fuzzer) | 6,891 (517회, 1,320회) |
+| OWASP ZAP 2.17.0 | (2) 교체 후, dms-280-car | 0 | 0 | 0 | 2 (같은 둘) | 6,894 (517회, 1,326회) |
+
+- **판정: 통과.** 두 도구 모두 (2)에 (1)에 없던 High·Medium이 없다. 경보의 종류와 건수가 교체 전후에 같고, 네 스캔 모두 서비스가 5xx를 한 번도 내지 않았다(모델이 실제로 도는 (2)에서도 대기열이 넘친 503이 없었다)
+- HawkScan의 Medium은 2026-10-01에 오탐으로 표시한 그 지적(데모 페이지 폼의 anti-CSRF 토큰)이고, 두 스캔 모두 오탐 상태로 남아 있다. 사유는 위 2026-10-01 기록과 같다
+- **ZAP은 이 Anti-CSRF Medium을 다시 내지 않았다.** HawkScan의 "Anti-CSRF Tokens Check"와 같은 이름의 active 규칙은 ZAP 공식 배포판에 든 규칙 묶음(`ascanrules` release)에 없고, ZAP의 패시브 규칙 "Absence of Anti-CSRF Tokens"(10202)는 이 폼에 경보를 내지 않았다. 같은 폼을 보고 도구에 따라 결과가 다르다는 것이 "직접 비교하지 않는다"의 한 예다
+- ZAP의 Informational 두 건은 데모 페이지가 링크 없이 스크립트로 그려지는 페이지라는 표시(Modern Web Application, 10109)와, User-Agent를 바꿔 보낸 `/calibrate` 요청의 응답이 원래 응답과 달랐다는 기록(User Agent Fuzzer, 10104)이다. `/calibrate`는 부를 때마다 임계값 상태가 바뀌어 응답 본문(`previous_threshold` 등)이 달라지는 경로라서, User-Agent에 따라 처리가 갈리는 것이 아니다. 둘 다 고칠 것이 아니다
+- ZAP의 한계: DOM XSS 규칙은 이 PC에 Firefox가 없어 브라우저를 띄우지 못하고 건너뛰었고(두 대상 모두), Parameter Tamper 규칙은 multipart 매개변수를 바꾸다 ZAP 내부 오류(NullPointerException)로 16번 멈췄다(두 대상 모두). 그 밖의 기본 정책 규칙은 돌았다
+- 스캔 시간: HawkScan (1) 약 30초, (2) 약 3분. ZAP (1) 약 1분(active scan 28초), (2) 약 18분(active scan 17분 30초, 120분 한도 안). (2)는 업로드마다 모델이 CPU에서 돌아서 길다
+- ZAP 첫 실행은 실행 스크립트가 시드 HAR 경로를 상대 경로로 넘겨 가져오기 단계에서 멈췄다(스캔 결과 없음). 스크립트를 고쳐(`86c209e`) 같은 서비스 프로세스에 다시 돌린 것이 위 (1)이다

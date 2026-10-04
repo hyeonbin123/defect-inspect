@@ -1116,6 +1116,8 @@ I01의 AUROC는 P0 E0 89.3, E2 88.0·88.9(팔 A·B), D-S E0 84.8, E3 85.6·85.6�
 ### DAST
 규칙과 결과는 [docs/security.md](security.md)에 적는다. HawkScan 체험이 끝나는 시점이라 교체 전후를 HawkScan과 OWASP ZAP으로 각각 스캔하고, 같은 도구 안에서만 비교한다.
 
+**2026-10-04 결과**: 통과. 두 도구 모두 교체 뒤에 새 High·Medium이 없었다(HawkScan은 교체 전후 모두 오탐으로 표시한 Anti-CSRF Medium 1건, ZAP은 전후 모두 Informational 2건). 자세한 것은 [docs/security.md](security.md)와 `reports/dast/2026-10-04.json`.
+
 ### 결과 (2026-10-04, 교체 커밋 전)
 규칙 커밋(`55c6149`) 뒤, 교체 코드를 커밋하기 전에 쟀다. 리포트 `reports/stage6/service-swap.json`. 봉인 테스트는 읽지 않았다(장부 변화 없음).
 

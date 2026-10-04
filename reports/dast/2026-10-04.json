@@ -1,0 +1,218 @@
+{
+  "date": "2026-10-04",
+  "rules": "docs/security.md",
+  "note": "Local scans only (127.0.0.1:8093), each run with a throwaway admin token sent on every request. HawkScan and ZAP differ in rules, defaults and versions, so the two tools are compared only with themselves (docs/security.md).",
+  "targets": {
+    "1": "before the swap: offline app (synthetic PatchCore category demo), seed hawk/seed.har",
+    "2": "after the swap: create_app with artifacts/dms-280-car (12 categories, onnxruntime CPU FP32), seed hawk/seed-pcb1.har"
+  },
+  "scans": [
+    {
+      "tool": "HawkScan v6.4.0",
+      "target": "1",
+      "commit": "55c6149",
+      "config": "stackhawk.yml",
+      "started": "20:01",
+      "scan_time": "about 30 s",
+      "traffic": {
+        "requests": 3186,
+        "by_status": {
+          "200": 740,
+          "307": 252,
+          "404": 447,
+          "405": 540,
+          "422": 1207
+        },
+        "upload_routes": {
+          "POST /calibrate 422": 602,
+          "POST /inspect 422": 600,
+          "GET /calibrate 405": 214,
+          "GET /inspect 405": 204,
+          "POST /calibrate 200": 109,
+          "DELETE /calibrate 404": 98,
+          "OPTIONS /calibrate 405": 24,
+          "TRACE /calibrate 405": 24,
+          "POST /inspect 200": 13,
+          "OPTIONS /inspect 405": 12,
+          "TRACE /inspect 405": 12,
+          "DELETE /calibrate 200": 9,
+          "DELETE /calibrate 422": 5
+        }
+      },
+      "scan_id": "9b683118-a471-43ca-9dc3-ac0d637013cb",
+      "findings": [
+        {
+          "name": "Anti-CSRF Tokens Check",
+          "risk": "Medium",
+          "count": 2,
+          "paths": [
+            "GET (root) [False Positive]",
+            "GET /?image=test_file.txt [False Positive]"
+          ]
+        }
+      ]
+    },
+    {
+      "tool": "OWASP ZAP 2.17.0",
+      "target": "1",
+      "commit": "55c6149 (service), 86c209e (zap/run_zap.sh path fix)",
+      "config": "zap/automation.yaml",
+      "started": "20:05",
+      "scan_time": "about 1 min (active scan 28 s)",
+      "traffic": {
+        "requests": 6891,
+        "by_status": {
+          "200": 2194,
+          "307": 71,
+          "400": 658,
+          "404": 647,
+          "405": 705,
+          "422": 2616
+        },
+        "upload_routes": {
+          "POST /calibrate 200": 1320,
+          "POST /inspect 422": 1298,
+          "POST /calibrate 422": 1285,
+          "POST /calibrate 400": 525,
+          "POST /inspect 200": 517,
+          "GET /inspect 405": 436,
+          "GET /calibrate 405": 246,
+          "DELETE /calibrate 404": 183,
+          "POST /calibrate 404": 176,
+          "POST /inspect 404": 169,
+          "POST /inspect 400": 124,
+          "DELETE /calibrate 422": 33,
+          "DELETE /calibrate 200": 19
+        }
+      },
+      "alerts": [
+        {
+          "name": "Modern Web Application",
+          "rule_id": 10109,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 2,
+          "systemic": true,
+          "samples": [
+            "GET /"
+          ]
+        },
+        {
+          "name": "User Agent Fuzzer",
+          "rule_id": 10104,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 3,
+          "systemic": true,
+          "samples": [
+            "DELETE /calibrate",
+            "POST /calibrate"
+          ]
+        }
+      ]
+    },
+    {
+      "tool": "HawkScan v6.4.0",
+      "target": "2",
+      "commit": "7d590d2",
+      "config": "stackhawk.yml",
+      "started": "20:35",
+      "scan_time": "about 3 min",
+      "traffic": {
+        "requests": 3184,
+        "by_status": {
+          "200": 740,
+          "307": 252,
+          "404": 445,
+          "405": 540,
+          "422": 1207
+        },
+        "upload_routes": {
+          "POST /calibrate 422": 602,
+          "POST /inspect 422": 600,
+          "GET /calibrate 405": 214,
+          "GET /inspect 405": 204,
+          "POST /calibrate 200": 109,
+          "DELETE /calibrate 404": 98,
+          "OPTIONS /calibrate 405": 24,
+          "TRACE /calibrate 405": 24,
+          "POST /inspect 200": 13,
+          "OPTIONS /inspect 405": 12,
+          "TRACE /inspect 405": 12,
+          "DELETE /calibrate 200": 9,
+          "DELETE /calibrate 422": 5
+        }
+      },
+      "scan_id": "81b66cb7-564f-4199-b6e4-94a829c24756",
+      "findings": [
+        {
+          "name": "Anti-CSRF Tokens Check",
+          "risk": "Medium",
+          "count": 2,
+          "paths": [
+            "GET (root) [False Positive]",
+            "GET /?image=test_file.txt [False Positive]"
+          ]
+        }
+      ]
+    },
+    {
+      "tool": "OWASP ZAP 2.17.0",
+      "target": "2",
+      "commit": "7d590d2",
+      "config": "zap/automation.yaml",
+      "started": "20:38",
+      "scan_time": "about 18 min (active scan 17 min 30 s)",
+      "traffic": {
+        "requests": 6894,
+        "by_status": {
+          "200": 2201,
+          "307": 71,
+          "400": 657,
+          "404": 643,
+          "405": 710,
+          "422": 2612
+        },
+        "upload_routes": {
+          "POST /calibrate 200": 1326,
+          "POST /inspect 422": 1294,
+          "POST /calibrate 422": 1285,
+          "POST /calibrate 400": 525,
+          "POST /inspect 200": 517,
+          "GET /inspect 405": 440,
+          "GET /calibrate 405": 247,
+          "DELETE /calibrate 404": 181,
+          "POST /calibrate 404": 176,
+          "POST /inspect 404": 169,
+          "POST /inspect 400": 123,
+          "DELETE /calibrate 422": 33,
+          "DELETE /calibrate 200": 19
+        }
+      },
+      "alerts": [
+        {
+          "name": "Modern Web Application",
+          "rule_id": 10109,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 2,
+          "systemic": true,
+          "samples": [
+            "GET /"
+          ]
+        },
+        {
+          "name": "User Agent Fuzzer",
+          "rule_id": 10104,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 3,
+          "systemic": true,
+          "samples": [
+            "DELETE /calibrate"
+          ]
+        }
+      ]
+    }
+  ]
+}
