@@ -1,11 +1,12 @@
-"""Write hawk/seed.har: real multipart requests for the scan of the offline service (see stackhawk.yml).
+"""Write a HAR seed: real multipart requests for a DAST scan of the service (stackhawk.yml, zap/).
 
 The OpenAPI request builder cannot render a valid image upload, so without these seeds every POST /inspect
 and POST /calibrate of a scan stops at form validation (422) and never reaches the handler. HAR bodies are
 text, so the images are 24-bit BMPs whose bytes are all below 0x80 (a PNG or JPEG would not survive the
 round trip through a JSON string). No token in here: the scan adds X-Admin-Token to every request.
 
-    uv run python hawk/make_seed_har.py [--host http://127.0.0.1:8093]
+    uv run python hawk/make_seed_har.py                      # hawk/seed.har: category demo (offline app)
+    uv run python hawk/make_seed_har.py --category pcb1 --out hawk/seed-pcb1.har   # an artifact set
 """
 
 import argparse
@@ -78,16 +79,16 @@ def entry(method: str, url: str, body: str | None = None) -> dict:
     return {"request": request, "response": response, "cache": {}, "timings": timings}
 
 
-def build(host: str) -> dict:
-    inspect = multipart([("category", "demo")], [("image", "part.bmp", ascii_bmp(0))])
+def build(host: str, category: str = "demo") -> dict:
+    inspect = multipart([("category", category)], [("image", "part.bmp", ascii_bmp(0))])
     calibrate = multipart(
-        [("category", "demo"), ("alpha", "0.05"), ("allow_unguaranteed", "true")],
+        [("category", category), ("alpha", "0.05"), ("allow_unguaranteed", "true")],
         [("images", f"normal-{i}.bmp", ascii_bmp(10 + i)) for i in range(3)],
     )
     entries = [
         entry("POST", f"{host}/inspect?preview=false&heatmap=true", inspect),
         entry("POST", f"{host}/calibrate", calibrate),
-        entry("DELETE", f"{host}/calibrate?category=demo"),
+        entry("DELETE", f"{host}/calibrate?category={category}"),
     ]
     creator = {"name": "make_seed_har.py", "version": "1"}
     return {"log": {"version": "1.2", "creator": creator, "entries": entries}}
@@ -96,9 +97,12 @@ def build(host: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--host", default="http://127.0.0.1:8093")
+    parser.add_argument("--category", default="demo", help="demo: the offline app; else a category folder")
+    parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args()
-    OUT.write_text(json.dumps(build(args.host.rstrip("/")), indent=1) + "\n", encoding="utf-8", newline="\n")
-    print(f"wrote {OUT}")
+    har = build(args.host.rstrip("/"), args.category)
+    args.out.write_text(json.dumps(har, indent=1) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {args.out}")
 
 
 if __name__ == "__main__":

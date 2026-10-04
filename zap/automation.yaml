@@ -1,0 +1,72 @@
+# OWASP ZAP automation plan: the same scan as stackhawk.yml (the OpenAPI description, the multipart requests of
+# a HAR seed, spider, passive scan, active scan with the default policy), every request carrying the admin
+# token. Written for the cross-platform ZAP 2.17.0 release (Java 17 or later). No secrets in this file: the
+# variables come from the environment, and zap/run_zap.sh sets them and starts ZAP.
+#
+#   TARGET       the service, e.g. http://127.0.0.1:8093 (only ever a local service)
+#   SEED_HAR     absolute path of a HAR seed made by hawk/make_seed_har.py for a category the service has
+#   REPORT_DIR   absolute path of the folder the reports go to; REPORT_NAME their file name without extension
+#
+# The admin token is not a plan variable: ZAP itself adds the header to every request it sends to the target
+# host (the counterpart of HawkScan's TOKEN authentication) when ZAP_AUTH_HEADER=X-Admin-Token,
+# ZAP_AUTH_HEADER_VALUE=<token> and ZAP_AUTH_HEADER_SITE=<host> are set. So the scan also reaches POST and
+# DELETE /calibrate. (A replacer job does not expand ${...} in its replacement string.)
+env:
+  contexts:
+    - name: defect-inspect
+      urls:
+        - ${TARGET}
+      includePaths:
+        - "${TARGET}.*"
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  - type: openapi
+    parameters:
+      apiUrl: ${TARGET}/openapi.json
+      context: defect-inspect
+
+  # The OpenAPI importer cannot render an image upload (every POST would stop at form validation, 422), so
+  # real multipart requests come from the HAR seed, as in stackhawk.yml.
+  - type: import
+    parameters:
+      type: har
+      fileName: ${SEED_HAR}
+
+  - type: spider
+    parameters:
+      context: defect-inspect
+      maxDuration: 2
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  # Default policy. Four threads keep the service's own queue (2 workers + 16 waiting) from answering 503 to
+  # the scanner when every request runs the model on the CPU.
+  - type: activeScan
+    parameters:
+      context: defect-inspect
+      threadPerHost: 4
+      maxScanDurationInMins: 120
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: ${REPORT_DIR}
+      reportFile: ${REPORT_NAME}
+      reportTitle: defect-inspect ZAP scan
+
+  - type: report
+    parameters:
+      template: traditional-md
+      reportDir: ${REPORT_DIR}
+      reportFile: ${REPORT_NAME}
+      reportTitle: defect-inspect ZAP scan

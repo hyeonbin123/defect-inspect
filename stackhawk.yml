@@ -5,6 +5,9 @@
 #   ADMIN_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
 #   DEFECT_INSPECT_ADMIN_TOKEN=$ADMIN_TOKEN uv run uvicorn defect_inspect.service:create_offline_app --factory --port 8093
 #   APP_ID=<application id> ADMIN_TOKEN=$ADMIN_TOKEN COMMIT_SHA=$(git rev-parse HEAD) hawk scan
+#
+# A service started on an artifact set (create_app) has no `demo` category: point SEED_HAR at a seed made for
+# one of its categories, e.g. SEED_HAR=hawk/seed-pcb1.har. zap/automation.yaml is the same scan for OWASP ZAP.
 app:
   applicationId: ${APP_ID}
   env: ${APP_ENV:Development}
@@ -35,7 +38,7 @@ hawk:
     har:
       file:
         paths:
-          - hawk/seed.har
+          - ${SEED_HAR:hawk/seed.har}
 tags:
   - name: _STACKHAWK_GIT_COMMIT_SHA
     value: ${COMMIT_SHA:none}
