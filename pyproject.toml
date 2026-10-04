@@ -45,6 +45,10 @@ dinomaly = [
 figures = [
     "matplotlib>=3.9",
 ]
+# The OpenVINO arm of the CPU runtime comparison (runtime_compare.py). Not part of the service image.
+openvino = [
+    "openvino==2026.4.1",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
