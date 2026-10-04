@@ -267,7 +267,7 @@ uv run python -m defect_inspect.figures --examples outputs/p0-test --allow-test 
 `--allow-test`가 붙은 실행은 봉인 테스트 이미지(`run_m2ad`는 M2AD 테스트 이미지)를 읽고, 읽을 때마다 `reports/test_ledger.jsonl`에 한 줄을 남긴다. 테스트 이미지를 캐시로 옮기는 `cache`와 `m2ad`도 한 줄을 남긴다. `--protocol test`만 붙은 분석 명령(`compare`, `analyze_perturb`, `analyze_grid`)은 저장된 점수만 읽는다. 지연은 다른 프로그램이 CPU를 쓰지 않을 때 잰다(규칙 변경 6).
 
 ## 검사 서비스
-torch 없이 onnxruntime만으로 CPU에서 돈다. 6단계에서 가설을 지지한 Dinomaly ViT-S 모델(280px + CAR, `artifacts/dms-280-car`, FP32)을 서빙한다(2026-10-04에 4단계 PatchCore에서 바꿈). ONNX 모델 하나를 12개 범주가 같이 쓰고, 범주 폴더에는 임계값만 있다(메모리 뱅크 없음). 6단계 봉인 테스트 기준으로 이미지 AUROC 96.5, 목표 오검출률 5%에서 실제 오검출률 4.3%와 검출률 83.3%, CPU 지연 150ms(Ryzen 5 3600, 원본 사진 리사이즈 포함, CPU가 한가할 때)다. 4단계 PatchCore 아티팩트(`defect_inspect.export`, 범주별 메모리 뱅크)도 그대로 읽는다. 모델 파일은 저장소에 없으므로 위 재현 명령(6단계의 `dinomaly_serving export`와 `calibrate`)으로 만든다. 교체한 서비스가 dev 이미지 1,398장에 6단계 기록과 같은 점수(최대 상대 차이 0)와 같은 임계값을 내는 것을 확인했다([교체 점검](docs/experiments.md#서비스-모델-교체-점검-규칙-2026-10-04-교체-전)).
+torch 없이 onnxruntime만으로 CPU에서 돈다. 6단계에서 가설을 지지한 Dinomaly ViT-S 모델(280px + CAR, `artifacts/dms-280-car`, FP32)을 서빙한다(2026-10-04에 4단계 PatchCore에서 바꿈). ONNX 모델 하나를 12개 범주가 같이 쓰고, 범주 폴더에는 임계값만 있다(메모리 뱅크 없음). 6단계 봉인 테스트 기준으로 이미지 AUROC 96.5, 목표 오검출률 5%에서 실제 오검출률 4.3%와 검출률 83.3%, 모델 경로의 CPU 지연 150ms(Ryzen 5 3600, CPU가 한가할 때, 1500×1000 사진의 리사이즈 + 정규화 + ONNX 한 번)다. 서비스의 `POST /inspect`는 여기에 업로드 읽기와 디코딩, 히트맵 PNG 인코딩이 더해지므로 응답의 `latency_ms`(데모 페이지의 "처리")는 이보다 크다. 서비스의 전체 응답 시간은 재지 않았다. 4단계 PatchCore 아티팩트(`defect_inspect.export`, 범주별 메모리 뱅크)도 그대로 읽는다. 모델 파일은 저장소에 없으므로 위 재현 명령(6단계의 `dinomaly_serving export`와 `calibrate`)으로 만든다. 교체한 서비스가 dev 이미지 1,398장에 6단계 기록과 같은 점수(최대 상대 차이 0)와 같은 임계값을 내는 것을 확인했다([교체 점검](docs/experiments.md#서비스-모델-교체-점검-규칙-2026-10-04-교체-전)).
 
 ```bash
 # 모델 파일 없이 도는 합성 범주(demo)로 띄워 보기 (작은 PatchCore 흉내, 테스트와 보안 점검용)
@@ -291,6 +291,6 @@ docker compose up --build
 - 받는 형식은 PNG, JPEG, BMP, TIFF, WebP(채널당 8비트, 투명도 없음)이고 업로드는 파일당 20MB까지다. 16비트 이미지는 조용히 잘리지 않게 거절한다
 - 재보정한 임계값은 메모리에만 있다. 다시 띄우면 아티팩트의 값으로 돌아간다
 - 촬영 조건이 그대로일 때만 임계값이 목표를 지킨다. 임계값은 학습에 쓰지 않은 정상(겹 0)으로 정했고, dev에서 흐림 σ 1.0을 주면 정상의 28.5%가 불량으로 나왔다. 위치 어긋남은 3단계와 같은 절차로 재지 않았으므로 지그와 위치 맞춤을 전제로 둔다. 조건이 바뀌면 그 조건의 정상 사진으로 `/calibrate`를 부른다(조명이 바뀐 경우의 한계는 3·7단계)
-- `DEFECT_INSPECT_PRECISION=int8-dynamic`으로 동적 INT8 모델(지연 123ms)도 띄울 수 있지만, 아티팩트의 임계값은 FP32 점수로 정한 것이라 INT8 점수에 그대로 쓸 때의 오검출률은 재지 않았고, dev AUROC도 1.4%p 낮다. 서빙은 FP32다
+- `DEFECT_INSPECT_PRECISION=int8-dynamic`으로 동적 INT8 모델(모델 경로 지연 123ms)도 띄울 수 있지만, 아티팩트의 임계값은 FP32 점수로 정한 것이라 INT8 점수에 그대로 쓸 때의 오검출률은 재지 않았고, dev AUROC도 1.4%p 낮다. 서빙은 FP32다
 - 보안 점검: 서비스를 OpenAPI 명세와 실제 업로드 요청(HAR 시드, `hawk/`)으로 DAST 스캔한다. 설정은 HawkScan(StackHawk, `stackhawk.yml`)과 OWASP ZAP 2.17.0(`zap/automation.yaml`, `zap/run_zap.sh`) 두 가지이고, 관리자 토큰은 실행할 때 환경 변수로 준다. 2026-10-04에 모델 교체 전후를 두 도구로 스캔했고 교체 뒤에 새로 나온 High·Medium은 없었다. HawkScan의 지적은 데모 페이지 폼의 Anti-CSRF 토큰 1건(Medium)뿐이고, 폼은 `fetch()`로만 보내며 서비스가 쿠키를 쓰지 않고 다른 출처의 쓰기 요청을 거절하므로 오탐으로 표시했다. ZAP은 Informational 2건만 냈다. HawkScan 체험이 2026-10-05에 끝나 이후로는 ZAP을 쓴다. 두 도구는 규칙이 달라 결과를 직접 비교하지 않는다. 기록은 [docs/security.md](docs/security.md)
 - 기본으로 `localhost`, `127.0.0.1`(uvicorn으로 직접 띄우면 `[::1]`도) 이름으로만 응답한다. 다른 이름이나 주소로 열려면 `DEFECT_INSPECT_ALLOWED_HOSTS`에 쉼표로 적는다. 이 값은 기본 목록을 대신하므로 `localhost,127.0.0.1`도 함께 적는다(compose의 상태 점검이 127.0.0.1로 접속한다)
