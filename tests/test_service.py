@@ -880,7 +880,8 @@ vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), sandbox);
     await el("form").listeners.submit({ preventDefault() {} });
     shown.push({
       hidden: el("result").hidden, verdict: el("verdict").textContent, score: el("score").textContent,
-      status: el("status").textContent, disabled: el("submit").disabled, drawn: drawn.slice(),
+      threshold: el("threshold").textContent, status: el("status").textContent,
+      disabled: el("submit").disabled, drawn: drawn.slice(),
     });
   }
   console.log(JSON.stringify({ shown, requests }));
@@ -896,6 +897,8 @@ def test_demo_page_never_shows_the_previous_verdict_next_to_a_new_upload(tmp_pat
     harness.write_text(_DEMO_HARNESS, encoding="utf-8", newline="\n")
     defect = {"is_defect": True, "score": 3.3421, "threshold": 0.625, "latency_ms": 12.5}
     good = {"is_defect": False, "score": 0.0018, "threshold": 0.625, "latency_ms": 9.0}
+    # Dinomaly scores and thresholds are around 0.01: three decimals would show both as 0.018.
+    close = {"is_defect": True, "score": 0.0181234, "threshold": 0.017962466925382614, "latency_ms": 150.0}
     replies = [
         {"status": 200, "body": {**defect, "heatmap_png": "HEAT", "input_png": "SEEN"}},
         {"status": 400, "body": {"detail": "the upload is not a readable image"}},
@@ -907,6 +910,7 @@ def test_demo_page_never_shows_the_previous_verdict_next_to_a_new_upload(tmp_pat
             "status": 422,
             "body": {"detail": [{"loc": ["body", "image"], "type": "missing", "msg": "Field required"}]},
         },
+        {"status": 200, "body": {**close, "heatmap_png": "HEAT", "input_png": "SEEN"}},
     ]
     done = subprocess.run(
         [node, str(harness), str(service.STATIC_DIR / "demo.js"), json.dumps(replies)],
@@ -918,12 +922,13 @@ def test_demo_page_never_shows_the_previous_verdict_next_to_a_new_upload(tmp_pat
     result = json.loads(done.stdout)
     # The picture comes from the server (what the model saw), so formats and EXIF rotation cannot differ.
     assert result["requests"] == ["/inspect?preview=true"] * len(replies)
-    first, rejected, again, offline, proxy, undrawable, invalid = result["shown"]
+    first, rejected, again, offline, proxy, undrawable, invalid, dinomaly = result["shown"]
     for shown in (first, again):
-        assert (shown["hidden"], shown["verdict"], shown["score"], shown["status"]) == (
+        assert (shown["hidden"], shown["verdict"], shown["score"], shown["threshold"], shown["status"]) == (
             False,
             "불량",
             "3.342",
+            "0.625",
             "",
         )
         assert "data:image/png;base64," in shown["drawn"] and "buffer" in shown["drawn"]
@@ -932,7 +937,9 @@ def test_demo_page_never_shows_the_previous_verdict_next_to_a_new_upload(tmp_pat
         assert shown["hidden"] is True and shown["status"] != ""
     # The verdict of this upload is shown even when its picture cannot be drawn, with a note, and the
     # canvases do not keep the previous picture.
-    assert (undrawable["hidden"], undrawable["verdict"], undrawable["score"]) == (False, "양품", "0.002")
+    assert (undrawable["hidden"], undrawable["verdict"], undrawable["score"]) == (False, "양품", "0.0018")
     assert undrawable["status"] != "" and "clear" in undrawable["drawn"]
     assert not any(item.startswith("data:") for item in undrawable["drawn"])
     assert all(shown["disabled"] is False for shown in result["shown"])
+    # Four significant digits keep a score and a threshold that differ in the fourth decimal apart.
+    assert (dinomaly["verdict"], dinomaly["score"], dinomaly["threshold"]) == ("불량", "0.01812", "0.01796")

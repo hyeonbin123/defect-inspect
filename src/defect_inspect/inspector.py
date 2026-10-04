@@ -37,6 +37,7 @@ META_KEYS = (
     "threshold",
 )
 PRECISIONS = {"fp32": "model_fp32.onnx", "int8": "model_int8.onnx"}
+PATCHCORE = "patchcore"
 
 
 @dataclass
@@ -241,6 +242,7 @@ class Inspector:
     is false, so it would otherwise pass as normal.
     """
 
+    kind = PATCHCORE
     precision = "fp32"
     threads: int | None = None  # intra-op threads the session was created with; None = onnxruntime's default
 
@@ -405,7 +407,7 @@ def artifact_kind(artifact_dir: Path) -> str:
             meta = json.load(f)
     except (OSError, ValueError) as err:
         raise ValueError(f"{Path(artifact_dir) / 'meta.json'} is not readable JSON: {err}") from err
-    return str(meta.get("kind", "patchcore")) if isinstance(meta, dict) else "patchcore"
+    return str(meta.get("kind", PATCHCORE)) if isinstance(meta, dict) else PATCHCORE
 
 
 class ReconstructionInspector:

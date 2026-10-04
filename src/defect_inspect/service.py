@@ -1,11 +1,13 @@
 """Inspection service: upload a product image, get the anomaly score, the verdict and a heatmap.
 
-Runs on the CPU with onnxruntime only (no torch). Inspectors are loaded from an artifact set built by
-`defect_inspect.export` (one sub-folder per category). `create_offline_app` serves a tiny synthetic
-inspector without any model file, for tests and security scans.
+Runs on the CPU with onnxruntime only (no torch). Inspectors are loaded from an artifact set (one sub-folder
+per category): a reconstruction model built by `defect_inspect.dinomaly_serving export` (Dinomaly, the
+served model since stage 6: one ONNX model scores every category, each folder holds its threshold) or a
+PatchCore set built by `defect_inspect.export` (a memory bank per category). `create_offline_app` serves a
+tiny synthetic inspector without any model file, for tests and security scans.
 
 Uploads: PNG, JPEG, BMP, TIFF or WebP with 8 bits per channel and no transparency. The stored pixels are
-scored as they are (no EXIF rotation), like the resize cache the memory banks were built from.
+scored as they are (no EXIF rotation), like the resize cache the models and memory banks were built from.
 
 Settings (environment variables, or the keyword arguments of `create_app`):
 - `DEFECT_INSPECT_ALLOWED_HOSTS`: comma-separated Host names the service answers to (`*.example.com` and
@@ -43,7 +45,16 @@ from PIL import Image
 from starlette.datastructures import Headers, MutableHeaders
 
 from .calibrate import conformal_rank, conformal_threshold
-from .inspector import ARTIFACT_VERSION, PRECISIONS, Inspector
+from .inspector import (
+    ARTIFACT_VERSION,
+    PATCHCORE,
+    PRECISIONS,
+    RECONSTRUCTION,
+    RECONSTRUCTION_PRECISIONS,
+    Inspector,
+    ReconstructionInspector,
+    artifact_kind,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,14 +89,18 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 _MISSING = object()
+# Model file of each precision, by artifact kind (the `kind` of a category folder's meta.json).
+MODEL_FILES = {PATCHCORE: PRECISIONS, RECONSTRUCTION: RECONSTRUCTION_PRECISIONS}
+AnyInspector = Inspector | ReconstructionInspector
 
 
 def load_inspectors(
     artifacts: Path, *, precision: str = "fp32", threads: int | None = None
-) -> dict[str, Inspector]:
+) -> dict[str, AnyInspector]:
     """Every category folder of an artifact set that holds a `meta.json`.
 
-    Each inspector is what `Inspector.load` builds for its folder (a test compares the two), except that
+    The folder's `kind` picks the class: `ReconstructionInspector` (no bank) or the PatchCore `Inspector`.
+    Each inspector is what that class's `load` builds for its folder (tests compare the two), except that
     categories using the same model file (an artifact set keeps one next to the category folders) share one
     ONNX Runtime session: `session.run` is thread-safe, and a session per category would multiply the
     memory and the start-up time by the number of categories. Anything wrong with an artifact is a
@@ -94,31 +109,44 @@ def load_inspectors(
     import onnxruntime as ort
 
     artifacts = Path(artifacts)
-    if precision not in PRECISIONS:
-        raise ValueError(f"precision must be one of {sorted(PRECISIONS)}, got {precision!r}")
+    known = sorted({name for files in MODEL_FILES.values() for name in files})
+    if precision not in known:
+        raise ValueError(f"precision must be one of {known}, got {precision!r}")
     options = ort.SessionOptions()
     if threads is not None:
         options.intra_op_num_threads = int(threads)
     sessions: dict[Path, Any] = {}
-    found = {}
+    found: dict[str, AnyInspector] = {}
     for meta_path in sorted(artifacts.glob("*/meta.json")):
         folder = meta_path.parent
-        model = folder / PRECISIONS[precision]
+        kind = artifact_kind(folder)
+        files = MODEL_FILES.get(kind)
+        if files is None:
+            raise ValueError(f"{folder}: unknown artifact kind {kind!r}")
+        if precision not in files:
+            raise ValueError(
+                f"{folder}: precision must be one of {sorted(files)} for a {kind} artifact, got {precision!r}"
+            )
+        model = folder / files[precision]
         if not model.exists():
-            model = artifacts / PRECISIONS[precision]
-        for path in (folder / "bank.npy", model):
+            model = artifacts / files[precision]
+        needed = (model,) if kind == RECONSTRUCTION else (folder / "bank.npy", model)
+        for path in needed:
             if not path.exists():
                 raise ValueError(f"not an inspector artifact: {path} is missing")
         try:
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
-            bank = np.load(folder / "bank.npy", allow_pickle=False)
+            bank = None if kind == RECONSTRUCTION else np.load(folder / "bank.npy", allow_pickle=False)
             key = model.resolve()
             if key not in sessions:
                 sessions[key] = ort.InferenceSession(
                     str(model), sess_options=options, providers=["CPUExecutionProvider"]
                 )
-            inspector = Inspector(sessions[key], bank, meta)
+            if bank is None:
+                inspector = ReconstructionInspector(sessions[key], meta)
+            else:
+                inspector = Inspector(sessions[key], bank, meta)
         except Exception as err:  # unreadable files, a model onnxruntime rejects, a meta/bank/model mismatch
             raise ValueError(f"{folder} ({model.name}): {err}") from err
         inspector.precision = precision
@@ -347,7 +375,7 @@ def _env_int(name: str, default: int) -> int:
 def create_app(
     artifacts: Path | str | None = None,
     *,
-    inspectors: dict[str, Inspector] | None = None,
+    inspectors: dict[str, AnyInspector] | None = None,
     precision: str | None = None,
     threads: int | None = None,
     admin_token: str | None = None,
@@ -410,13 +438,13 @@ def create_app(
         if problem:
             raise HTTPException(status_code=403, detail=problem)
 
-    def get(category: str) -> Inspector:
+    def get(category: str) -> AnyInspector:
         inspector = inspectors.get(category)
         if inspector is None:
             raise HTTPException(status_code=404, detail="unknown category")
         return inspector
 
-    def threshold_state(inspector: Inspector) -> dict:
+    def threshold_state(inspector: AnyInspector) -> dict:
         """Call with the category's lock held."""
         calibration = inspector.meta.get("calibration")
         return {
@@ -425,11 +453,13 @@ def create_app(
             "calibration": dict(calibration) if isinstance(calibration, dict) else calibration,
         }
 
-    def describe(name: str, inspector: Inspector) -> dict:
+    def describe(name: str, inspector: AnyInspector) -> dict:
         with locks[name]:
             state = threshold_state(inspector)
         return {
             "category": name,
+            "kind": inspector.kind,
+            "model": inspector.meta.get("name"),
             "threshold": state["threshold"],
             "img_size": inspector.size,
             "bank_rows": inspector.bank_rows,
@@ -491,8 +521,9 @@ def create_app(
     ) -> dict:
         """Set the category's threshold from normal images of the current condition (kept in memory).
 
-        Needs the admin token. Too few images for the conformal rank at `alpha` are refused unless
-        `allow_unguaranteed` is set (the threshold is then the largest score).
+        Only the threshold changes: the model (and a PatchCore memory bank) stays as loaded. Needs the admin
+        token. Too few images for the conformal rank at `alpha` are refused unless `allow_unguaranteed` is
+        set (the threshold is then the largest score).
         """
         inspector = get(category)
         if len(images) > MAX_CALIBRATION_FILES:
@@ -508,7 +539,7 @@ def create_app(
 
         def score(upload: UploadFile) -> float:
             picture = _decode(_read_limited(upload), inspector.size)
-            return inspector.score_features(inspector.features(picture))[0]
+            return inspector.inspect(picture, heatmap=False).score
 
         # One image at a time: decoded pictures are not kept, and inspections get a worker in between.
         scores = []

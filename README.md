@@ -17,7 +17,7 @@
 | 1. 결함 라벨 몇 장부터 지도 학습이 이기나 | 범주당 결함 5장(검증 포함 25장)이면 Dinomaly와 구별되지 않고, 20장(검증 포함 40장)부터 분명히 앞선다(+1.6%p). 그러나 k = 5·10에서 학습에 없던 결함 유형만 보면 2.1~3.5%p 뒤진다(k = 20 이상은 그런 결함이 거의 남지 않아 재지 못했다) |
 | 2. 정상 이미지로 고정한 임계값은 목표를 지키나 | 빼 둔 정상으로 잡으면 목표 5%에 실제 5.6%로 유한표본 이론 구간(3.6~6.3%) 안이고, 교차 적합은 4.0%로 목표를 넘지 않는 보수적인 쪽이다. 뱅크를 만든 이미지로 잡으면 86%다. 단, 촬영 조건이 그대로일 때만 그렇다. WideResNet PatchCore 기준으로 조명이 바뀌면(M2AD) 97%, 20~30% 어두워지면(VisA) 15~41%가 된다. M2AD에서 새 조명의 정상 30장을 뱅크에 더하고 임계값을 다시 잡으면 4.4%로 돌아온다(8장으로도 3.5%). 다른 조명 4~5개를 미리 등록해 두면 등록하지 않은 조명에서 55.6%(DINOv2 특징에 이미지별 중심화까지 더하면 11.5%)이고, 라벨 없이 경보를 받아 다음 20장으로 자동 재등록하면 9.4~9.9%다(7단계) |
 | 3. 합성 교란이 실제 조명 변화를 대신하나 | 미리 적은 가설("합성 교란은 실제 조명 변화의 절반에도 못 미친다")은 기각됐다. 가장 센 흐림·JPEG는 실제 조명 변화(평균 +95%p)의 85% 안팎까지 오검출을 늘렸다. 그러나 조명을 흉내 낸 밝기 배율(+14%p)과 감마(+52%p)는 실제 조명(모든 조건 +78%p 이상)에 못 미쳐, 밝기 교란만으로는 실제 조명 변화를 어림할 수 없다(이 부분은 규칙 밖의 해석이다) |
-| 4. CPU 200ms 안에 들면서 기준을 지키는 구성이 남나 | PatchCore로는 남지 않았다. 4단계에서 규칙대로 고른 구성(WRN-50 256px, 코어셋 1%)은 배포용 뱅크로 CPU 214ms이고 AUROC가 Dinomaly보다 6.8%p 낮아 기준을 지키지 못했다(가설 기각). INT8은 점수가 크게 달라져 쓸 수 없었다. 6단계에서 Dinomaly의 인코더를 DINOv2 ViT-S로 줄여 280px로 학습한 모델은 세 기준을 모두 지켰다(가설 지지): CPU 150ms, 실제 오검출률 4.3%, AUROC 96.5로 GPU Dinomaly(96.8)와 0.3%p 차이, PatchCore보다 +6.4%p [+5.1, +7.8] |
+| 4. CPU 200ms 안에 들면서 기준을 지키는 구성이 남나 | PatchCore로는 남지 않았다. 4단계에서 규칙대로 고른 구성(WRN-50 256px, 코어셋 1%)은 배포용 뱅크로 CPU 214ms이고 AUROC가 Dinomaly보다 6.8%p 낮아 기준을 지키지 못했다(가설 기각). INT8은 점수가 크게 달라져 쓸 수 없었다. 6단계에서 Dinomaly의 인코더를 DINOv2 ViT-S로 줄여 280px로 학습한 모델은 세 기준을 모두 지켰다(가설 지지): CPU 150ms, 실제 오검출률 4.3%, AUROC 96.5로 GPU Dinomaly(96.8)와 0.3%p 차이, PatchCore보다 +6.4%p [+5.1, +7.8]. 검사 서비스는 이 모델로 바꿨다 |
 
 ## 결과
 0~4단계와 6·7단계를 쟀다(5단계는 이 README와 그림이다). 자세한 표와 판정, 규칙 변경 기록은 [docs/experiments.md](docs/experiments.md)에 있다.
@@ -267,28 +267,30 @@ uv run python -m defect_inspect.figures --examples outputs/p0-test --allow-test 
 `--allow-test`가 붙은 실행은 봉인 테스트 이미지(`run_m2ad`는 M2AD 테스트 이미지)를 읽고, 읽을 때마다 `reports/test_ledger.jsonl`에 한 줄을 남긴다. 테스트 이미지를 캐시로 옮기는 `cache`와 `m2ad`도 한 줄을 남긴다. `--protocol test`만 붙은 분석 명령(`compare`, `analyze_perturb`, `analyze_grid`)은 저장된 점수만 읽는다. 지연은 다른 프로그램이 CPU를 쓰지 않을 때 잰다(규칙 변경 6).
 
 ## 검사 서비스
-torch 없이 onnxruntime만으로 CPU에서 돈다. `defect_inspect.export`가 만든 아티팩트 폴더(ONNX 모델, 범주별 메모리 뱅크와 임계값)를 읽는다. 4단계에서 고른 구성(WRN-50 256px, 코어셋 1%, FP32)이 기본이다. 모델과 뱅크는 저장소에 없으므로 위 재현 명령으로 만든다. 6단계에서 가설을 지지한 Dinomaly ViT-S 모델(`artifacts/dms-280-car`, 메모리 뱅크 없음)은 아직 이 서비스가 읽지 못한다.
+torch 없이 onnxruntime만으로 CPU에서 돈다. 6단계에서 가설을 지지한 Dinomaly ViT-S 모델(280px + CAR, `artifacts/dms-280-car`, FP32)을 서빙한다(2026-10-04에 4단계 PatchCore에서 바꿈). ONNX 모델 하나를 12개 범주가 같이 쓰고, 범주 폴더에는 임계값만 있다(메모리 뱅크 없음). 6단계 봉인 테스트 기준으로 이미지 AUROC 96.5, 목표 오검출률 5%에서 실제 오검출률 4.3%와 검출률 83.3%, CPU 지연 150ms(Ryzen 5 3600, 원본 사진 리사이즈 포함, CPU가 한가할 때)다. 4단계 PatchCore 아티팩트(`defect_inspect.export`, 범주별 메모리 뱅크)도 그대로 읽는다. 모델 파일은 저장소에 없으므로 위 재현 명령(6단계의 `dinomaly_serving export`와 `calibrate`)으로 만든다. 교체한 서비스가 dev 이미지 1,398장에 6단계 기록과 같은 점수(최대 상대 차이 0)와 같은 임계값을 내는 것을 확인했다([교체 점검](docs/experiments.md#서비스-모델-교체-점검-규칙-2026-10-04-교체-전)).
 
 ```bash
-# 모델 파일 없이 도는 합성 범주(demo)로 띄워 보기
+# 모델 파일 없이 도는 합성 범주(demo)로 띄워 보기 (작은 PatchCore 흉내, 테스트와 보안 점검용)
 uv run uvicorn defect_inspect.service:create_offline_app --factory --port 8093
 
-# 아티팩트로 띄우기
-DEFECT_INSPECT_ARTIFACTS=artifacts/serving-wrn50-256-r0.01 uv run uvicorn defect_inspect.service:create_app --factory --port 8093
+# 아티팩트로 띄우기 (4단계 PatchCore는 artifacts/serving-wrn50-256-r0.01)
+DEFECT_INSPECT_ARTIFACTS=artifacts/dms-280-car uv run uvicorn defect_inspect.service:create_app --factory --port 8093
 
-# Docker (CPU 이미지, 약 650MB)
-DEFECT_INSPECT_ARTIFACT_DIR=./artifacts/serving-wrn50-256-r0.01 docker compose up --build
+# Docker (CPU 이미지, 약 650MB. 기본으로 ./artifacts/dms-280-car 를 읽는다)
+docker compose up --build
 ```
 
 | 경로 | 내용 |
 |---|---|
 | `GET /` | 데모 페이지: 사진을 올리면 판정과 이상 위치를 겹쳐 보여 준다 |
 | `POST /inspect` | `image`(파일), `category` → 이상 점수, 임계값, 양품/불량, 히트맵 PNG(base64) |
-| `POST /calibrate` | 현재 촬영 조건의 정상 사진 여러 장 → 그 범주의 임계값을 다시 잡는다. `DEFECT_INSPECT_ADMIN_TOKEN`을 설정하고 `X-Admin-Token` 헤더로 보내야 하며, 설정하지 않으면 꺼져 있다 |
+| `POST /calibrate` | 현재 촬영 조건의 정상 사진 여러 장 → 그 범주의 임계값만 다시 잡는다(모델은 그대로). `DEFECT_INSPECT_ADMIN_TOKEN`을 설정하고 `X-Admin-Token` 헤더로 보내야 하며, 설정하지 않으면 꺼져 있다 |
 | `DELETE /calibrate?category=<범주>` | 재보정을 되돌린다. POST와 같은 `X-Admin-Token`이 필요하고, 토큰을 설정하지 않으면 꺼져 있다 |
-| `GET /categories`, `GET /healthz` | 범주별 임계값·뱅크 크기, 상태 |
+| `GET /categories`, `GET /healthz` | 범주별 모델 종류(`reconstruction`, `patchcore`)와 이름, 임계값, 상태 |
 
 - 받는 형식은 PNG, JPEG, BMP, TIFF, WebP(채널당 8비트, 투명도 없음)이고 업로드는 파일당 20MB까지다. 16비트 이미지는 조용히 잘리지 않게 거절한다
 - 재보정한 임계값은 메모리에만 있다. 다시 띄우면 아티팩트의 값으로 돌아간다
+- 촬영 조건이 그대로일 때만 임계값이 목표를 지킨다. 임계값은 학습에 쓰지 않은 정상(겹 0)으로 정했고, dev에서 흐림 σ 1.0을 주면 정상의 28.5%가 불량으로 나왔다. 위치 어긋남은 3단계와 같은 절차로 재지 않았으므로 지그와 위치 맞춤을 전제로 둔다. 조건이 바뀌면 그 조건의 정상 사진으로 `/calibrate`를 부른다(조명이 바뀐 경우의 한계는 3·7단계)
+- `DEFECT_INSPECT_PRECISION=int8-dynamic`으로 동적 INT8 모델(지연 123ms)도 띄울 수 있지만, 아티팩트의 임계값은 FP32 점수로 정한 것이라 INT8 점수에 그대로 쓸 때의 오검출률은 재지 않았고, dev AUROC도 1.4%p 낮다. 서빙은 FP32다
 - 보안 점검: HawkScan(StackHawk) DAST로 오프라인 서비스를 OpenAPI 명세와 실제 업로드 요청(`hawk/seed.har`)으로 스캔했다(`stackhawk.yml`, 관리자 토큰은 실행할 때 환경 변수로 준다). 지적은 데모 페이지 폼의 Anti-CSRF 토큰 1건(Medium)뿐이었고, 폼은 `fetch()`로만 보내며 서비스가 쿠키를 쓰지 않고 다른 출처의 쓰기 요청을 거절하므로 오탐으로 표시했다
 - 기본으로 `localhost`, `127.0.0.1`(uvicorn으로 직접 띄우면 `[::1]`도) 이름으로만 응답한다. 다른 이름이나 주소로 열려면 `DEFECT_INSPECT_ALLOWED_HOSTS`에 쉼표로 적는다. 이 값은 기본 목록을 대신하므로 `localhost,127.0.0.1`도 함께 적는다(compose의 상태 점검이 127.0.0.1로 접속한다)

@@ -1,0 +1,154 @@
+{
+  "check": "service swap to dms-280-car (docs/experiments.md, 2026-10-04)",
+  "commit": "86c209e+dirty",
+  "artifacts": "artifacts/dms-280-car (local)",
+  "precision": "fp32",
+  "images": 1398,
+  "max_rel_diff": 0.0,
+  "verdict_flips_at_served_thresholds": 0,
+  "thresholds_equal": true,
+  "onnx_sha256": "3bcf8e04d771681178103bb23b2384455548d9dbf336ecfb9736a1ba343c2382",
+  "onnx_sha256_dev_run": "3bcf8e04d771681178103bb23b2384455548d9dbf336ecfb9736a1ba343c2382",
+  "onnx_sha256_test_run": "3bcf8e04d771681178103bb23b2384455548d9dbf336ecfb9736a1ba343c2382",
+  "sha256_equal": true,
+  "recorded_dev_run": {
+    "path": "outputs/dms-280-car-onnx-fp32-dev",
+    "commit": "9e1e4f8+dirty"
+  },
+  "pass": true,
+  "categories": {
+    "candle": {
+      "images": 140,
+      "normal": 120,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.016260985285043716,
+      "recomputed_threshold": 0.016260985285043716,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "capsules": {
+      "images": 93,
+      "normal": 73,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.018941175192594528,
+      "recomputed_threshold": 0.018941175192594528,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "cashew": {
+      "images": 80,
+      "normal": 60,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.02073354832828045,
+      "recomputed_threshold": 0.02073354832828045,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "chewinggum": {
+      "images": 81,
+      "normal": 61,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.018462732434272766,
+      "recomputed_threshold": 0.018462732434272766,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "fryum": {
+      "images": 80,
+      "normal": 60,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.018364422023296356,
+      "recomputed_threshold": 0.018364422023296356,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "macaroni1": {
+      "images": 140,
+      "normal": 120,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.016612771898508072,
+      "recomputed_threshold": 0.016612771898508072,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "macaroni2": {
+      "images": 140,
+      "normal": 120,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.017428172752261162,
+      "recomputed_threshold": 0.017428172752261162,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "pcb1": {
+      "images": 141,
+      "normal": 121,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.017962466925382614,
+      "recomputed_threshold": 0.017962466925382614,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "pcb2": {
+      "images": 141,
+      "normal": 121,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.019575217738747597,
+      "recomputed_threshold": 0.019575217738747597,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "pcb3": {
+      "images": 141,
+      "normal": 121,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.020210308954119682,
+      "recomputed_threshold": 0.020210308954119682,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "pcb4": {
+      "images": 141,
+      "normal": 121,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.02202884666621685,
+      "recomputed_threshold": 0.02202884666621685,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    },
+    "pipe_fryum": {
+      "images": 80,
+      "normal": 60,
+      "defect": 20,
+      "max_rel_diff": 0.0,
+      "served_threshold": 0.019088467583060265,
+      "recomputed_threshold": 0.019088467583060265,
+      "threshold_equal": true,
+      "kind": "reconstruction",
+      "model": "dms-280-car"
+    }
+  },
+  "elapsed_s": 339.0
+}

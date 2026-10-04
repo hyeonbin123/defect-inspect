@@ -26,7 +26,8 @@ USER inspect
 # default, growing threshold they stay in the heap, and the container sits at its peak memory for good.
 ENV MALLOC_MMAP_THRESHOLD_=1048576
 
-# Mount an artifact set built by `python -m defect_inspect.export` here.
+# Mount an artifact set here: `python -m defect_inspect.dinomaly_serving export` + `calibrate` (the served
+# Dinomaly ViT-S model, artifacts/dms-280-car) or a PatchCore set of `python -m defect_inspect.export`.
 ENV DEFECT_INSPECT_ARTIFACTS=/artifacts
 EXPOSE 8000
 

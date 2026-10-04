@@ -70,6 +70,12 @@ function describeRefusal(data) {
   return data && typeof data.detail === "string" ? data.detail : "요청이 거부됐다.";
 }
 
+// Four significant digits: PatchCore scores are around 1 to 3, Dinomaly scores around 0.01, so a fixed
+// number of decimals would show a Dinomaly score and its threshold as the same number.
+function formatScore(value) {
+  return String(Number(value.toPrecision(4)));
+}
+
 async function inspect(event) {
   event.preventDefault();
   const file = $("image").files[0];
@@ -105,8 +111,8 @@ async function inspect(event) {
   const verdict = $("verdict");
   verdict.textContent = data.is_defect ? "불량" : "양품";
   verdict.className = "badge " + (data.is_defect ? "bad" : "ok");
-  $("score").textContent = data.score.toFixed(3);
-  $("threshold").textContent = data.threshold.toFixed(3);
+  $("score").textContent = formatScore(data.score);
+  $("threshold").textContent = formatScore(data.threshold);
   $("latency").textContent = String(data.latency_ms);
   $("result").hidden = false;
   try {
