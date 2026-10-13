@@ -5,6 +5,20 @@ CPU). For each: accuracy, and the pooled false alarm and detection rates under t
 with a named pipeline's cross-fitted scores.
 """
 
+# [파일 역할] 4단계에서 PatchCore를 CPU용으로 내보낸 뒤, 점수가 GPU torch 파이프라인과 얼마나 달라지는지,
+# INT8이 임계값을 다시 잡아야 하는지를 표로 만드는 분석 모듈이다(`python -m defect_inspect.analyze_export
+# outputs/export-...-test`).
+# [비교하는 파이프라인] torch(GPU fp16, 뱅크와 임계값을 만든 원래 경로), fp32·int8(onnxruntime CPU).
+# 파이프라인마다 정확도, 자기 교차 적합 점수로 정한 임계값의 합산 오검출률·검출률을 내고, CPU 쪽은 torch
+# 임계값을 그대로 썼을 때와 torch 대비 점수 차이도 낸다. 그리고 가설 H14(FP32 임계값을 INT8 점수에 그대로 쓰면
+# 오검출률이 2.0%p 넘게 달라진다)를 판정한다.
+# [결과] FP32 CPU는 torch와 AUROC가 같고 torch 임계값을 그대로 써도 오검출률 4.18%로 같았다(점수 상대 차이
+# 중앙값 0.012%). INT8은 FP32 임계값을 쓰면 4.18% → 68.48%로 H14 지지, 다시 잡으면 3.77%지만 AUROC가 7.1%p
+# 떨어져 쓰지 않았다(docs/experiments.md 4단계 test 결과).
+# [연결] 입력은 run_export_eval의 출력 폴더, 출력은 reports/stage4/export-<절차>.json. 부트스트랩·차이 판정은
+# compare 모듈 것을 그대로 쓴다.
+
+# Fraction은 H14의 2.0%p 기준을 오검출 "수"로 바꿔 정확히 비교하는 데 쓴다(shift_verdict 참고).
 import argparse
 import json
 import sys
@@ -16,10 +30,15 @@ import numpy as np
 from . import compare, paths
 from .calibrate import conformal_threshold
 
+# ALPHA: 목표 오검출률 5%. MIN_EFFECT_FPR: 합산 오검출률의 최소 효과 2.0%p(공통 규칙, H14의 기준).
 ALPHA = 0.05
 MIN_EFFECT_FPR = 0.02
 
 
+# run_export_eval 출력을 파이프라인별 공통 모양으로 읽는다. 정밀도 폴더(fp32/, int8/)의 npz에는 CPU
+# 점수(eval_score_full, pool_score_oof)와 함께 같은 이미지의 torch 점수(torch_eval_score,
+# torch_pool_score_oof)가 들어 있어, torch 파이프라인도 같은 파일에서 만든다. 보정 점수는 모두 교차 적합
+# 점수다.
 def load(out_dir: Path) -> dict:
     with open(out_dir / "run.json", encoding="utf-8") as f:
         meta = json.load(f)
@@ -44,6 +63,9 @@ def load(out_dir: Path) -> dict:
     return {"meta": meta, "pipelines": pipelines}
 
 
+# scores의 평가 점수를, thresholds_from의 교차 적합 점수로 정한 범주별 임계값에 적용했을 때의 합산
+# 오검출률·검출률과 부트스트랩 표본. 두 인자를 다르게 주면 "다른 파이프라인의 임계값을 그대로 쓰면"을 잴 수
+# 있다. 오검출 수(fp, fp_boot)도 돌려주어 최소 효과와의 비교를 정확한 정수로 할 수 있게 한다.
 def _rates(
     boot: compare.Bootstrap, scores: dict[str, dict], thresholds_from: dict[str, dict], alpha: float
 ) -> dict[str, np.ndarray | float]:
@@ -52,6 +74,8 @@ def _rates(
     fp_boot = np.zeros(boot.n_boot)
     tp_boot = np.zeros(boot.n_boot)
     for i, c in enumerate(boot.names):
+        # 임계값은 thresholds_from 파이프라인의 교차 적합 점수에서 정하고, 표시는 scores 파이프라인의 평가
+        # 점수에 한다(규칙: 점수 > 임계값이면 불량).
         thr = conformal_threshold(thresholds_from[c]["cal_score"], alpha).value
         labels = scores[c]["eval_labels"]
         neg, pos = scores[c]["eval_score"][labels == 0], scores[c]["eval_score"][labels == 1]
@@ -75,6 +99,7 @@ def _rates(
     }
 
 
+# 리포트 칸 하나: 오검출률·검출률과 각 95% 구간.
 def _cell(r: dict) -> dict:
     return {
         "fpr": float(r["fpr"]),
@@ -84,6 +109,10 @@ def _cell(r: dict) -> dict:
     }
 
 
+# 리포트 조립. 세 파이프라인이 같은 이미지를 채점했는지 확인하고, torch를 기준으로 부트스트랩 한 벌을 만든다.
+# 파이프라인마다 평균 AUROC와 구간, 자기 임계값의 비율을 적고, CPU 파이프라인은 추가로 (1) torch 대비 AUROC
+# 차이, (2) torch 임계값을 그대로 쓴 비율과 그때 오검출률이 torch 자신과 얼마나 다른지, (3) torch 대비 이미지
+# 점수의 상대 차이(중앙값, 최대)를 적는다. fp32와 int8이 모두 있으면 H14를 판정한다.
 def build_report(run: dict, alpha: float = ALPHA) -> dict:
     pipelines = run["pipelines"]
     runs = {name: compare.MethodRun(name, "crossfit", cats) for name, cats in pipelines.items()}
@@ -95,6 +124,7 @@ def build_report(run: dict, alpha: float = ALPHA) -> dict:
     rows = []
     for name, cats in pipelines.items():
         auroc_boot = boot.macro_auroc(runs[name])
+        # 자기 임계값: 파이프라인마다 자기 교차 적합 점수로 임계값을 정했을 때의 비율.
         own = _rates(boot, cats, cats, alpha)
         row = {
             "pipeline": name,
@@ -106,6 +136,8 @@ def build_report(run: dict, alpha: float = ALPHA) -> dict:
             row["vs_torch_auroc"] = compare.difference(
                 row["macro_image_auroc"] - base_auroc, auroc_boot - base_auroc_boot
             )
+            # torch 임계값을 CPU 점수에 그대로 쓴 경우와 torch 자신의 경우를 같은 추출로 비교한다. 4단계에서
+            # FP32는 4.18%로 같았고, INT8은 크게 달라졌다.
             at_torch = _rates(boot, cats, pipelines["torch"], alpha)
             torch_own = _rates(boot, pipelines["torch"], pipelines["torch"], alpha)
             row["torch_thresholds"] = _cell(at_torch)
@@ -114,6 +146,8 @@ def build_report(run: dict, alpha: float = ALPHA) -> dict:
                 at_torch["fpr_boot"] - torch_own["fpr_boot"],
                 MIN_EFFECT_FPR,
             )
+            # torch 대비 이미지 점수의 상대 차이(중앙값, 최대). 4단계 FP32는 0.012%, 2.6%, INT8은 24.3%,
+            # 165%였다.
             rel = [
                 np.abs(cats[c]["eval_score"] - pipelines["torch"][c]["eval_score"])
                 / np.maximum(np.abs(pipelines["torch"][c]["eval_score"]), 1e-12)
@@ -130,6 +164,8 @@ def build_report(run: dict, alpha: float = ALPHA) -> dict:
         "n_boot": boot.n_boot,
         "rows": rows,
         **{k: run["meta"][k] for k in ("artifacts", "ratio", "protocol")},
+        # INT8 점수가 없는 실행(DINOv2 설정은 INT8 모델을 만들 수 없다, 규칙 변경 5)이면 H14를 판정하지
+        # 않는다는 표시를 남긴다.
         # False when the run has no INT8 scores (e.g. the model could not be quantized): no H14 verdict.
         "int8_scored": "int8" in pipelines,
     }
@@ -138,6 +174,10 @@ def build_report(run: dict, alpha: float = ALPHA) -> dict:
     return report
 
 
+# H14 판정 규칙(등록한 그대로)을 오검출 수로 적용한다. 짝지은 구간이 0을 포함하지 않고 변화가 2.0%p 이상이면
+# 지지, 구간 전체가 ±2.0%p 안이면 기각, 나머지는 판정 불가. 2.0%p를 정상 수 × 0.02(Fraction으로 정확히)인
+# "장수"로 바꿔 비교하므로, 비율의 부동소수 반올림(예: 0.12 − 0.10 = 0.01999...) 때문에 경계에서 판정이
+# 뒤집히지 않는다.
 def shift_verdict(fp_diff: int, ci_counts: list[float], n_neg: int) -> str:
     """The registered H14 rule, on false alarm counts out of `n_neg` pooled normals.
 
@@ -146,6 +186,7 @@ def shift_verdict(fp_diff: int, ci_counts: list[float], n_neg: int) -> str:
     ("판정 불가") otherwise. Counts keep the comparison with the margin exact: as a difference of two
     rates, 12/100 - 10/100 is 0.01999... in floating point and would miss "at least 2.0 points".
     """
+    # 2.0%p × 정상 수 = 기준이 되는 오검출 장수(정확한 분수). 아래 비교는 모두 장수 단위다.
     margin = Fraction(str(MIN_EFFECT_FPR)) * n_neg
     lo, hi = ci_counts
     if (lo > 0 or hi < 0) and abs(fp_diff) >= margin:
@@ -155,6 +196,9 @@ def shift_verdict(fp_diff: int, ci_counts: list[float], n_neg: int) -> str:
     return "판정 불가"
 
 
+# H14의 수치: FP32 CPU 교차 적합 점수로 정한 임계값을 FP32 점수와 INT8 점수에 각각 적용해 오검출 수 차이와
+# 짝지은 구간을 낸다. INT8 자신의 교차 적합 점수로 다시 잡았을 때의 비율과 검출률 변화도 같이 적는다(판정
+# 없이).
 def int8_shift(boot: compare.Bootstrap, pipelines: dict, alpha: float = ALPHA) -> dict:
     """INT8 scores under thresholds calibrated with the fp32 CPU pipeline, against fp32 under the same ones.
 
@@ -188,6 +232,8 @@ def _span(ci: list[float]) -> str:
     return f"[{_pct(ci[0])}, {_pct(ci[1])}]"
 
 
+# 콘솔용 표: 파이프라인별 AUROC, 자기 임계값의 오검출률·검출률, torch 임계값의 오검출률, torch 대비 점수 차이,
+# 그리고 H14 한 줄.
 def format_report(report: dict) -> str:
     lines = [
         f"{report['artifacts']} ratio {report['ratio']:g} protocol {report['protocol']}",
@@ -226,6 +272,7 @@ def format_report(report: dict) -> str:
     return "\n".join(lines)
 
 
+# 명령행 입구. 저장된 점수만 읽고 reports/stage4/export-<절차>.json을 쓴다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("run_dir", type=Path, help="a run_export_eval output directory")

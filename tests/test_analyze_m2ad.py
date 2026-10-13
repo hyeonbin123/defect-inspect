@@ -1,8 +1,21 @@
+# [파일 역할] analyze_m2ad.py(3-B: M2AD 검사기 6개의 조건별 표, 재보정 표, 가설 H11·H12 판정)를 검증하는
+# 테스트 묶음.
+# [왜 필요한가] M2AD의 독립 표본은 시편이라, 구간을 시편 단위 군집 부트스트랩으로 낸다. analyze_m2ad는 이것을
+# 가중치 행렬 곱과 쌍 승패 행렬로 빠르게 계산하므로, 시편을 직접 뽑아 세는 문자 그대로의
+# 반복문(direct_counts)과 결과가 1e-12 안에서 같은지 확인한다. 또 H11(합성 교란 최대 증가 < 실제 조명 평균
+# 증가의 절반)과 H12(30장 재보정 뒤 오검출률 ≤ 10%)의 판정이 등록한 규칙대로, 경계(구간 끝이 정확히 0이나
+# 한계값)와 부동소수 반올림에서도 흔들리지 않는지 본다.
+# [구성] 합성 실행 두 종류(random_run: 동점·제외 이미지·결함 하나뿐인 검사기를 넣은 무작위 점수, flat_run:
+# 정상 0점·결함 1점으로 비율을 손으로 셀 수 있는 실행) → 부트스트랩 → 조건 표 → H11 → H12 → 재보정 표 → 파일
+# 읽기와 명령행.
+
 import json
 
 import numpy as np
 import pytest
 
+# metrics.auroc와 stats는 검증용 반복문에서 같은 지표와 같은 추출(stratified_indices, seed 0)을 쓰려고
+# 가져온다. conditions.condition_names는 run_m2ad가 쓰는 합성 교란 15가지 이름이다.
 from defect_inspect import analyze_m2ad, metrics, paths
 from defect_inspect.analyze_m2ad import (
     ClusterBootstrap,
@@ -16,6 +29,8 @@ from defect_inspect.analyze_m2ad import (
 from defect_inspect.conditions import condition_names
 from defect_inspect.stats import percentile_ci, stratified_indices
 
+# 실제 실행과 같은 모양: 시점 3개, 새 조명 I02~I10 아홉 개, 조건은 S(기준 조명 I01) + 합성 P 15개 + 실제 R 9개
+# = 25개, 재보정 키는 조명 × n(8, 30). 부트스트랩은 테스트용으로 300번.
 VIEWS = ("000", "120", "240")
 LIGHTS = [f"{i:02d}" for i in range(2, 11)]
 SYNTHETIC = [f"P:{name}" for name in condition_names(include_clean=False)]
@@ -24,11 +39,15 @@ RECAL_KEYS = [f"{light}:{n}" for light in LIGHTS for n in (8, 30)]
 N_BOOT = 300
 
 
+# run_m2ad의 run.json 모양(방법, 커밋, 장치, 점검 실행 여부, 검사기 목록).
 def _meta(categories):
     inspectors = [{"category": c, "view": v} for c in categories for v in VIEWS]
     return {"method": "p0", "commit": "abc1234", "device": "cpu", "check": False, "inspectors": inspectors}
 
 
+# 무작위 합성 실행. 점수를 소수 한 자리로 반올림해 동점을 만들고, 불량 시편 이미지의 약 25%를 라벨 -1(평가
+# 제외)로 둔다. Bird_240 검사기는 결함 이미지를 한 장만 남겨, 그 시편이 빠진 재표본에서는 이 검사기의 AUROC가
+# 정의되지 않는 경우를 일부러 만든다. 범주마다 정상·불량 시편 수가 다르다.
 def random_run(seed=0, sizes=(("Motor", 5, 8), ("Bird", 4, 7))) -> dict:
     """Random scores with ties, excluded images and one inspector that has a single defect image."""
     rng = np.random.default_rng(seed)
@@ -70,6 +89,9 @@ def random_run(seed=0, sizes=(("Motor", 5, 8), ("Bird", 4, 7))) -> dict:
     return {"meta": _meta([s[0] for s in sizes]), "inspectors": inspectors}
 
 
+# 손으로 셀 수 있는 실행: 임계값 0.5, 정상 이미지는 모든 조건에서 0점, 결함 이미지는 1점. 범주당 정상 시편
+# 20개·불량 50개로 실제 M2AD와 같은 크기라 조건마다 정상 이미지 120장(20 × 검사기 6)이다. 아래 flag로 원하는
+# 정상만 임계값 위로 올려 오검출률을 정확히 만든다.
 def flat_run(n_normal=20, n_anomalous=50, categories=("Motor", "Bird")) -> dict:
     """Threshold 0.5; every normal image scores 0 and every defect image 1, whatever the condition."""
     inspectors = {}
@@ -95,6 +117,8 @@ def flat_run(n_normal=20, n_anomalous=50, categories=("Motor", "Bird")) -> dict:
     return {"meta": _meta(categories), "inspectors": inspectors}
 
 
+# 지정한 조건(또는 재보정 키)에서 지정한 정상 시편의 점수를 1.0으로 올려 임계값을 넘게 한다. 시점·범주를 골라
+# 일부 검사기에만 줄 수 있다.
 def flag(run, names, specimens, views=VIEWS, key="scores", categories=("Motor", "Bird")):
     """Raise the normal specimens `specimens` above the threshold under the conditions `names`."""
     index_key = "conditions" if key == "scores" else "recal_keys"
@@ -105,6 +129,9 @@ def flag(run, names, specimens, views=VIEWS, key="scores", categories=("Motor", 
             arr[key][arr[index_key].tolist().index(name), list(specimens)] = 1.0
 
 
+# 검증용 문자 그대로의 군집 부트스트랩: 재표본마다 시편을 범주 안에서 정상·불량 따로 뽑고(analyze_m2ad와 같은
+# stratified_indices 순서), 뽑힌 시편의 모든 시점 이미지를 모아 오검출·정상·검출·결함 수와 검사기 AUROC 평균을
+# 센다. 느리지만 틀릴 여지가 적어, 행렬 곱으로 계산하는 ClusterBootstrap의 기준이 된다.
 def direct_counts(run, cell, n_boot, seed=0, with_auroc=True) -> np.ndarray:
     """Literal resampling: draw specimens, take their images from every view, count.
 
@@ -139,6 +166,8 @@ def direct_counts(run, cell, n_boot, seed=0, with_auroc=True) -> np.ndarray:
     return out
 
 
+# direct_counts를 비율(합산 오검출률, 합산 검출률, 평균 AUROC)로 바꾼다. direct_pooled는 여러 Cell(예: 아홉
+# 조명)을 합친 비율이다.
 def direct_samples(run, cell, n_boot, seed=0) -> np.ndarray:
     """[n_boot, 3] from the literal loop: pooled FPR, pooled detection rate, mean inspector AUROC."""
     counts = direct_counts(run, cell, n_boot, seed)
@@ -151,6 +180,7 @@ def direct_pooled(run, cells, n_boot) -> tuple[np.ndarray, np.ndarray]:
     return counts[:, 0] / counts[:, 1], counts[:, 2] / counts[:, 3]
 
 
+# 합성 실행을 run_m2ad 출력 폴더 형식(검사기별 npz + run.json)으로 쓴다(load와 명령행 테스트용).
 def write_run(run: dict, path) -> None:
     path.mkdir(parents=True)
     for name, arr in run["inspectors"].items():
@@ -161,6 +191,8 @@ def write_run(run: dict, path) -> None:
 # ------------------------------------------------------------------------------------------ the bootstrap
 
 
+# 등록한 상수(부트스트랩 2,000번, seed 0, H12의 n = 30과 한계 10%, 판정 방법 P0)와, 횟수를 주지 않으면
+# 2,000번·seed 0으로 같은 추출이 나오는지 확인한다.
 def test_registered_resampling_constants():
     assert analyze_m2ad.N_BOOT == 2000 and analyze_m2ad.SEED == 0
     assert (analyze_m2ad.H12_N, analyze_m2ad.H12_LIMIT, analyze_m2ad.JUDGED_METHOD) == (30, 0.10, "p0")
@@ -171,6 +203,10 @@ def test_registered_resampling_constants():
     assert np.array_equal(boot.weights["Bird"], ClusterBootstrap(run, n_boot=2000, seed=0).weights["Bird"])
 
 
+# ClusterBootstrap의 오검출률·검출률·AUROC 재표본이 문자 그대로의 반복문과 1e-12 안에서 같은지, 관측값이 단순
+# 합계와 검사기 AUROC 평균인지 본다. 기준 조건, 합성 교란, 실제 조명 하나씩 확인한다. 마지막으로 Bird_240의
+# 유일한 결함 시편이 빠진 재표본이 실제로 있었는지 확인해, "AUROC가 없는 검사기를 평균에서 빼는" 경로가
+# 시험됐음을 보장한다.
 def test_cluster_bootstrap_matches_a_direct_loop():
     run = random_run()
     boot = ClusterBootstrap(run, n_boot=N_BOOT, seed=0)
@@ -200,6 +236,9 @@ def test_cluster_bootstrap_matches_a_direct_loop():
     assert skipped
 
 
+# 부트스트랩이 이미지가 아니라 시편을 뽑는지 확인한다. 재표본마다 정상·불량 시편 수가 그대로 유지되고(층화),
+# 가중치가 stratified_indices의 추출(범주 순, 정상 다음 불량)과 같으며, 같은 시드면 같고 다른 시드면 다르다.
+# 두 번 뽑힌 정상 시편은 세 시점 이미지가 모두 두 번 세어져 정상 이미지 수가 늘 3 × 5 + 3 × 4 = 27이어야 한다.
 def test_cluster_bootstrap_draws_specimens_not_images():
     run = random_run()
     boot = ClusterBootstrap(run, n_boot=N_BOOT, seed=0)
@@ -225,6 +264,8 @@ def test_cluster_bootstrap_draws_specimens_not_images():
     assert (samples[:, 1] == 3 * 5 + 3 * 4).all()
 
 
+# 조건 표의 행 순서(25개 조건 그대로), 기준 조건 S에는 차이가 없음, 다른 조건의 구간과 "조건 − S" 차이·짝지은
+# 구간이 반복문 결과와 같음을 확인한다. 같은 추출로 짝지은 차이를 내야 한다는 3-B 규칙을 지킨다.
 def test_condition_table_against_the_direct_loop():
     run = random_run(seed=3)
     table = condition_table(run, n_boot=N_BOOT, seed=0)
@@ -243,6 +284,9 @@ def test_condition_table_against_the_direct_loop():
     assert table[0]["n_normal"] == 3 * 5 + 3 * 4
 
 
+# 한 조건에서 결함 이미지가 하나도 없는 검사기(여기서는 Bird_120의 R:07)는 관측값과 모든 재표본에서 똑같이
+# 평균에서 빠져야 한다(관측값 = 나머지 5개 검사기 평균, 구간도 유한). 어느 검사기에도 결함 이미지가 없으면
+# 관측값과 재표본이 모두 NaN이어야 한다. 3-B에서 불량 라벨이 조명마다 달라지는 실제 상황을 다룬다.
 def test_auroc_leaves_out_an_inspector_without_defect_images_everywhere():
     run = random_run()
     arr = run["inspectors"]["Bird_120"]
@@ -269,6 +313,10 @@ def test_auroc_leaves_out_an_inspector_without_defect_images_everywhere():
     assert np.isnan(value) and np.isnan(samples).all()
 
 
+# 손으로 센 값과 비교한다. 기준 조건은 정상 120장·결함 300장(50 × 6), 오검출률 0, 검출률 1, AUROC 1, 구간 [0,
+# 0]. R:04에서 정상 시편 5개(25%)를 올리면 오검출률 0.25, 차이 +0.25(구간 하한 > 0), 검출률 변화 0. 범주마다
+# 한 시점의 시편 하나(2장)면 2/120. 정상의 4분의 1이 결함과 동점이면 AUROC = 0.75 + 0.25/2 = 0.875(동점은
+# 절반).
 def test_condition_table_of_a_flat_run():
     run = flat_run()
     flag(run, ["R:04"], range(5))
@@ -290,6 +338,8 @@ def test_condition_table_of_a_flat_run():
 # ----------------------------------------------------------------------------------------------------- H11
 
 
+# H11 지지: 모든 실제 조명에서 +50%p, 합성 최대 +5%p면 통계량 = 0.05 − 0.5 × 0.5 = −0.20이고 구간 상한 < 0이라
+# 지지. 합성 15개·실제 9개를 셌는지도 본다.
 def test_h11_supported():
     run = flat_run()
     flag(run, [f"R:{light}" for light in LIGHTS], range(10))  # +50 points under every real illumination
@@ -303,6 +353,9 @@ def test_h11_supported():
     assert (result["n_synthetic"], result["n_real"]) == (15, 9)
 
 
+# H11 기각: 합성 하나(JPEG 품질 50)에서 정상 전부가 오검출(+100%p)이고 실제 조명은 변화가 없으면 통계량 1.0,
+# 구간 [1, 1]로 기각. 3-B의 실제 판정(합성 최대 +82.5%p가 실제 평균 +95.3%p의 절반보다 커서 기각)과 같은 쪽의
+# 경우다.
 def test_h11_rejected():
     run = flat_run()
     flag(run, ["P:jpeg-3"], range(20))
@@ -313,6 +366,7 @@ def test_h11_rejected():
     assert result["mean_real_increase"] == 0 and result["verdict"] == "기각"
 
 
+# H11 판정 불가: 합성 +5%p, 실제 +10%p(절반이 5%p)면 통계량이 0이고 구간이 0을 걸친다.
 def test_h11_undecided():
     run = flat_run()
     flag(run, ["P:gamma-2"], [0])  # +5 points
@@ -323,6 +377,8 @@ def test_h11_undecided():
     assert result["verdict"] == "판정 불가"
 
 
+# 통계량이 "조건 − S" 차이로 계산되는지(모든 조건에서 올린 시편 5는 차이를 만들지 않음), 실제 쪽은 아홉 조명의
+# 평균인지(세 조명에서만 11/20 증가 → 평균 3 × (11/20) / 9) 확인한다.
 def test_h11_uses_the_mean_of_the_real_conditions_and_differences_to_s():
     run = flat_run()
     # Specimen 5 is flagged under every condition, S included: it moves no difference.
@@ -335,6 +391,10 @@ def test_h11_uses_the_mean_of_the_real_conditions_and_differences_to_s():
     assert result["statistic"] == pytest.approx(0.1 - 0.5 * 3 * (11 / 20) / 9)
 
 
+# 합성 최댓값을 재표본마다 다시 취하는지 확인한다. 관측에서는 jpeg-1(시편 3개)이 최대지만, 재표본에 따라
+# brightness-1(시편 2개)이 더 클 수 있다. 기대 구간을 추출에서 직접 계산해(max(첫째, 둘째) − 0.5 × 실제)
+# 비교하고, 실제로 순서가 바뀐 재표본이 있었는지(first > second)도 확인한다. 관측 최대 조건만 따라가면 구간이
+# 달라지므로 그 실수를 잡는다.
 def test_h11_takes_the_maximum_again_in_every_resample():
     run = flat_run(categories=("Motor",))
     flag(run, ["P:brightness-1"], [0, 1])
@@ -354,6 +414,8 @@ def test_h11_takes_the_maximum_again_in_every_resample():
     assert result["statistic"] == pytest.approx(0.15 - 0.5 * 0.15)
 
 
+# 실제 조명 쪽은 재표본마다 아홉 조건의 평균을 쓰는지 확인한다(증가가 없는 다섯 조명도 0으로 평균에 들어감).
+# 최댓값을 쓰면 다른 구간이 나온다는 것까지 단언해, 평균과 최댓값을 바꿔 쓰는 실수를 잡는다.
 def test_h11_interval_averages_the_nine_real_conditions_in_every_resample():
     run = flat_run(categories=("Motor",))
     flag(run, ["P:jpeg-1"], [0, 1])
@@ -374,6 +436,9 @@ def test_h11_interval_averages_the_nine_real_conditions_in_every_resample():
     assert result["ci"] != pytest.approx(percentile_ci(synthetic - 0.5 * real_max))
 
 
+# 구간 끝이 정확히 0이면 판정 불가여야 한다(지지는 상한 < 0, 기각은 하한 > 0을 요구). 아무것도 올리지 않은
+# 경우와, 증가가 모든 재표본에서 정확히 상쇄되는 경우(실제 +100%p, 합성은 한 범주에서만 +100%p = 합산 +50%p)
+# 두 가지를 본다.
 def test_h11_is_undecided_when_the_interval_ends_at_zero():
     # Nothing is flagged anywhere: the statistic is 0 in every resample, the interval is [0, 0]. The rule
     # needs an upper end below 0 to support and a lower end above 0 to reject, so neither holds.
@@ -390,6 +455,9 @@ def test_h11_is_undecided_when_the_interval_ends_at_zero():
     assert result["ci"] == pytest.approx([0, 0], abs=1e-12) and result["verdict"] == "판정 불가"
 
 
+# 수학적으로 정확히 0인 통계량이 부동소수로 −5.6e−17이나 +2.8e−17로 나와도 판정이 갈리지 않아야
+# 한다(analyze_m2ad의 _TOL). (범주, 시점) 블록 전체를 올려 모든 재표본에서 비율이 같게 만들고, 항상 올린 블록
+# 수를 바꿔 반올림 방향이 다른 두 경우를 시험한다.
 @pytest.mark.parametrize("always", [[("Motor", "000")], [("Motor", "000"), ("Motor", "120")]])
 def test_h11_exact_tie_is_not_decided_by_float_rounding(always):
     # Whole (category, view) blocks of normal images are flagged, so every rate is the same in every
@@ -410,6 +478,7 @@ def test_h11_exact_tie_is_not_decided_by_float_rounding(always):
     assert result["verdict"] == "판정 불가"
 
 
+# 합성(P) 조건이 없는 실행(S와 R만 남김)으로 H11을 부르면 판정할 수 없으므로 ValueError여야 한다.
 def test_h11_needs_both_kinds_of_conditions():
     run = flat_run()
     for arr in run["inspectors"].values():
@@ -426,10 +495,15 @@ def test_h11_needs_both_kinds_of_conditions():
 # ----------------------------------------------------------------------------------------------------- H12
 
 
+# 재보정 장수 n의 키 아홉 개("<조명>:<n>").
 def keys_of(n):
     return [f"{light}:{n}" for light in LIGHTS]
 
 
+# H12의 세 판정을 손으로 만든 비율로 확인한다(정상 1,080장 = 아홉 조명 × 120).
+# - 오검출 0 → 지지, 정상 전부 → 기각
+# - 정상 시편 10%(2개) → 구간이 10%를 걸쳐 판정 불가, 40% → 하한 > 10%라 기각
+# - 범주마다 시편 하나를 두 조명에서만 올림 → 12장(검사기 6개 × 조명 2), 상한 < 10%라 지지
 def test_h12_supported_rejected_undecided():
     run = flat_run()
     result = h12(run, n_boot=N_BOOT)
@@ -459,6 +533,9 @@ def test_h12_supported_rejected_undecided():
     assert result["false_positives"] == 12 and result["fpr_ci"][1] < 0.10 and result["verdict"] == "지지"
 
 
+# 경계와 n 선택을 본다. 모든 정상 시편을 한 시점에서만 올리면 모든 재표본에서 비율이 정확히 1/3이라 구간이 한
+# 점이다. 한계가 1/3이면 "상한 ≤ 한계"라 지지, 0.33이면 기각, 0.34면 지지. n은 재보정 장수를 고르고,
+# 재보정하지 않은 점수(R 조건)는 H12에 쓰이지 않아야 하며, 없는 n(16)은 오류다.
 def test_h12_boundary_and_size():
     run = flat_run()
     # Every normal specimen is flagged in exactly one of its three views: the pooled rate is 1/3 in every
@@ -475,6 +552,8 @@ def test_h12_boundary_and_size():
         h12(run, n=16, n_boot=N_BOOT)
 
 
+# 구간 하한이 한계값과 정확히 같으면(1/6) 기각이 아니라 판정 불가여야 한다(기각은 하한 > 한계). 한계를 아주
+# 조금 낮추면 기각으로 바뀌는지도 본다.
 def test_h12_is_undecided_when_the_lower_end_equals_the_limit():
     run = flat_run()
     # Motor: every normal specimen is flagged in one view, 20 of 120 images in every resample. Bird: one
@@ -488,6 +567,10 @@ def test_h12_is_undecided_when_the_lower_end_equals_the_limit():
     assert h12(run, limit=1 / 6 - 1e-6, n_boot=N_BOOT)["verdict"] == "기각"
 
 
+# 재보정한 점수는 원래 임계값(0.5)이 아니라 재보정으로 다시 정한 임계값으로 판정해야 한다(0.7점이 0.9 임계값
+# 아래면 오검출 0). 또 키마다, 검사기마다 자기 임계값을 쓰는지 확인한다. n = 8은 임계값 0.6이라 정상 전부
+# 오검출(1,080), n = 30은 Bird_240의 04:30만 0.65라 20장, Motor_000의 04:30은 1.5라 그 검사기의 결함 50장을
+# 놓친다.
 def test_recalibrated_images_are_judged_by_the_recalibrated_thresholds():
     run = flat_run()
     for arr in run["inspectors"].values():
@@ -513,6 +596,7 @@ def test_recalibrated_images_are_judged_by_the_recalibrated_thresholds():
     assert h12(run, n=8, n_boot=N_BOOT)["fpr"] == 1
 
 
+# 무작위 실행에서 H12 구간이 문자 그대로의 반복문으로 아홉 조명을 합쳐 낸 구간과 같은지 확인한다.
 def test_h12_matches_the_direct_loop():
     run = random_run(seed=5)
     result = h12(run, n_boot=100)
@@ -525,6 +609,9 @@ def test_h12_matches_the_direct_loop():
 # --------------------------------------------------------------------------------------------- recal table
 
 
+# 재보정 표가 아홉 조명을 합치는지 확인한다. n = 0(재보정 없음)은 80%, n = 8은 20%, n = 30은 18/1,080. n =
+# 30에서 결함 10개를 0점으로 내려 검출률 0.8. n > 0 행에는 n = 0 대비 차이와 짝지은 구간이 붙는다. n = 0 행은
+# 조건 표의 R 행을 합친 것과 같아야 한다(3-B 표의 96.9% → 3.5%/4.4% 비교의 근거).
 def test_recal_table_pools_the_real_illuminations():
     run = flat_run()
     flag(run, [f"R:{light}" for light in LIGHTS], range(16))  # 80% flagged without recalibration
@@ -547,6 +634,7 @@ def test_recal_table_pools_the_real_illuminations():
     assert table[0]["n_defect"] == sum(r["n_defect"] for r in rows) == 9 * 300
 
 
+# 무작위 실행에서 재보정 표의 구간과 n = 0 대비 차이 구간이 같은 추출의 반복문 결과와 같은지 확인한다.
 def test_recal_table_matches_the_direct_loop():
     run = random_run(seed=8)
     table = recal_table(run, n_boot=100)
@@ -565,6 +653,8 @@ def test_recal_table_matches_the_direct_loop():
 # ------------------------------------------------------------------------------------------ files and CLI
 
 
+# load가 run_m2ad 폴더를 읽어 검사기 순서·메타·배열을 그대로 되살리고, 읽은 실행으로 만든 조건 표가 원래
+# 실행의 표와 같은지 확인한다.
 def test_load_reads_a_run_folder(tmp_path):
     run = random_run()
     write_run(run, tmp_path / "m2ad-p0")
@@ -578,6 +668,8 @@ def test_load_reads_a_run_folder(tmp_path):
     assert condition_table(loaded, n_boot=50) == condition_table(run, n_boot=50)
 
 
+# 군집 부트스트랩의 전제가 깨진 실행을 load가 거절하는지 본다: 같은 범주의 시점끼리 시편 순서가 다름, 정상
+# 시편에 결함 라벨, 검사기끼리 조건 순서가 다름. 이런 실행으로 구간을 내면 조용히 틀린 값이 나온다.
 def test_load_rejects_inconsistent_inspectors(tmp_path):
     run = random_run()
     run["inspectors"]["Motor_120"]["specimens"] = run["inspectors"]["Motor_120"]["specimens"][::-1].copy()
@@ -599,6 +691,9 @@ def test_load_rejects_inconsistent_inspectors(tmp_path):
         analyze_m2ad.load(tmp_path / "c")
 
 
+# 명령행 테스트용 실행 두 개를 임시 outputs에 쓴다(paths와 N_BOOT는 monkeypatch). P0은 H11·H12가 지지되도록,
+# D-S는 같은 수치라면 기각될 모양으로 만든다. D-S에는 판정이 붙지 않아야 하므로 그 구분을 시험할 수 있다.
+# edit로 P0을 더 고칠 수 있다.
 def _cli_runs(tmp_path, monkeypatch, edit=None):
     monkeypatch.setattr(paths, "OUTPUTS", tmp_path / "outputs")
     monkeypatch.setattr(paths, "REPORTS", tmp_path / "reports")
@@ -616,6 +711,8 @@ def _cli_runs(tmp_path, monkeypatch, edit=None):
     write_run(ds, tmp_path / "outputs" / "m2ad-d-s")
 
 
+# main이 두 방법의 표를 출력하고 reports/stage3/m2ad.json을 쓰며, 판정은 P0에만 붙는지(D-S는 수치만, verdict
+# 없음) 확인한다. 3-B 규칙(H11·H12는 P0만 판정)을 지킨다. 검사기별 보조 표도 들어 있어야 한다.
 def test_cli_writes_the_report_and_judges_p0_only(tmp_path, monkeypatch, capsys):
     _cli_runs(tmp_path, monkeypatch)
     analyze_m2ad.main([])
@@ -637,6 +734,9 @@ def test_cli_writes_the_report_and_judges_p0_only(tmp_path, monkeypatch, capsys)
     assert p0["per_inspector"]["Motor_000"]["threshold"] == 0.5
 
 
+# 결함 이미지가 없는 조건(R:06)은 검출률과 AUROC가 정의되지 않아 NaN이다. 리포트 파일에는 NaN 토큰 대신 null로
+# 써야 다른 JSON 도구가 읽을 수 있다(strict_json). parse_constant로 NaN·Infinity가 하나라도 있으면 실패하게
+# 하고, 정의된 값은 여전히 숫자인지 확인한다.
 def test_cli_report_is_strict_json_when_a_value_is_undefined(tmp_path, monkeypatch, capsys):
     k = CONDITIONS.index("R:06")
 
@@ -668,6 +768,8 @@ def test_cli_report_is_strict_json_when_a_value_is_undefined(tmp_path, monkeypat
     assert other["auroc_ci"][0] < 0.75 < other["auroc_ci"][1]
 
 
+# --methods로 한 방법만 고르면 그 표만 나오고 판정 줄이 없으며, --no-write면 리포트 폴더를 만들지 않는다. 실행
+# 폴더가 없는 방법(d-b)은 FileNotFoundError다.
 def test_cli_no_write_and_single_method(tmp_path, monkeypatch, capsys):
     _cli_runs(tmp_path, monkeypatch)
     analyze_m2ad.main(["--methods", "d-s", "--no-write"])
@@ -678,6 +780,8 @@ def test_cli_no_write_and_single_method(tmp_path, monkeypatch, capsys):
         analyze_m2ad.main(["--methods", "d-b"])
 
 
+# --check는 코드 점검 실행(outputs/m2ad-<방법>-check: Motor 시점 000 하나, S와 R:02 두 조건, 재보정 없음)을
+# 읽어 표만 출력하고, 가설은 계산하지 않으며 파일도 쓰지 않는다.
 def test_cli_reads_a_check_run(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(paths, "OUTPUTS", tmp_path / "outputs")
     monkeypatch.setattr(paths, "REPORTS", tmp_path / "reports")

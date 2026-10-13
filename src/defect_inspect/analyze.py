@@ -4,6 +4,18 @@ Reads the per-category files written by `run_patchcore` and writes a JSON report
 CSV, so that every number can be recomputed without the images.
 """
 
+# [파일 역할] PatchCore 실행 하나(run_patchcore의 출력 폴더)를 읽어 1단계 표를 만드는 분석 모듈이다(`python -m
+# defect_inspect.analyze outputs/p0-test --stage stage1`). 세 부분으로 나뉜다.
+# - accuracy: 범주별·평균 이미지 AUROC, AUPRO, 픽셀 AUROC, 합산 FPR@TPR95와 부트스트랩 구간.
+# - calibration: 질문 2 앞부분. 정상 점수만으로 임계값을 정하는 세 방식(재대입, 홀드아웃, 교차 적합)의 실제
+#   합산 오검출률·검출률과 이론 구간, 가설 H1~H4 판정.
+# - finite_sample: 보정 표본 수 n에 따른 실제 오검출률(판정 없는 보조 표)과, 같은 절차를 교환 가능한 점수에
+#   돌린 기준 모의.
+# [설계 이유] 리포트 JSON과 함께 이미지별 점수 CSV를 남겨, 이미지 없이도 모든 수치를 다시 계산할 수 있게
+# 한다(docstring). 봉인 테스트 결과(reports/stage1/p0-test.json, p0-test-scores.csv)가 커밋되어 있는 이유다.
+# [연결] 입력: run_patchcore의 run.json과 범주별 npz. 계산: calibrate(임계값·이론), metrics(지표),
+# stats(부트스트랩). figures가 이 리포트로 README 그림을 그린다.
+
 import argparse
 import csv
 import json
@@ -12,6 +24,9 @@ from pathlib import Path
 
 import numpy as np
 
+# calibrate에서는 conformal 임계값과 이론 구간·표본 수 곡선을, metrics에서는 AUROC·AUPRO(히스토그램
+# 부트스트랩)·FPR@TPR95를, splits에서는 홀드아웃 겹 번호를, stats에서는 Clopper-Pearson 구간과 층화
+# 부트스트랩을 가져온다.
 from . import paths
 from .calibrate import conformal_threshold, pooled_fpr_band, subsample_fpr_curve
 from .metrics import ProHistograms, aupro_bootstrap, aupro_from_histograms, auroc, fpr_at_tpr
@@ -24,6 +39,10 @@ from .stats import (
     stratified_indices,
 )
 
+# N_BOOT·SEED: 부트스트랩 2,000번, seed 0(공통 규칙). ALPHAS: 목표 오검출률 5%(주)와 1%(판정에 쓰지 않는
+# 참고). STRATEGIES: 임계값 보정 방식 세 가지(1단계 표).
+# REF_REALISATIONS·REF_DRAWS: 표본 수 곡선의 기준 모의를 100번 실현하고, 실현마다 300번 추출한다(1단계 규칙,
+# 규칙 변경 2).
 N_BOOT = 2000
 SEED = 0
 ALPHAS = (0.05, 0.01)
@@ -33,6 +52,7 @@ REF_REALISATIONS = 100
 REF_DRAWS = 300
 
 
+# 실행 폴더의 run.json(구성, 절차, 커밋, 범주 목록)과 범주별 npz 배열을 읽는다.
 def load_run(run_dir: Path) -> tuple[dict, dict[str, dict[str, np.ndarray]]]:
     with open(run_dir / "run.json", encoding="utf-8") as f:
         meta = json.load(f)
@@ -43,6 +63,7 @@ def load_run(run_dir: Path) -> tuple[dict, dict[str, dict[str, np.ndarray]]]:
     return meta, cats
 
 
+# 범주 하나에서 지정한 점수 열을 정상과 결함으로 나눈다.
 def _split(cat: dict[str, np.ndarray], key: str) -> tuple[np.ndarray, np.ndarray]:
     labels = cat["eval_labels"]
     return cat[key][labels == 0], cat[key][labels == 1]
@@ -53,6 +74,8 @@ def _ci(samples: np.ndarray) -> list[float]:
     return [float(lo), float(hi)]
 
 
+# 실행이 저장한 AUPRO 히스토그램을 ProHistograms로 묶는다. 이미지를 다시 읽지 않고 AUPRO와 그 부트스트랩을
+# 계산하기 위한 것이다.
 def _histograms(cat: dict[str, np.ndarray]) -> ProHistograms:
     return ProHistograms(
         edges=cat["pro_edges"],
@@ -62,6 +85,9 @@ def _histograms(cat: dict[str, np.ndarray]) -> ProHistograms:
     )
 
 
+# 정확도 표. 평가 점수는 전체 뱅크 점수(eval_score_full)가 기본이다. 이미지 AUROC는 범주별로 구해 12개 범주
+# 단순 평균을 대표값으로, FPR@TPR95는 범주별 오검출 수를 합쳐 정상 전체로 나눈 합산 값으로 낸다(공통 규칙
+# "지표").
 def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_score_full") -> dict:
     """Image AUROC, AUPRO, pixel AUROC per category and their macro averages; pooled FPR at 95% TPR."""
     names = list(cats)
@@ -81,9 +107,11 @@ def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_scor
         }
     macro_auroc = float(np.mean([v["image_auroc"] for v in per_cat.values()]))
     macro_aupro = float(np.mean([v["aupro"] for v in per_cat.values()]))
+    # 합산 FPR@TPR95 = 범주별 오검출 수의 합 / 범주별 정상 수의 합(범주 평균이 아니라 합산, 공통 규칙).
     pooled_fp = sum(v["fp_at_tpr95"] for v in per_cat.values())
     pooled_n = sum(v["n_normal"] for v in per_cat.values())
 
+    # 평균 AUROC의 구간. 아래 다른 통계도 같은 크기·같은 시드의 층화 추출을 써서 같은 재표집을 공유한다.
     auroc_boot = macro_auroc_bootstrap(neg, pos, n_boot=N_BOOT, seed=SEED)
 
     # Same stratified draws (normals then defects of each category) for the other statistics.
@@ -96,6 +124,8 @@ def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_scor
         neg_idx, pos_idx = draws[2 * i], draws[2 * i + 1]
         n_neg, n_pos = len(neg[i]), len(pos[i])
         hist = _histograms(cats[c])
+        # aupro_binned는 히스토그램으로 다시 계산한 AUPRO다. 저장된 정확한 AUPRO와 나란히 적어, 구간 계산에
+        # 쓰는 히스토그램 근사가 점 추정값과 얼마나 다른지 확인할 수 있게 한다.
         aupro_binned.append(aupro_from_histograms(hist))
         # counts[b, j] = how often evaluation image j (normals first, then defects) is drawn in resample b
         counts = np.zeros((N_BOOT, n_neg + n_pos), dtype=np.int64)
@@ -104,6 +134,8 @@ def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_scor
         np.add.at(counts, (rows, n_neg + pos_idx), 1)
         aupro_boot += aupro_bootstrap(hist, counts) / len(names)
         for b in range(N_BOOT):
+            # 재표집마다 범주의 FPR@TPR95 임계값을 다시 정하고(테스트 결함으로 정하는 지표라 재표집마다
+            # 달라진다) 그 오검출 수를 더한다.
             fpr95_fp[b] += fpr_at_tpr(neg[i][neg_idx[b]], pos[i][pos_idx[b]], 0.95)[2]
     return {
         "per_category": per_cat,
@@ -118,6 +150,11 @@ def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_scor
     }
 
 
+# 보정 방식마다 (보정 점수, 실제로 운영할 모델의 평가 점수 열)을 고른다(docs/experiments.md 1단계 표).
+# - 재대입: 뱅크를 만든 바로 그 이미지의 점수(pool_score_resub) + 전체 뱅크.
+# - 홀드아웃: 뱅크에서 뺀 겹(test 절차 겹 0, dev 절차 겹 1)의 점수 + 그 겹을 뺀 뱅크(eval_score_holdout).
+# - 교차 적합: 겹마다 그 겹을 뺀 뱅크로 매긴 점수를 모두 모은 것(pool_score_oof) + 전체 뱅크.
+# 보정 점수와 평가 점수가 같은 모델에서 나와야 임계값이 그 모델의 운영 오검출률을 맞춘다.
 def _strategy_inputs(cat: dict[str, np.ndarray], strategy: str, protocol: str) -> tuple[np.ndarray, str]:
     """Calibration scores and the evaluation score column the strategy's deployed model produces."""
     if strategy == "resubstitution":
@@ -129,6 +166,10 @@ def _strategy_inputs(cat: dict[str, np.ndarray], strategy: str, protocol: str) -
     raise ValueError(strategy)
 
 
+# 목표 alpha에서 세 보정 방식의 실제 성능. 범주마다 임계값을 정해 테스트 정상(오검출)과 결함(검출)을 표시하고,
+# 12개 범주를 합쳐 비율을 낸다. 오검출률에는 세 가지 구간을 붙인다: 이미지 부트스트랩 구간, Clopper-Pearson
+# 정확 구간, 그리고 교환 가능할 때의 이론 구간(pooled_fpr_band, Beta-Binomial 모의). 결과: 재대입 86.0%,
+# 홀드아웃 5.56%(이론 구간 3.56~6.34 안), 교차 적합 3.98%(README).
 def calibration(cats: dict[str, dict[str, np.ndarray]], protocol: str, alpha: float) -> dict:
     """Actual pooled false positive and detection rates of thresholds fixed from normal scores only."""
     out: dict[str, dict] = {}
@@ -140,6 +181,8 @@ def calibration(cats: dict[str, dict[str, np.ndarray]], protocol: str, alpha: fl
             cal, key = _strategy_inputs(cat, strategy, protocol)
             thr = conformal_threshold(cal, alpha)
             neg, pos = _split(cat, key)
+            # 규칙: 점수 > 임계값이면 불량. 이미지별 표시(불리언)를 범주별로 모아 두고, 아래에서 합산 비율과
+            # 부트스트랩 구간을 낸다.
             fp_flags.append(neg > thr.value)
             tp_flags.append(pos > thr.value)
             n_cal.append(len(cal))
@@ -155,6 +198,8 @@ def calibration(cats: dict[str, dict[str, np.ndarray]], protocol: str, alpha: fl
             }
         fp, n_neg = sum(int(f.sum()) for f in fp_flags), sum(len(f) for f in fp_flags)
         tp, n_pos = sum(int(f.sum()) for f in tp_flags), sum(len(f) for f in tp_flags)
+        # 이론 구간: 범주별 보정 점수 수와 테스트 정상 수로 Beta-Binomial 합산 오검출률을 100,000번 모의한
+        # 가운데 95%.
         band = pooled_fpr_band(n_cal, [len(f) for f in fp_flags], alpha)
         out[strategy] = {
             "fpr": fp / n_neg,
@@ -174,6 +219,8 @@ def calibration(cats: dict[str, dict[str, np.ndarray]], protocol: str, alpha: fl
         }
         flags[strategy] = (fp_flags, tp_flags)
 
+    # H4용: 교차 적합 − 홀드아웃의 검출률 차이. 두 호출이 같은 결함 수, 같은 시드라 같은 재표집을 쓰므로
+    # 짝지은 차이가 된다.
     # Paired difference (same images, same draws): cross-fitting minus hold-out detection rate.
     diff = pooled_rate_bootstrap(flags["crossfit"][1], n_boot=N_BOOT, seed=SEED) - pooled_rate_bootstrap(
         flags["holdout"][1], n_boot=N_BOOT, seed=SEED
@@ -185,6 +232,12 @@ def calibration(cats: dict[str, dict[str, np.ndarray]], protocol: str, alpha: fl
     return out
 
 
+# 1단계 가설 판정(등록한 문장 그대로, α = 5%).
+# - H1 재대입 오검출률 ≥ 목표의 두 배: 구간 하한 ≥ 10%면 지지, 상한 < 10%면 기각.
+# - H2 홀드아웃이 이론 구간 안: 점 추정값이 구간 안이면 지지, 밖이면 기각하고 방향을 적는다.
+# - H3 교차 적합이 목표를 넘지 않음: 상한 ≤ 5%면 지지, 하한 > 5%면 기각.
+# - H4 교차 적합 검출률이 홀드아웃보다 낮지 않음: 차이 하한 > −2.0%p면 지지, 상한 < −2.0%p면 기각(결과: 판정
+#   불가).
 def hypotheses(cal: dict, alpha: float = 0.05) -> dict[str, str]:
     """Verdicts of stage 1 H1-H4 exactly as registered in docs/experiments.md."""
 
@@ -192,6 +245,8 @@ def hypotheses(cal: dict, alpha: float = 0.05) -> dict[str, str]:
         return "지지" if support else "기각" if reject else "판정 불가"
 
     resub, hold, cross = cal["resubstitution"], cal["holdout"], cal["crossfit"]
+    # H2는 점 추정값이 이론 구간 안인지로 판정하고, 밖이면 높은 쪽인지 낮은 쪽인지 적는다. 나머지는 부트스트랩
+    # 구간과 기준값을 비교한다.
     lo, hi = hold["theory_band"]
     if lo <= hold["fpr"] <= hi:
         h2 = "지지"
@@ -206,6 +261,7 @@ def hypotheses(cal: dict, alpha: float = 0.05) -> dict[str, str]:
     }
 
 
+# 범주별 곡선들을 n마다 범주 평균으로 합친다(각 범주 평균의 단순 평균).
 def _curve_means(curves: list[list[dict]]) -> dict[int, float]:
     """Mean over categories of each category's mean false positive rate, per calibration size n."""
     by_n: dict[int, list[float]] = {}
@@ -215,6 +271,13 @@ def _curve_means(curves: list[list[dict]]) -> dict[int, float]:
     return {n: float(np.mean(v)) for n, v in by_n.items()}
 
 
+# 보정 표본 수 n(20, 50, 100, 200)에 따른 실제 오검출률. 범주마다 교차 적합 점수에서 n개를 뽑아 임계값을
+# 정하고 그 범주의 평가 정상에 적용한다.
+# 왜 기준 모의인가(docstring, 규칙 변경 2): 관측값은 크기가 정해진 풀에서 비복원으로 뽑고 고정된 테스트 집합에
+# 적용한 것이라, Beta 이론의 폭·평균과 그대로 비교할 수 없다. 그래서 같은 (풀 크기, 평가 정상 수)의 균등 난수
+# 점수(교환 가능)로 같은 절차를 100번 돌려 범주 평균의 2.5~97.5 백분위를 기준 구간으로 삼는다. 관측 평균이 이
+# 구간 밖이면 표본 흔들림을 넘는 치우침이다. 결과: 목표 5%에서 n ≥ 100이면 관측이 기준 구간보다 낮아, 교차
+# 적합 점수가 보수 쪽으로 치우쳐 있음을 보였다.
 def finite_sample(cats: dict[str, dict[str, np.ndarray]], alpha: float) -> list[dict]:
     """Test false positive rate against calibration size n, averaged over categories.
 
@@ -227,9 +290,13 @@ def finite_sample(cats: dict[str, dict[str, np.ndarray]], alpha: float) -> list[
     observed, sizes = [], []
     for cat in cats.values():
         neg, _ = _split(cat, "eval_score_full")
+        # 관측: 범주마다 교차 적합 점수 풀에서 n개 부분표본을 뽑아 임계값을 정하고, 그 범주의 평가 정상(전체
+        # 뱅크 점수)에 적용한다.
         observed.append(subsample_fpr_curve(cat["pool_score_oof"], neg, alpha))
         sizes.append((len(cat["pool_score_oof"]), len(neg)))
 
+    # 기준 모의: 실현 r마다 범주별로 균등 난수 풀과 평가 정상을 새로 만들고, 추출 시드도 r로 바꿔 독립인 실현
+    # 100개를 만든다.
     rng = np.random.default_rng(SEED)
     reference: dict[int, list[float]] = {}
     for r in range(REF_REALISATIONS):
@@ -257,11 +324,15 @@ def finite_sample(cats: dict[str, dict[str, np.ndarray]], alpha: float) -> list[
             "reference_mean": float(ref.mean()),
             "reference_interval": [float(lo), float(hi)],
         }
+        # 관측 평균이 기준 모의 구간 안이면 유한 표본의 흔들림으로 설명되고, 밖이면 치우침이다.
         row["within_reference"] = bool(lo <= row["mean"] <= hi)
         out.append(row)
     return out
 
 
+# 이미지별 점수 CSV(리포트 옆 `<구성>-<절차>-scores.csv`). 평가 이미지는 전체 뱅크·홀드아웃 뱅크 점수를, 정상
+# 풀 이미지는 겹 번호와 재대입·교차 적합 점수를 적는다. 이 파일만으로 세 보정 방식을 이미지 없이 다시 계산할
+# 수 있다.
 def write_scores_csv(cats: dict[str, dict[str, np.ndarray]], path: Path) -> None:
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         w = csv.writer(f, lineterminator="\n")
@@ -300,6 +371,8 @@ def write_scores_csv(cats: dict[str, dict[str, np.ndarray]], path: Path) -> None
                 )
 
 
+# 리포트 조립: 정확도(전체 뱅크), 홀드아웃 뱅크의 평균 AUROC(참고), 목표 5%·1%의 보정 표, 표본 수 곡선, 그리고
+# 5%에서의 H1~H4 판정.
 def build_report(run_dir: Path) -> dict:
     meta, cats = load_run(run_dir)
     protocol = meta["protocol"]
@@ -309,6 +382,8 @@ def build_report(run_dir: Path) -> dict:
         "commit": meta["commit"],
         "n_boot": N_BOOT,
         "accuracy": accuracy(cats),
+        # 홀드아웃 방식이 실제로 운영하는 모델(겹 하나를 뺀 뱅크)의 평균 AUROC. 보정 방식마다 운영하는 뱅크가
+        # 다르다는 것을 참고로 남긴다.
         "accuracy_holdout_model": {
             "macro_image_auroc": float(
                 np.mean([auroc(*_split(cat, "eval_score_holdout")) for cat in cats.values()])
@@ -329,6 +404,8 @@ def _span(ci: list[float], digits: int = 2) -> str:
     return f"[{_pct(ci[0], digits)}, {_pct(ci[1], digits)}]"
 
 
+# 콘솔용 마크다운 표(정확도 표, 목표별 보정 표, 가설, 표본 수 곡선). docs/experiments.md 1단계 결과 표의
+# 원본이다.
 def format_report(report: dict) -> str:
     acc = report["accuracy"]
     lines = [
@@ -408,6 +485,8 @@ def format_report(report: dict) -> str:
     return "\n".join(lines)
 
 
+# 명령행 입구. 저장된 점수만 읽으므로 봉인 테스트 실행을 분석해도 이미지를 다시 읽지 않는다.
+# reports/<stage>/에 `<구성>-<절차>.json`과 점수 CSV를 쓴다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("run_dir", type=Path)
@@ -427,6 +506,7 @@ def main(argv: list[str] | None = None) -> None:
     with open(out_dir / f"{stem}.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
         f.write("\n")
+    # 이미지별 점수 CSV를 쓰려고 배열을 다시 읽는다.
     _, cats = load_run(args.run_dir)
     write_scores_csv(cats, out_dir / f"{stem}-scores.csv")
 

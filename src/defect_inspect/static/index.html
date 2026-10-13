@@ -3,6 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- [파일 역할] 검사 서비스의 데모 페이지(GET /). service.create_app가 시작할 때 한 번 읽어 두고 그대로 -->
+  <!-- 돌려준다. 사진을 올리면 판정과 이상 위치를 겹쳐 보여 준다(README 검사 서비스 절). -->
+  <!-- [설계 이유] 서비스의 CSP가 인라인 스크립트와 인라인 스타일을 막으므로(script-src 'self', style-src -->
+  <!-- 'self') 스크립트와 스타일은 /static/demo.js, /static/demo.css 파일로만 둔다. 폼은 demo.js가 -->
+  <!-- fetch()로만 보내고 서비스는 쿠키를 쓰지 않는다(docs/security.md의 Anti-CSRF 오탐 사유). -->
+  <!-- [구조] 업로드 폼(범주, 사진) → 상태 줄 → 결과 구역(판정 배지, 점수·임계값·처리 시간, 입력 사진과 -->
+  <!-- 이상 위치 두 캔버스, 겹쳐 보기 진하기 슬라이더). -->
   <title>defect-inspect</title>
   <link rel="stylesheet" href="/static/demo.css">
 </head>
@@ -11,25 +18,38 @@
     <h1>외관 검사</h1>
     <p class="lead">제품 사진을 올리면 이상 점수와 판정, 이상 위치를 보여 준다. PNG, JPEG, BMP, TIFF, WebP (채널당 8비트, 투명도 없음)를 받는다.</p>
 
+    <!-- 업로드 폼. action이 없고, demo.js가 submit 이벤트를 가로채 /inspect?preview=true로 보낸다(페이지 -->
+    <!-- 이동 없음). -->
     <form id="form">
       <label>범주
+        <!-- 범주 선택지는 비어 있고 demo.js가 GET /categories 응답으로 채운다. -->
         <select id="category" name="category" required></select>
       </label>
       <label>사진
+        <!-- accept는 서비스가 받는 다섯 형식만 파일 선택 창에 보이게 한다. 형식·비트 깊이·투명도 검사는 -->
+        <!-- 서버가 다시 한다. -->
         <input id="image" name="image" type="file" accept="image/png,image/jpeg,image/bmp,image/tiff,image/webp" required>
       </label>
       <button id="submit" type="submit">검사</button>
     </form>
 
+    <!-- 상태 줄(진행·오류 메시지). role="status"라 화면 읽기 프로그램이 바뀐 내용을 읽어 준다. -->
     <p id="status" role="status"></p>
 
+    <!-- 결과 구역. 첫 결과가 나올 때까지 hidden으로 숨기고, 새로 검사할 때도 이전 결과를 먼저 -->
+    <!-- 숨긴다(demo.js). -->
     <section id="result" hidden>
       <div class="verdict">
         <span id="verdict" class="badge"></span>
         <span>점수 <strong id="score"></strong></span>
         <span>임계값 <strong id="threshold"></strong></span>
+        <!-- "처리"는 응답의 latency_ms: 서비스 안에서 업로드 읽기·디코딩·추론·히트맵 인코딩에 걸린 -->
+        <!-- 시간이다. README의 모델 경로 지연(150ms)보다 크다. -->
         <span>처리 <strong id="latency"></strong> ms</span>
       </div>
+      <!-- 두 캔버스: 왼쪽은 모델이 실제로 본 입력(정사각형으로 줄인 그림, 서버가 preview로 돌려줌), -->
+      <!-- 오른쪽은 같은 그림 위에 이상 점수를 붉게 겹친 것. 서버가 돌려준 그림을 쓰므로 히트맵과 늘 -->
+      <!-- 위치가 맞는다. -->
       <div class="views">
         <figure>
           <canvas id="photo" width="384" height="384"></canvas>
@@ -40,11 +60,14 @@
           <figcaption>이상 위치 (붉을수록 점수가 높다)</figcaption>
         </figure>
       </div>
+      <!-- 히트맵을 겹치는 진하기(0~100, 기본 60). 움직일 때마다 demo.js가 다시 그린다. -->
       <label class="slider">겹쳐 보기 진하기
         <input id="opacity" type="range" min="0" max="100" value="60">
       </label>
     </section>
   </main>
+  <!-- 스크립트는 body 끝에서 읽는다. demo.js가 실행되자마자 폼·슬라이더 요소에 이벤트를 붙이므로 그 -->
+  <!-- 요소들이 먼저 있어야 한다. -->
   <script src="/static/demo.js"></script>
 </body>
 </html>

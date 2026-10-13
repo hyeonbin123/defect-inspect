@@ -6,11 +6,23 @@ bootstrap draws, so the differences to the clean condition are paired. H9 is jud
 in docs/experiments.md.
 """
 
+# [파일 역할] 3-A(VisA 합성 교란) 분석 모듈이다(`python -m defect_inspect.analyze_perturb --protocol test`).
+# run_perturb가 저장한 조건별 점수(교란 없음 + 교란 15조건)를 읽어, 방법(P0, D-S, DM)마다 조건별 평균 이미지
+# AUROC와 고정 임계값의 합산 오검출률·검출률, 교란 없는 조건과의 차이를 표로 만들고 가설 H9를 판정한다.
+# [핵심 설계] 임계값은 원래 test 실행(P0은 1단계, D-S·DM은 2단계)의 보정 점수로 범주마다 한 번만 정하고
+# 조건마다 다시 계산하지 않는다. "정상 이미지로 고정해 둔 임계값이 촬영 조건이 바뀌면 어떻게 되는가"를 재려는
+# 것이다. 모든 조건을 같은 층화 부트스트랩 추출로 재표집해, 교란 없는 조건과의 차이가 짝지어진다(docstring).
+# [결과] H9 지지: 밝기 0.8·0.7에서 P0의 AUROC는 그대로(+0.33, +0.50%p)인데 오검출률이 15.2%, 41.4%였다.
+# AUROC로 감시하면 이 고장이 보이지 않는다(README).
+# [연결] 입력은 outputs/perturb-<방법>-<절차>, 출력은 reports/stage3/perturb-<절차>.json이다. drift.py는 같은
+# 실행의 점수를 변화 감지 지연에 다시 쓴다.
+
 import argparse
 import json
 import sys
 from pathlib import Path
 
+# scipy의 rankdata는 재표집 2,000개의 AUROC를 행 단위로 한꺼번에 계산하는 데(평균 순위로 동점 처리) 쓴다.
 import numpy as np
 from scipy.stats import rankdata
 
@@ -21,6 +33,9 @@ from .metrics import auroc
 from .stats import percentile_ci, stratified_indices
 from .visa import CATEGORIES  # the full set, in the order the registered bootstrap walks through
 
+# N_BOOT·SEED·ALPHA: 공통 규칙의 부트스트랩 2,000번, seed 0, 목표 오검출률 5%. MAX_AUROC_DROP: H9의 "AUROC가
+# 1.0%p 미만으로 떨어진다" 기준. H9_METHOD: H9는 P0에서만 판정하고, D-S와 DM의 표는 판정 없이 나란히
+# 싣는다(3-A 규칙). _STATS: 교란 없는 조건과의 차이를 낼 통계 세 가지.
 N_BOOT = 2000
 SEED = 0
 ALPHA = 0.05
@@ -30,6 +45,8 @@ H9_METHOD = "p0"
 _STATS = ("auroc", "fpr", "tpr")
 
 
+# run_perturb 실행 하나를 읽는다. 범주별 npz에는 conditions(조건 이름 목록), scores([조건, 이미지]),
+# eval_labels, cal_score가 들어 있다.
 def load(run_dir: Path) -> dict:
     """A `run_perturb` run: {"meta": run.json, "cats": {category: arrays}}, categories in run order."""
     run_dir = Path(run_dir)
@@ -42,6 +59,9 @@ def load(run_dir: Path) -> dict:
     return {"meta": meta, "cats": cats}
 
 
+# 모든 범주가 같은 조건 목록을 같은 순서로 가졌는지, 점수 배열 모양이 (조건 수, 이미지 수)이고 유한한지,
+# clean이 정확히 하나인지 확인한 뒤 조건 목록을 돌려준다. 하나라도 어긋나면 표가 잘못된 짝을 비교하게 되므로
+# 바로 오류를 낸다.
 def _condition_names(cats: dict[str, dict[str, np.ndarray]]) -> list[str]:
     """The condition list shared by every category, after checking the shapes of the score arrays."""
     if not cats:
@@ -63,6 +83,9 @@ def _condition_names(cats: dict[str, dict[str, np.ndarray]]) -> list[str]:
     return names
 
 
+# 범주마다 원래 실행의 보정 점수(cal_score)로 conformal 임계값(목표 alpha)을 정한다. P0·D-S는 교차 적합, DM은
+# 홀드아웃 점수다. 모든 범주에 보정 점수가 없으면(코드 점검용 실행) None을 돌려 비율 칸을 비우고, 일부 범주만
+# 없으면 실행이 일관되지 않은 것이라 오류를 낸다.
 def _thresholds(cats: dict[str, dict[str, np.ndarray]], alpha: float) -> dict | None:
     """Per-category conformal thresholds from `cal_score`; None when no category has calibration scores."""
     empty = [c for c, cat in cats.items() if len(cat["cal_score"]) == 0]
@@ -73,6 +96,9 @@ def _thresholds(cats: dict[str, dict[str, np.ndarray]], alpha: float) -> dict | 
     return {c: conformal_threshold(cat["cal_score"], alpha) for c, cat in cats.items()}
 
 
+# 재표집마다의 AUROC를 Mann-Whitney U 통계량으로 한꺼번에 계산한다: 행(재표집)마다 정상·결함 점수를 합쳐 평균
+# 순위를 매기고, 결함 순위 합에서 n_pos(n_pos+1)/2를 빼 n_neg × n_pos로 나눈다. metrics.auroc와 같은 값(동점은
+# 평균 순위)이지만 2,000번 반복문 없이 배열 연산 한 번이다. 한 쪽 클래스가 없으면 nan.
 def _auroc_rows(neg: np.ndarray, pos: np.ndarray) -> np.ndarray:
     """`metrics.auroc` of every resample: neg [B, n_neg], pos [B, n_pos] -> [B] (nan without both classes)."""
     n_neg, n_pos = neg.shape[1], pos.shape[1]
@@ -88,10 +114,15 @@ def _ci(samples: np.ndarray) -> list[float]:
     return [float(lo), float(hi)]
 
 
+# 개수 / 전체. 전체가 0이면 0으로 나누지 않고 nan을 돌려준다(배열이면 원소마다 nan).
 def _rate(count: float | np.ndarray, total: int) -> float | np.ndarray:
     return count / total if total else count * float("nan")
 
 
+# 조건마다 한 행의 표를 만든다. 흐름: 범주별 정상·결함 마스크와 크기로 층화 추출 한 벌을 만든다 → 조건마다
+# 범주별 AUROC 평균(점 추정)과 재표집 AUROC를 더하고, 고정 임계값으로 오검출·검출을 세어 합산 비율과 재표집
+# 비율을 만든다 → 교란 없는 조건이 아닌 행에는 차이(조건 − clean)와 짝지은 구간을 붙인다. 이미지가 조건
+# 사이에서 같고 추출도 같으므로 차이의 구간이 짝지어진다(3-A 한계 절).
 def condition_table(run: dict, alpha: float = 0.05, n_boot: int | None = None, seed: int = 0) -> list[dict]:
     """One row per condition: mean image AUROC and the pooled rates at the fixed thresholds.
 
@@ -112,6 +143,7 @@ def condition_table(run: dict, alpha: float = 0.05, n_boot: int | None = None, s
         labels = cat["eval_labels"]
         masks.append((labels == 0, labels == 1))
         sizes += [int((labels == 0).sum()), int((labels == 1).sum())]
+    # 범주 순서대로 (정상 수, 결함 수) 묶음의 층화 추출 한 벌. 모든 조건이 이 추출을 같이 쓴다.
     draws = stratified_indices(sizes, n_boot=n_boot, seed=seed)
     n_neg, n_pos = sum(sizes[0::2]), sum(sizes[1::2])
 
@@ -128,14 +160,19 @@ def condition_table(run: dict, alpha: float = 0.05, n_boot: int | None = None, s
             neg, pos = scores[masks[i][0]], scores[masks[i][1]]
             neg_idx, pos_idx = draws[2 * i], draws[2 * i + 1]
             per_cat.append(auroc(neg, pos))
+            # neg[neg_idx]는 [n_boot, 정상 수] 모양이라 재표집 2,000개의 범주 AUROC가 한 번에 나온다. 범주마다
+            # 더한 뒤 아래에서 범주 수로 나눠 평균한다.
             auc_boot += _auroc_rows(neg[neg_idx], pos[pos_idx])
             if thresholds is not None:
+                # 임계값은 교란과 상관없이 같은 값이고, 규칙대로 점수 > 임계값만 불량이다.
                 # Fixed once from the source run's calibration scores, the same for every condition.
                 f_neg, f_pos = neg > thresholds[c].value, pos > thresholds[c].value
                 fp += int(f_neg.sum())
                 tp += int(f_pos.sum())
                 fp_boot += f_neg[neg_idx].sum(axis=1)
                 tp_boot += f_pos[pos_idx].sum(axis=1)
+        # 조건 하나의 점 추정값과 재표집 표본. 비율은 12개 범주의 오검출·검출 수를 합쳐 정상·결함 전체 수로
+        # 나눈 합산 값이다.
         point = {"auroc": float(np.mean(per_cat))}
         boot = {"auroc": auc_boot / len(cats)}
         if thresholds is not None:
@@ -166,6 +203,9 @@ def condition_table(run: dict, alpha: float = 0.05, n_boot: int | None = None, s
     return rows
 
 
+# H9 판정(점 추정값으로): 평균 이미지 AUROC가 1.0%p 미만으로 떨어지는데(d_auroc > −0.01) 합산 오검출률이
+# 목표의 두 배(10%) 이상인 조건이 하나라도 있으면 지지, 없으면 기각. 해당 조건을 모두 적는다. 고정 임계값이
+# 없는 실행이면 판정할 수 없어 오류를 낸다.
 def h9(table: list[dict], alpha: float = 0.05) -> dict:
     """H9 as registered, on point estimates: is there a condition that accuracy does not reveal?
 
@@ -184,6 +224,9 @@ def h9(table: list[dict], alpha: float = 0.05) -> dict:
     return {"verdict": "지지" if found else "기각", "conditions": found}
 
 
+# 표가 무엇에 기대는지 적는다: 실행 커밋·장치, 원본 실행과 그 커밋, 범주, 정상·결함·보정 점수 수, 보장 조건을
+# 채운 범주 수, 그리고 clean_max_rel_diff(교란 없는 조건을 다시 채점한 점수와 원래 실행 점수의 최대 상대 차이.
+# 3-A에서 모두 0이었다).
 def describe(run: dict, alpha: float = ALPHA) -> dict:
     """Where a run came from and how many images and calibration scores stand behind its table."""
     meta, cats = run["meta"], run["cats"]
@@ -205,6 +248,9 @@ def describe(run: dict, alpha: float = ALPHA) -> dict:
     }
 
 
+# 방법마다 표를 만들고 P0의 H9를 판정한다. 실행 폴더의 method가 이름과 맞는지, 모든 방법이 같은 범주를 같은
+# 순서로 다뤘는지 확인한다. 12개 범주 전체(CATEGORIES 순서)일 때만 complete이고, 일부 범주만 돈 실행(코드
+# 점검)은 표만 내고 H9는 판정하지 않는다.
 def build_report(
     run_dirs: dict[str, Path], alpha: float = ALPHA, n_boot: int | None = None, seed: int = SEED
 ) -> dict:
@@ -225,6 +271,8 @@ def build_report(
     categories = next(iter(covered.values()), [])
     if any(cats != categories for cats in covered.values()):
         raise ValueError(f"the runs cover different categories and cannot be put side by side: {covered}")
+    # 결론은 12개 범주 전체로만 내므로, 범주 목록과 순서가 등록된 CATEGORIES와 같을 때만 complete다(순서가
+    # 같아야 부트스트랩 추출도 등록대로 같다).
     complete = categories == list(CATEGORIES)
 
     tables, runs = {}, {}
@@ -246,6 +294,8 @@ def build_report(
     }
 
 
+# 표의 근거(범주, 방법별 이미지·보정 점수 수)를 사람이 읽을 문장으로. 부분 실행이면 H9를 판정하지 않았다고
+# 적는다.
 def format_coverage(report: dict) -> str:
     """What the tables of a report stand on: the categories, and the images behind each method."""
     categories = report["categories"]
@@ -273,6 +323,8 @@ def _change(row: dict, key: str) -> str:
     return f"{x * 100:+.2f} [{ci[0] * 100:+.2f}, {ci[1] * 100:+.2f}]"
 
 
+# 방법마다 마크다운 표(값은 %, 교란 없는 조건 대비 변화는 %p와 구간)와 H9 한 줄. docs/experiments.md 3-A 결과
+# 표의 원본이다.
 def format_tables(tables: dict[str, list[dict]], verdict: dict | None) -> str:
     """Markdown: one table per method (values in %, changes against clean in points), then H9."""
     lines = []
@@ -301,6 +353,9 @@ def format_tables(tables: dict[str, list[dict]], verdict: dict | None) -> str:
     return "\n".join(lines)
 
 
+# 명령행 입구. outputs/perturb-<방법>-<절차>를 읽는다. 실행의 절차가 요청과 다르면 멈추고, test 절차는 12개
+# 범주 전체가 아니면 멈춘다(결과는 모든 범주로 말한다는 규칙). 저장된 점수만 읽으므로 봉인 테스트 이미지를
+# 다시 읽지 않는다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--protocol", choices=["dev", "test"], required=True)
@@ -319,6 +374,7 @@ def main(argv: list[str] | None = None) -> None:
     if missing:
         parser.error(f"no finished run in {missing}: run defect_inspect.run_perturb first, or pass --methods")
     report = {"protocol": args.protocol, **build_report(run_dirs)}
+    # 요청한 절차(dev/test)와 다른 절차로 만든 실행이 섞이면 멈춘다.
     wrong = [m for m, info in report["runs"].items() if info["protocol"] != args.protocol]
     if wrong:
         parser.error(f"the runs of {wrong} were not made with the {args.protocol} protocol")

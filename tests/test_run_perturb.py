@@ -1,3 +1,17 @@
+# [파일 역할] 3-A단계(VisA 합성 교란) 실행 스크립트 `defect_inspect.run_perturb`를 검증하는 테스트 묶음이다.
+# 끝난 실행(PatchCore 뱅크 또는 Dinomaly 모델)의 평가 세트를 교란 15조건 + 교란 없음으로 다시 채점하는 과정,
+# 교란 없음 점수가 원래 실행과 같아야 한다는 가드(clean guard), 원본 실행 점검, 봉인과 장부 기록 순서를
+# 확인한다.
+# [왜 필요한가] 3-A는 다시 학습하거나 보정하지 않고 원래 실행의 뱅크·모델과 임계값을 그대로
+# 쓴다(docs/experiments.md 3-A). 그래서 '지금 채점하는 것이 그 임계값을 정한 바로 그 뱅크·모델·이미지인가'가
+# 결과의 전제이고, 이를 깨는 경우(다른 뱅크, 다른 이미지 목록, 다른 구성, 다른 모델 파일)를 이미지를 읽기 전에
+# 막는지가 이 파일의 중심이다.
+# [주요 구성] 가짜 데이터·원본 실행 만들기 → 범주 하나의 채점(PatchCore) → clean guard와 원본 점수 검사 →
+# CLI(PatchCore: 장부 순서, 원본 점검, 재실행, 두 범주, 원본 덮어쓰기 거부) → Dinomaly 대역 모델 → 7단계용
+# 조건 부분집합과 중심화 구성.
+# [설계 메모] 원본 실행은 테스트 안에서 run_patchcore.run_category로 실제로 만들어, 두 실행 사이의 파일 형식이
+# 맞는지도 함께 확인한다.
+
 import json
 from dataclasses import asdict
 from types import SimpleNamespace
@@ -5,8 +19,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+# PatchCore 채점과 Dinomaly 대역 모델이 torch를 쓰므로 torch가 없는 CI(.github/workflows/ci.yml)에서는 파일
+# 전체를 건너뛴다.
 torch = pytest.importorskip("torch")
 
+# run_patchcore는 원본 실행을 만들려고, analyze_perturb는 결과를 분석 모듈이 그대로 읽는지 보려고, backbones는
+# CLI가 만드는 백본을 가짜로 바꾸려고 가져온다. conditions·patchcore.score_images는 교란·채점 기대값을 직접
+# 계산하는 데, sha256_file은 Dinomaly 모델 파일의 해시를 원본 기록과 맞추는 데, splits의 함수는 가짜
+# 매니페스트를 쓰고 평가 행을 고르는 데 쓴다.
 from defect_inspect import analyze_perturb, backbones, run_patchcore, run_perturb  # noqa: E402
 from defect_inspect.conditions import apply_condition, condition_names  # noqa: E402
 from defect_inspect.configs import PatchCoreConfig  # noqa: E402
@@ -20,12 +40,16 @@ from defect_inspect.splits import (  # noqa: E402
     write_manifest,
 )
 
+# 가짜 데이터의 기준값. NPZ_KEYS는 교란 실행이 범주마다 쓰는 npz 키 전부다(맵·픽셀 지표는 3-A 규칙상 재지
+# 않으므로 없다). DEV_IMAGES는 dev 평가 세트(겹 0 정상 8장 = 순번 0, 5, ..., 35과 dev 결함 6장), TEST_IMAGES는
+# 봉인 테스트 정상 10장과 결함 4장이다.
 SIZE = 32
 NPZ_KEYS = {"eval_images", "eval_labels", "conditions", "scores", "cal_score"}
 DEV_IMAGES = [f"toy/n{i}.JPG" for i in range(0, 40, 5)] + [f"toy/d{i}.JPG" for i in range(6)]
 TEST_IMAGES = [f"toy/tn{i}.JPG" for i in range(10)] + [f"toy/td{i}.JPG" for i in range(4)]
 
 
+# 실제 백본 대신 쓰는 작은 특징 추출기: 4x4 칸마다 평균 색(3차원).
 class GridMean(torch.nn.Module):
     """Tiny stand-in for a backbone: the mean colour of each cell of a 4x4 grid."""
 
@@ -36,6 +60,8 @@ class GridMean(torch.nn.Module):
         return torch.nn.functional.avg_pool2d(x.float(), SIZE // 4).permute(0, 2, 3, 1)
 
 
+# 들어온 배치 크기를 기록하는 GridMean. 채점이 구성의 batch_size대로 나눠 도는지(기본값을 몰래 쓰지 않는지)
+# 확인하는 데 쓴다.
 class Recording(GridMean):
     """GridMean that notes the size of every batch it is given."""
 
@@ -48,6 +74,9 @@ class Recording(GridMean):
         return super().forward(x)
 
 
+# ImageCache 대역. 결함 이미지는 밝은 사각형을 가진다. requested에 요청된 이미지 경로를 쌓아 무엇을 읽었는지
+# 확인하고, ledger 경로가 주어지면 봉인 이미지를 내주기 전에 장부에 줄이 이미 있는지 assert로 확인한다(장부
+# 기록이 읽기보다 먼저라는 규칙).
 class FakeCache:
     """In-memory stand-in for ImageCache: defects carry a bright square that no normal image has."""
 
@@ -83,6 +112,7 @@ class FakeCache:
         return np.stack([self._masks[r.image] for r in rows])
 
 
+# 범주마다 정상 풀 40장(겹 = 순번 % 5), dev 결함 6장, 봉인 테스트 정상 10장·결함 4장인 가짜 매니페스트.
 def _manifest(categories=("toy",)):
     rows = []
     for c in categories:
@@ -106,6 +136,8 @@ CFG = PatchCoreConfig(
 )
 
 
+# 교란 실행의 원본이 될 끝난 PatchCore 실행을 실제 run_patchcore.run_category로 만든다(뱅크 저장 포함).
+# run.json에는 원본 커밋을 'src1234'로 적어, 교란 실행이 원본 커밋을 따로 기록하는지 확인할 수 있게 한다.
 def _make_source(src, protocol, categories=("toy",)):
     """A finished `run_patchcore` run with its memory banks, as the perturbation run expects it."""
     manifest = _manifest(categories)
@@ -128,11 +160,14 @@ def _make_source(src, protocol, categories=("toy",)):
     return manifest
 
 
+# 원본 실행이 저장한 뱅크로 run_perturb.patchcore_scorer를 만든다.
 def _scorer(src):
     bank = torch.from_numpy(np.load(src / "toy_bank.npy"))
     return run_perturb.patchcore_scorer(CFG, GridMean(), bank, "cpu")
 
 
+# 범주 toy 하나를 run_category로 교란 채점한다. score를 바꿔 넣으면 clean guard가 어긋난 점수를 잡는지 시험할
+# 수 있다.
 def _perturb(src, out, protocol="dev", allow_test=False, cache=None, score=None):
     manifest = _manifest()
     out.mkdir(parents=True, exist_ok=True)
@@ -151,6 +186,11 @@ def _perturb(src, out, protocol="dev", allow_test=False, cache=None, score=None)
 # ---------------------------------------------------------------- one category, PatchCore
 
 
+# 교란 실행의 기본 계약을 확인한다. 조건 16개가 등록 순서(clean 먼저)로 채점되고, npz에는 정해진 키만 있으며,
+# 교란 없음 점수는 원본의 전체 뱅크 점수와 비트 단위로 같다(같은 뱅크·이미지·배치를 CPU에서 돌리므로). 보정
+# 점수는 원본의 교차 적합 점수(pool_score_oof)를 그대로 넘긴다(3-A는 원래 임계값을 그대로 쓴다).
+# 각 조건의 점수가 '저장 뱅크로 그 조건의 이미지를 채점한 값'과 같은지 직접 계산해 비교하고, score_images의
+# 기본 채점 옵션(재가중 k, σ)으로는 다른 점수가 나와 구성이 실제로 반영됐음을 확인한다.
 def test_every_condition_is_scored_in_the_registered_order(tmp_path):
     src, out = tmp_path / "src", tmp_path / "out"
     manifest = _make_source(src, "dev")
@@ -196,6 +236,8 @@ def test_every_condition_is_scored_in_the_registered_order(tmp_path):
     assert not np.allclose(default_k.image_scores, scores[0], rtol=1e-3)
 
 
+# patchcore_scorer가 구성의 batch_size·reweight_k·sigma를 score_images에 넘기는지 스파이로 확인한다. 두
+# 구성(배치 8과 5)에서 실제 배치 크기 기록과 넘긴 옵션, 직접 계산한 점수가 모두 맞아야 한다.
 def test_the_scorer_takes_batch_size_and_scoring_options_from_the_config(tmp_path, monkeypatch):
     from defect_inspect import patchcore
 
@@ -227,6 +269,9 @@ def test_the_scorer_takes_batch_size_and_scoring_options_from_the_config(tmp_pat
         assert scores.dtype == np.float32 and np.array_equal(scores, direct.image_scores)
 
 
+# 저장 뱅크를 바꿔치기하면(값에 0.5를 더함) 교란 없음 점수가 원본과 달라 CleanScoreMismatch로 멈춰야 한다. 첫
+# 조건(clean)에서 바로 멈추므로 채점은 한 번(14장)뿐이고 npz도 남지 않는다. 원본 임계값이 속하지 않는 뱅크로
+# 교란 결과를 내는 일을 막는 가드다.
 def test_a_tampered_bank_fails_the_clean_guard(tmp_path):
     src, out = tmp_path / "src", tmp_path / "out"
     _make_source(src, "dev")
@@ -245,6 +290,8 @@ def test_a_tampered_bank_fails_the_clean_guard(tmp_path):
     assert not (out / "toy.npz").exists()
 
 
+# clean guard의 기준이 상대 차이 CLEAN_RTOL(1e-3)인지 확인한다. 5e-4만큼 어긋나면 통과하면서 그 차이가
+# 기록되고, 2e-3이면 멈춘다.
 def test_the_clean_guard_uses_the_relative_limit(tmp_path):
     src = tmp_path / "src"
     _make_source(src, "dev")
@@ -255,6 +302,8 @@ def test_the_clean_guard_uses_the_relative_limit(tmp_path):
         _perturb(src, tmp_path / "bad", score=lambda images: real(images) * np.float32(1 + 2e-3))
 
 
+# 이미지 14장 가운데 한 장(처음, 중간, 마지막)만 어긋나도 clean guard가 잡아야 한다. 평균이 아니라 모든
+# 이미지의 최대 상대 차이로 비교하는지 확인한다.
 @pytest.mark.parametrize("odd", [0, 5, 13])
 def test_the_clean_guard_looks_at_every_image(tmp_path, odd):
     src = tmp_path / "src"
@@ -271,6 +320,8 @@ def test_the_clean_guard_looks_at_every_image(tmp_path, odd):
     assert not (tmp_path / "out" / "toy.npz").exists()
 
 
+# max_rel_diff의 경계: 빈 배열은 0, 0과 0은 0, 기준이 0인데 점수가 0이 아니면 아주 큰 값(분모를 0 대신 가장
+# 작은 양수로 둠), 모양이 다르면 ValueError.
 def test_max_rel_diff():
     assert run_perturb.max_rel_diff(np.array([1.0, 2.0]), np.array([1.0, 2.5])) == pytest.approx(0.2)
     assert run_perturb.max_rel_diff(np.zeros(3), np.zeros(3)) == 0.0
@@ -280,6 +331,8 @@ def test_max_rel_diff():
         run_perturb.max_rel_diff(np.zeros(3), np.zeros(4))
 
 
+# 원본의 평가 이미지 목록이 매니페스트의 평가 세트와 다르면(여기서는 순서를 뒤집음) 이미지를 한 장도 읽기 전에
+# ValueError로 멈춰야 한다. 점수와 이미지의 짝이 어긋난 채 비교하는 일을 막는다.
 def test_a_source_that_evaluated_other_images_is_rejected(tmp_path):
     src = tmp_path / "src"
     manifest = _make_source(src, "dev")
@@ -291,6 +344,7 @@ def test_a_source_that_evaluated_other_images_is_rejected(tmp_path):
     assert cache.requested == []
 
 
+# 채점 결과가 유한하지 않거나(NaN) 장수가 다르면 각각 FloatingPointError, ValueError로 멈춘다.
 def test_bad_scores_are_rejected(tmp_path):
     src = tmp_path / "src"
     _make_source(src, "dev")
@@ -300,6 +354,8 @@ def test_bad_scores_are_rejected(tmp_path):
         _perturb(src, tmp_path / "short", score=lambda images: np.zeros(3, np.float32))
 
 
+# test 절차는 allow_test 없이 SealedTestError로 멈추고 이미지를 읽지 않는다. 허락하면 봉인 테스트 14장만 읽고,
+# 보정 점수는 원본 test 실행의 교차 적합 점수 40장(정상 풀 전체)이다.
 def test_the_sealed_test_set_needs_permission(tmp_path):
     src = tmp_path / "src"
     manifest = _make_source(src, "test")
@@ -317,6 +373,8 @@ def test_the_sealed_test_set_needs_permission(tmp_path):
         assert z["scores"].shape == (16, 14) and z["cal_score"].shape == (40,)
 
 
+# PatchCore 실행을 Dinomaly(dm) 원본으로 읽으려 하면 키 이름(eval_score)이 없다는 KeyError가 난다. 방법과 원본
+# 형식이 섞이는 실수를 이름으로 알려 준다.
 def test_load_source_names_a_run_of_the_wrong_kind(tmp_path):
     src = tmp_path / "src"
     _make_source(src, "dev")
@@ -324,6 +382,7 @@ def test_load_source_names_a_run_of_the_wrong_kind(tmp_path):
         run_perturb.load_source(src, "toy", "dm")  # a PatchCore run is not in the common format
 
 
+# npz의 배열 일부를 바꾸거나(None이면 지움) 다시 저장한다. 원본 실행을 일부러 망가뜨리는 데 쓴다.
 def _rewrite(path, **changes):
     """Replace arrays of an npz file (None drops the array)."""
     with np.load(path) as z:
@@ -332,6 +391,8 @@ def _rewrite(path, **changes):
     np.savez(path, **{k: v for k, v in arrays.items() if v is not None})
 
 
+# load_source가 파일만 보고 알 수 있는 문제를 모두 거절하는지 확인한다: 평가 점수 장수가 이미지 수와 다름,
+# 평가 점수나 보정 점수에 NaN·inf, 보정 점수가 1차원이 아님.
 def test_load_source_rejects_scores_that_cannot_be_compared(tmp_path):
     src = tmp_path / "src"
     _make_source(src, "dev")
@@ -359,6 +420,9 @@ def test_load_source_rejects_scores_that_cannot_be_compared(tmp_path):
 # ---------------------------------------------------------------- the CLI, PatchCore
 
 
+# CLI(main) 테스트용 준비. 매니페스트를 임시 CSV로 쓰고 paths의 매니페스트·장부·출력·캐시 경로를 임시 폴더로
+# 돌린다. 캐시·구성·백본 생성은 크기와 이름을 확인하는 가짜로 바꾸고, run_dinomaly를 불러오면 실패하게 해
+# PatchCore 방법에서 anomalib 쪽 import가 일어나지 않는지도 본다.
 def _project(tmp_path, monkeypatch, categories=("toy",)):
     """The CLI wired to a toy manifest, a fake cache, the stand-in backbone and a ledger under tmp_path."""
     manifest = _manifest(categories)
@@ -397,6 +461,7 @@ def _project(tmp_path, monkeypatch, categories=("toy",)):
     )
 
 
+# 범주 하나(toy)인 CLI 준비.
 @pytest.fixture
 def toy_project(tmp_path, monkeypatch):
     return _project(tmp_path, monkeypatch)
@@ -408,12 +473,15 @@ def two_project(tmp_path, monkeypatch):
     return _project(tmp_path, monkeypatch, TWO)
 
 
+# CLI 인자 묶음: 두 범주 이름, dev·test 절차의 기본 인자, 봉인 허락 인자(--allow-test, --stage 3).
 TWO = ("toy", "toz")
 DEV = ["--method", "p0", "--protocol", "dev", "--device", "cpu", "--categories", "toy"]
 TEST = ["--method", "p0", "--protocol", "test", "--device", "cpu", "--categories", "toy"]
 ALLOW = ["--allow-test", "--stage", "3"]
 
 
+# 장부 줄도, 이미지 읽기도, 출력 폴더도 없으면 참. '실행이 시작하기 전에 거절됐다'를 한 번에 확인하는
+# 도우미다.
 def _untouched(project, out_name):
     """No ledger line, no image read and no output directory: the run stopped before it started."""
     return (
@@ -423,6 +491,10 @@ def _untouched(project, out_name):
     )
 
 
+# dev 절차 CLI 전체 흐름: run.json에 방법·절차·커밋·장치, 원본 경로와 원본 커밋, 조건 목록, 구성이 기록되고(줄
+# 끝은 LF), dev 평가 세트만 읽으며 장부는 쓰지 않는다. 배치는 조건마다 [8, 6]이다.
+# 이어서 analyze_perturb가 결과를 읽어, 30% 어둡게(brightness-3)에서 AUROC는 그대로인데 정상 전부가 임계값을
+# 넘는 경우(H9가 말하는 고장)를 찾아내는지 본다. 끝난 실행은 --overwrite 없이 덮어쓰지 않는다.
 def test_cli_dev_run_and_its_analysis(toy_project, capsys):
     outputs = toy_project.outputs
     _make_source(outputs / "p0-dev", "dev")
@@ -461,6 +533,8 @@ def test_cli_dev_run_and_its_analysis(toy_project, capsys):
     assert (out / "run.json").exists()
 
 
+# 원본에 뱅크 파일이 없으면 '--save-bank로 원본을 다시 만들라'는 명령을 알려 주며 멈추고, 장부·읽기·출력
+# 폴더가 하나도 생기지 않아야 한다.
 def test_cli_missing_bank_names_the_fix(toy_project, capsys):
     outputs = toy_project.outputs
     _make_source(outputs / "p0-test", "test")
@@ -474,6 +548,8 @@ def test_cli_missing_bank_names_the_fix(toy_project, capsys):
     assert not (outputs / "perturb-p0-test").exists()
 
 
+# test 절차는 --allow-test와 --stage가 둘 다 필요하다. ImageCache를 None으로 바꿔 두어, 거절 전에 캐시를
+# 열려고 하면 테스트가 실패하게 한다. --method와 --protocol도 필수 인자다.
 def test_cli_refuses_the_test_protocol_without_flags(toy_project, monkeypatch):
     _make_source(toy_project.outputs / "p0-test", "test")
     monkeypatch.setattr(run_perturb, "ImageCache", None)  # nothing may be opened before the refusal
@@ -488,6 +564,8 @@ def test_cli_refuses_the_test_protocol_without_flags(toy_project, monkeypatch):
         run_perturb.main(["--protocol", "dev"])  # and so must the method
 
 
+# test 절차가 장부에 줄을 하나 쓰고(단계·구성 이름 perturb-p0·커밋·메모), 그 뒤에 봉인 이미지를 읽는지
+# 확인한다. 순서는 FakeCache가 봉인 이미지를 내줄 때 장부 줄이 있는지 assert하는 것으로 검사된다.
 def test_cli_test_protocol_records_the_read_first(toy_project):
     outputs = toy_project.outputs
     _make_source(outputs / "p0-test", "test")
@@ -509,6 +587,9 @@ def test_cli_test_protocol_records_the_read_first(toy_project):
         assert z["eval_labels"].tolist() == [0] * 10 + [1] * 4 and z["scores"].shape == (16, 14)
 
 
+# 원본 실행 점검이 장부 기록과 이미지 읽기보다 먼저 일어나는지 경우별로 확인한다: 원본 없음, dev 원본을 test
+# 임계값으로 쓰려 함, 등록 구성과 다른 구성(코어셋 0.25), run.json 기록과 행 수가 다른 뱅크(다른 실행이 남긴
+# 파일), 모르는 범주, PatchCore 방법에 --model. 어느 경우도 장부 줄이나 읽기가 남지 않아야 한다.
 def test_cli_checks_the_source_before_anything_is_read(toy_project, capsys):
     outputs = toy_project.outputs
     allow = ["--allow-test", "--stage", "3"]
@@ -549,6 +630,8 @@ def test_cli_checks_the_source_before_anything_is_read(toy_project, capsys):
     assert not toy_project.ledger.exists() and toy_project.cache.requested == []
 
 
+# 행 수는 같지만 값이 다른 뱅크(1.5배)는 파일 점검을 통과하므로 clean guard가 잡아야 한다. 멈춘 실행은
+# run.json을 남기지 않아 끝난 실행으로 보이지 않는다.
 def test_cli_stops_at_a_bank_that_does_not_match(toy_project):
     outputs = toy_project.outputs
     _make_source(outputs / "p0-dev", "dev")
@@ -559,6 +642,9 @@ def test_cli_stops_at_a_bank_that_does_not_match(toy_project):
     assert not (outputs / "perturb-p0-dev" / "run.json").exists()  # not a finished run
 
 
+# --overwrite 재실행이 실패하는 두 경우를 구분한다. 시작 전에 거절되면(원본 뱅크 없음) 이전에 끝난 run.json이
+# 그대로 남는다. 시작한 뒤 clean guard에서 멈추면 폴더에 재실행의 일부가 섞였으므로 run.json을 지워,
+# 분석(analyze_perturb.load)이 그 폴더를 끝난 실행으로 읽지 못하게 한다.
 def test_cli_a_redo_that_fails_leaves_no_finished_run(toy_project, capsys):
     outputs = toy_project.outputs
     src, out = outputs / "p0-dev", outputs / "perturb-p0-dev"
@@ -584,6 +670,9 @@ def test_cli_a_redo_that_fails_leaves_no_finished_run(toy_project, capsys):
         analyze_perturb.load(out)
 
 
+# 범주가 둘일 때 첫 범주만이 아니라 모든 범주의 원본을 이미지 없이 먼저 점검하는지 확인한다. 두 번째 범주의
+# npz만 망가뜨려도(보정 점수 없음, 이미지 목록 뒤바뀜, 점수 장수 틀림, NaN) 장부 줄 없이 멈춰야 하고, 첫
+# 범주도 읽지 않아야 한다. 그렇지 않으면 첫 범주에서 봉인 테스트를 읽은 뒤 두 번째에서 멈추는 일이 생긴다.
 def test_cli_checks_every_category_before_the_test_read(two_project, capsys):
     outputs = two_project.outputs
     src = outputs / "p0-test"
@@ -617,6 +706,8 @@ def test_cli_checks_every_category_before_the_test_read(two_project, capsys):
     assert "toy.npz" in capsys.readouterr().err and _untouched(two_project, "perturb-p0-test")
 
 
+# 두 범주를 한 번에 돌리면 장부 줄은 실행당 하나이고, 범주마다 자기 뱅크·점수·보정 점수를 쓴다(교란 없음
+# 점수가 각자의 원본과 같고, 두 범주의 원본 점수는 서로 다르다).
 def test_cli_two_categories_use_their_own_bank_and_scores(two_project):
     outputs = two_project.outputs
     src, out = outputs / "p0-test", outputs / "perturb-p0-test"
@@ -635,6 +726,9 @@ def test_cli_two_categories_use_their_own_bank_and_scores(two_project):
         assert not np.array_equal(a["eval_score_full"], b["eval_score_full"])  # the categories differ
 
 
+# --out이 원본 실행 폴더를 가리키면(그대로, '..'을 거친 경로, 끝에 '/'가 붙은 경로, --source로 지정한 같은
+# 폴더) --overwrite가 있어도 거절해야 한다. 두 실행 모두 run.json과 <범주>.npz를 쓰므로 그대로 두면 원본이
+# 파일 단위로 덮어써진다. 원본 파일이 바이트 단위로 그대로인지 확인한다.
 def test_cli_refuses_to_write_into_the_source_run(toy_project, capsys):
     outputs = toy_project.outputs
     src = outputs / "p0-dev"
@@ -661,6 +755,8 @@ def test_cli_refuses_to_write_into_the_source_run(toy_project, capsys):
 # ---------------------------------------------------------------- Dinomaly, with a stand-in
 
 
+# 학습된 Dinomaly 대신 쓰는 대역 모델: 학습 파라미터 gain 하나뿐이다. gain 값을 바꿔 '다른 모델 파일'을 흉내
+# 낸다.
 class TinyDm(torch.nn.Module):
     """Stand-in for the trained model: one trainable gain on a brightness score."""
 
@@ -669,6 +765,9 @@ class TinyDm(torch.nn.Module):
         self.gain = torch.nn.Parameter(torch.ones(()))
 
 
+# run_perturb가 run_dinomaly에서 쓰는 것(IMG_SIZE, build_model, load_model, predict)만 흉내 낸 가짜 모듈.
+# anomalib 없이 Dinomaly 경로를 시험하려는 것이다. calls에 호출을 기록해 모델 로드와 예측 인자(배치 크기,
+# 장치, amp)를 확인한다. with_loader=False면 load_model이 없는 옛 모듈 형태를 흉내 낸다.
 def _dm_module(calls, with_loader=True):
     """What `run_perturb` uses of `run_dinomaly`, without anomalib."""
 
@@ -695,11 +794,17 @@ def _dm_module(calls, with_loader=True):
     return module
 
 
+# run_dinomaly train이 저장하는 형식({encoder, steps, state})으로 대역 모델 파일을 쓴다. state_key를 바꾸면
+# 학습 파라미터 이름이 맞지 않는 파일을 만든다.
 def _save_dm(path, gain, state_key="gain"):
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"encoder": "tiny", "steps": 3, "state": {state_key: torch.tensor(float(gain))}}, path)
 
 
+# 2단계 공통 형식(eval_images, eval_labels, eval_score, cal_score)의 끝난 Dinomaly 평가를 대역 모델로 만든다.
+# run_dinomaly와 같이, test 절차에서는 학습에 쓰지 않은 겹 0 정상의 점수를 보정 점수(홀드아웃)로 두고, dev
+# 절차에서는 겹 0 정상이 곧 평가 정상이라 보정 점수가 비어 있다. model_path를 주면 그 파일의 sha256을
+# run.json에 기록한다.
 def _make_dm_source(src, protocol, module, gain, *, model_path=None, batch_size=5, amp=False):
     """A finished Dinomaly evaluation in the common stage 2 format, scored by the stand-in."""
     manifest = _manifest()
@@ -736,6 +841,8 @@ def _make_dm_source(src, protocol, module, gain, *, model_path=None, batch_size=
     (src / "run.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
+# Dinomaly CLI 준비: toy_project에 가짜 run_dinomaly 모듈을 끼우고, 기본 모델 경로(outputs/dm/model.pt)에 gain
+# 2.0 모델을 저장한다.
 @pytest.fixture
 def dm_project(toy_project, monkeypatch):
     calls = []
@@ -752,6 +859,9 @@ DM_DEV = ["--method", "dm", "--protocol", "dev", "--device", "cpu", "--categorie
 DM_TEST = ["--method", "dm", "--protocol", "test", "--device", "cpu", "--categories", "toy"]
 
 
+# Dinomaly dev 실행: 기본 모델 파일을 읽고, 조건마다 원본과 같은 배치 크기(5)·정밀도(amp 끔)로 한 번씩
+# 예측한다(교란 없음 점수를 원본과 비교할 수 있게). 보정 점수가 비어 있으므로 분석 표에는 AUROC만 있고
+# 오검출률 칸은 None이다. run.json의 구성에는 모델 경로와 sha256이 남는다.
 def test_cli_dinomaly_dev_has_no_calibration_scores(dm_project):
     outputs = dm_project.outputs
     _make_dm_source(outputs / "dm-dev", "dev", dm_project.module, 2.0, model_path=dm_project.model)
@@ -786,6 +896,8 @@ def test_cli_dinomaly_dev_has_no_calibration_scores(dm_project):
     assert table[1]["fpr"] is None and table[1]["d_fpr"] is None and table[1]["d_auroc"] is not None
 
 
+# Dinomaly test 실행: --model로 다른 경로의 모델을 쓰고, 장부에 perturb-dm 줄을 남기며, 원본의 홀드아웃 보정
+# 점수(겹 0 정상 8장)를 다시 채점하지 않고 그대로 넘긴다(읽은 이미지는 봉인 테스트 14장뿐).
 def test_cli_dinomaly_test_passes_the_holdout_scores_on(dm_project):
     outputs = dm_project.outputs
     model = outputs / "elsewhere" / "model.pt"
@@ -806,6 +918,9 @@ def test_cli_dinomaly_test_passes_the_holdout_scores_on(dm_project):
         assert z["eval_images"].tolist() == TEST_IMAGES
 
 
+# 원본이 기록한 모델 해시와 다른 모델 파일, 없는 모델 파일은 장부·읽기 전에 거절한다. 해시 기록이 없는
+# 원본이면 파일 점검으로는 모르므로 clean guard가 다른 모델(gain 2.0 대 3.0)을 잡아야 하고, 멈춘 실행은
+# run.json을 남기지 않는다.
 def test_cli_dinomaly_refuses_another_model(dm_project, capsys):
     outputs = dm_project.outputs
     allow = ["--allow-test", "--stage", "3"]
@@ -828,6 +943,8 @@ def test_cli_dinomaly_refuses_another_model(dm_project, capsys):
     assert not (outputs / "perturb-dm-dev" / "run.json").exists()
 
 
+# run_dinomaly에 load_model이 없을 때의 대체 경로: 저장 파일의 encoder 이름으로 모델을 만들고 학습 파라미터만
+# 불러와 eval 모드로 둔다. 파일의 파라미터 이름이 모델의 학습 파라미터와 다르면 ValueError로 멈춘다.
 def test_load_dinomaly_without_a_loader_follows_the_model_file_layout(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(run_perturb, "_dinomaly", lambda: _dm_module(calls, with_loader=False))
@@ -843,6 +960,9 @@ def test_load_dinomaly_without_a_loader_follows_the_model_file_layout(tmp_path, 
 # ---------------------------------------------------------------- stage 7: condition subsets, centred configs
 
 
+# 7단계 E1 dev 점검(교란 없음, 밝기 0.7, 감마 1.5만 채점)을 위한 조건 부분집합 기능. 요청 순서와 무관하게 등록
+# 순서를 지키고, clean이 없으면(원본 점검을 할 수 없으므로) 거절하며, 모르는 조건 이름도 거절한다. 중심화 구성
+# p0-c, d-s-c가 PatchCore 방법 목록에 있는지도 확인한다.
 def test_select_conditions_keeps_the_registered_order_and_needs_clean():
     assert run_perturb.select_conditions() == condition_names()
     picked = run_perturb.select_conditions(["gamma-3", "clean", "brightness-3"])
@@ -854,6 +974,8 @@ def test_select_conditions_keeps_the_registered_order_and_needs_clean():
     assert {"p0-c", "d-s-c"} <= set(run_perturb.PATCHCORE_METHODS)
 
 
+# CLI의 --conditions가 세 조건만 등록 순서로 채점하고(배치 [8, 6] × 3), clean이 빠진 요청은 아무것도 읽거나
+# 지우기 전에 거절해 이전 결과(run.json)가 그대로 남는지 확인한다.
 def test_cli_scores_a_subset_of_the_conditions(toy_project):
     outputs = toy_project.outputs
     _make_source(outputs / "p0-dev", "dev")
@@ -870,6 +992,8 @@ def test_cli_scores_a_subset_of_the_conditions(toy_project):
     assert (out / "run.json").exists()
 
 
+# 7단계 전에 만든 원본 run.json에는 centre 필드가 없다. configs.same_config는 이를 centre=False로 보므로 그런
+# 원본도 받아들여야 하고, centre=True로 기록된 원본은 등록 구성(p0)이 아니므로 거절해야 한다.
 def test_cli_accepts_a_source_recorded_before_the_centre_field(toy_project):
     outputs = toy_project.outputs
     _make_source(outputs / "p0-dev", "dev")

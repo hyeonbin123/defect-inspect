@@ -5,6 +5,18 @@ whose unit is the specimen, with the same draws for every condition and statisti
 paired. H11 and H12 are judged exactly as registered in docs/experiments.md.
 """
 
+# [파일 역할] 3-B(M2AD 실제 조명 변화) 분석 모듈이다(`python -m defect_inspect.analyze_m2ad --methods p0
+# d-s`). run_m2ad가 저장한 검사기 6개(Motor·Bird × 시점 000·120·240)의 점수로 조건별 표(S: 기준 조명 I01, P:
+# I01에 합성 교란 15가지, R: 실제 조명 I02~I10)와 재보정 표를 만들고, 질문 3의 가설 H11·H12를 판정한다.
+# [설계 이유] M2AD에서 독립 표본은 이미지가 아니라 시편이다(같은 시편을 여러 시점·조명으로 찍음). 그래서
+# 구간은 시편 단위 군집 부트스트랩으로 낸다: 범주 안에서 정상 시편 20개와 불량 시편 50개를 따로 복원 추출하고,
+# 뽑힌 시편은 모든 시점의 이미지를 함께 데려온다. 모든 조건·통계에 같은 추출을 써서 조건 S와의 차이가
+# 짝지어진다(3-B 규칙).
+# [결과] H11 기각(합성 최댓값 +82.5%p가 실제 조명 평균 +95.3%p의 절반보다 크다), H12 지지(새 조명 정상
+# 30장으로 재보정하면 4.4% [1.3, 8.8]).
+# [연결] 입력은 outputs/m2ad-<방법>, 출력은 reports/stage3/m2ad.json이다. ClusterBootstrap과 strict_json은
+# analyze_m2ad_enrol(7단계)과 drift가, BASE는 figures가 가져다 쓴다.
+
 import argparse
 import json
 import math
@@ -14,27 +26,38 @@ from pathlib import Path
 
 import numpy as np
 
+# metrics.auroc는 검사기별 AUROC, stats는 층화 추출 인덱스와 백분위 구간을 준다.
 from . import paths
 from .metrics import auroc
 from .stats import percentile_ci, stratified_indices
 
+# 판정 상수. 부트스트랩 2,000번(seed 0), 기준 조건 이름 "S"(기준 조명 I01의 테스트 이미지), H12의 재보정 장수
+# n = 30과 상한 10%, 가설을 판정하는 방법 P0(D-S는 판정 없이 나란히 싣는다).
 N_BOOT = 2000
 SEED = 0
 BASE = "S"  # the reference condition every other one is compared with
 H12_N = 30
 H12_LIMIT = 0.10
 JUDGED_METHOD = "p0"
+# _TOL: 정수의 비인 비율이 규칙의 경계값과 정확히 같을 때 부동소수 오차(1e-17 수준)로 판정이 뒤집히지 않게
+# 두는 허용치(코드 주석).
 # Pooled rates are ratios of integers, so an interval end that equals the bound of a rule exactly comes out
 # a few 1e-17 off in floats. The tolerance keeps "<= limit" and "< 0" what they are in exact arithmetic;
 # it is far below the smallest step such an end can take (about 1e-5: one image in a thousand, times the
 # weight the percentile interpolation gives to the neighbouring resample).
 _TOL = 1e-9
 
+# Cell: 조건 하나(또는 재보정한 조명 하나)를 검사기 순서대로 본 것. 검사기마다 (시편별 점수, 시편별 라벨,
+# 임계값)이다. 라벨은 0 정상, 1 결함, -1 평가에서 뺌(불량 시편이지만 그 시점·조명에서 결함이 보이지 않거나
+# 판별 불가로 표시된 이미지, m2ad.label_of).
 # One condition (or one recalibrated illumination) as seen by every inspector, in inspector order:
 # (scores [n_specimens], labels [n_specimens], threshold).
 Cell = list[tuple[np.ndarray, np.ndarray, float]]
 
 
+# 실행이 분석의 전제를 지키는지 확인한다: 모든 검사기가 같은 조건·재보정 목록을 가지고, 배열 모양이 (조건 수,
+# 시편 수)이며, 같은 범주의 시점들이 같은 시편 목록과 불량 여부를 공유하고, 정상 시편은 모든 이미지가 라벨 0,
+# 불량 시편은 1 또는 -1이다. 군집 부트스트랩이 시편 단위로 뽑으므로 이 전제가 깨지면 구간이 틀린다.
 def _validate(run: dict) -> None:
     inspectors = run["inspectors"]
     if not inspectors:
@@ -62,6 +85,7 @@ def _validate(run: dict) -> None:
                 raise ValueError(f"{name}: labels do not agree with object_anomaly")
 
 
+# run_m2ad 실행을 읽는다. 검사기 이름은 `<범주>_<시점>`이고 범주·시점을 배열 dict에 같이 넣은 뒤 검사한다.
 def load(run_dir: Path) -> dict:
     """A `run_m2ad` run: {"meta": run.json, "inspectors": {"<category>_<view>": arrays}} (validated)."""
     run_dir = Path(run_dir)
@@ -79,6 +103,8 @@ def load(run_dir: Path) -> dict:
     return run
 
 
+# 조건 이름 목록(S, P:<교란>, R:<조명>)과 재보정 키 목록(<조명>:<n>). 검사가 모든 검사기에서 같음을 보장하므로
+# 첫 검사기에서 읽는다.
 def conditions(run: dict) -> list[str]:
     return next(iter(run["inspectors"].values()))["conditions"].tolist()
 
@@ -87,6 +113,7 @@ def recal_keys(run: dict) -> list[str]:
     return next(iter(run["inspectors"].values()))["recal_keys"].tolist()
 
 
+# 조건 하나의 Cell. 임계값은 검사기마다 I01로 정한 원래 값(고정 임계값) 그대로다.
 def condition_cell(run: dict, name: str) -> Cell:
     cell = []
     for arr in run["inspectors"].values():
@@ -95,6 +122,8 @@ def condition_cell(run: dict, name: str) -> Cell:
     return cell
 
 
+# 재보정 키 하나(<조명>:<n>)의 Cell. 그 조명의 정상 n장을 뱅크에 더하고 다시 정한 임계값과, 그 뱅크로 다시
+# 매긴 점수를 쓴다.
 def recal_cell(run: dict, key: str) -> Cell:
     cell = []
     for arr in run["inspectors"].values():
@@ -103,6 +132,9 @@ def recal_cell(run: dict, key: str) -> Cell:
     return cell
 
 
+# 시편 단위 군집 부트스트랩. 범주마다 정상 시편과 불량 시편을 따로 복원 추출하고(생성기 하나, 범주 순서, 정상
+# 다음 불량), 결과를 "재표집 b에서 시편 j가 몇 번 뽑혔나"의 가중치 행렬 weights[범주] [n_boot, 시편 수]로
+# 둔다. 같은 범주의 세 시점 검사기가 같은 가중치를 쓰므로 한 시편의 여러 이미지가 함께 움직인다.
 class ClusterBootstrap:
     """Specimen-level draws shared by every condition and statistic.
 
@@ -123,6 +155,8 @@ class ClusterBootstrap:
             anomalous = np.asarray(arr["object_anomaly"]) != 0
             groups.append((np.flatnonzero(~anomalous), np.flatnonzero(anomalous)))
             sizes += [len(group) for group in groups[-1]]
+        # 범주마다 (정상 시편, 불량 시편) 두 묶음의 크기로 층화 추출 한 벌을 만든다(범주 순서, 정상 다음
+        # 불량).
         draws = stratified_indices(sizes, n_boot=self.n_boot, seed=seed)
         rows = np.arange(self.n_boot)[:, None]
         self.weights: dict[str, np.ndarray] = {}
@@ -130,9 +164,13 @@ class ClusterBootstrap:
             weights = np.zeros((self.n_boot, sum(len(group) for group in groups[i])))
             for members, draw in zip(groups[i], draws[2 * i : 2 * i + 2], strict=True):
                 if members.size:
+                    # 뽑힌 시편 번호마다 횟수를 더해 가중치 행렬을 채운다. 복원 추출의 중복도 모두 센다.
                     np.add.at(weights, (rows, members[draw]), 1.0)
             self.weights[category] = weights
 
+    # 여러 Cell을 합친 (오검출 수, 정상 이미지 수, 검출 수, 결함 이미지 수)의 관측값과 재표집 값. 시편별 0/1
+    # 열을 만든 뒤 가중치 행렬과 곱하면 재표집마다의 합계가 행렬 곱 한 번으로 나온다. 라벨 -1 이미지는 어느
+    # 열에도 들어가지 않아 자동으로 빠진다.
     def counts(self, cells: Sequence[Cell]) -> tuple[np.ndarray, np.ndarray]:
         """(false positives, normal images, detected defects, defect images) summed over `cells`.
 
@@ -147,9 +185,13 @@ class ClusterBootstrap:
                 columns = np.stack([flagged & normal, normal, flagged & defect, defect], axis=1)
                 columns = columns.astype(np.float64)
                 point += columns.sum(axis=0)
+                # [n_boot, 시편] @ [시편, 4] = 재표집마다의 네 합계. 같은 범주의 다른 시점 검사기도 같은
+                # 가중치를 써서 시편이 함께 움직인다.
                 samples += self.weights[self.category[name]] @ columns
         return point, samples
 
+    # 검사기별 이미지 AUROC의 평균(관측값과 재표집 표본). 정상이나 결함 이미지가 없는 검사기는 관측과 재표집
+    # 모두에서 평균에서 뺀다(같은 규칙).
     def auroc(self, cell: Cell) -> tuple[float, np.ndarray]:
         """Mean over inspectors of the image AUROC on labelled images: observed value and samples.
 
@@ -166,10 +208,15 @@ class ClusterBootstrap:
             if neg.size == 0 or pos.size == 0:
                 continue
             values.append(auroc(s[neg], s[pos]))
+            # 재표집 AUROC = (결함, 정상) 쌍 가운데 결함 점수가 큰 쌍의 가중 비율(동점은 0.5). 쌍마다의 승패
+            # 행렬 wins를 한 번 만들고, 재표집마다 두 시편의 뽑힌 횟수를 곱한 가중치로 평균한다. 재표집마다
+            # 정렬을 다시 하지 않아도 된다.
             # AUROC of a resample = weighted share of (defect, normal) pairs the defect wins (ties half).
             wins = (s[pos][:, None] > s[neg][None, :]) + 0.5 * (s[pos][:, None] == s[neg][None, :])
             weights = self.weights[self.category[name]]
             w_pos, w_neg = weights[:, pos], weights[:, neg]
+            # 재표집마다의 (결함, 정상) 이미지 쌍 수. 0인 재표집에서는 이 검사기를 평균에서 뺀다(관측값과 같은
+            # 규칙).
             pairs = w_pos.sum(axis=1) * w_neg.sum(axis=1)
             ok = pairs > 0
             total[ok] += ((w_pos[ok] @ wins) * w_neg[ok]).sum(axis=1) / pairs[ok]
@@ -179,6 +226,7 @@ class ClusterBootstrap:
         return float(np.mean(values)) if values else float("nan"), samples
 
 
+# 분모가 0인 칸은 0으로 나누지 않고 nan으로 둔다(이미지가 없는 조건).
 def _ratio(num, den):
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where(den > 0, num / np.where(den > 0, den, 1.0), np.nan)
@@ -189,6 +237,7 @@ def _ci(samples: np.ndarray) -> list[float]:
     return [float(lo), float(hi)]
 
 
+# Cell 목록을 합친 합산 오검출률·검출률(관측값, 재표집 표본, 개수).
 def _rates(boot: ClusterBootstrap, cells: Sequence[Cell]) -> dict:
     """Pooled false positive and detection rates over `cells`, observed and resampled."""
     point, samples = boot.counts(cells)
@@ -204,6 +253,7 @@ def _rates(boot: ClusterBootstrap, cells: Sequence[Cell]) -> dict:
     }
 
 
+# 모든 조건의 비율과 평균 AUROC를 같은 부트스트랩으로 계산한다. 기준 조건 S가 없으면 차이를 낼 수 없어 오류.
 def _condition_stats(run: dict, boot: ClusterBootstrap) -> dict[str, dict]:
     stats = {}
     for name in conditions(run):
@@ -216,6 +266,8 @@ def _condition_stats(run: dict, boot: ClusterBootstrap) -> dict[str, dict]:
     return stats
 
 
+# 조건마다 한 행: 합산 오검출률·검출률·평균 AUROC와 구간, 그리고 S 대비 차이와 짝지은 구간.
+# docs/experiments.md 3-B의 P0·D-S 표가 이 값이다(예: 실제 조명에서 오검출률 증가 평균 +95.3%p).
 def condition_table(run: dict, n_boot: int | None = None, seed: int = SEED) -> list[dict]:
     """One row per condition: pooled FPR and detection rate, mean AUROC, and the paired differences to S."""
     boot = ClusterBootstrap(run, n_boot, seed)
@@ -236,6 +288,10 @@ def condition_table(run: dict, n_boot: int | None = None, seed: int = SEED) -> l
     return table
 
 
+# H11: 합성 교란 15조건 가운데 가장 큰 오검출률 증가(P − S)가 실제 조명 아홉 조건의 증가(R − S) 평균의
+# 절반보다 작다. 통계량 = 합성 최댓값 − 0.5 × 실제 평균이고, 최댓값은 재표집마다 다시 취한다(어느 조건이
+# 최대인지도 재표집마다 달라질 수 있으므로). 구간 상한 < 0이면 지지, 하한 > 0이면 기각, 나머지 판정 불가.
+# 결과: +34.9%p [33.6, 36.1]로 기각.
 def h11(run: dict, n_boot: int | None = None, seed: int = SEED) -> dict:
     """H11: the largest synthetic FPR increase is below half the mean real-illumination FPR increase.
 
@@ -252,8 +308,11 @@ def h11(run: dict, n_boot: int | None = None, seed: int = SEED) -> dict:
     base = stats[BASE]
     d_point = {name: stats[name]["fpr"] - base["fpr"] for name in synthetic + real}
     d_samples = {name: stats[name]["fpr_samples"] - base["fpr_samples"] for name in synthetic + real}
+    # 점 추정: 증가가 가장 큰 합성 조건(동점이면 앞의 것)과 실제 조명 아홉 조건의 증가 평균.
     top = max(synthetic, key=lambda name: d_point[name])  # the first one on ties
     mean_real = float(np.mean([d_point[name] for name in real]))
+    # 재표집마다 합성 15조건의 증가 최댓값을 다시 취하고, 실제 9조건의 증가 평균을 낸다. 최댓값을 고정한
+    # 조건으로 구간을 내면 "가장 큰 것을 골랐다"는 선택의 흔들림이 빠지기 때문이다.
     max_samples = np.max(np.stack([d_samples[name] for name in synthetic]), axis=0)
     mean_samples = np.mean(np.stack([d_samples[name] for name in real]), axis=0)
     lo, hi = _ci(max_samples - 0.5 * mean_samples)
@@ -273,10 +332,14 @@ def h11(run: dict, n_boot: int | None = None, seed: int = SEED) -> dict:
     }
 
 
+# 재보정 장수 n으로 다시 잰 조명 목록.
 def _recal_lights(run: dict, n: int) -> list[str]:
     return [key.split(":")[0] for key in recal_keys(run) if int(key.split(":")[1]) == n]
 
 
+# H12: 새 조명마다 그 조명의 정상 n장(학습 시편 SHA-256 순 앞 n개)을 뱅크에 더하고 임계값을 다시 잡은 뒤, 아홉
+# 조명을 합친 오검출률(정상 1,080장)이 10% 이하인가. 구간 상한 ≤ 10%면 지지, 하한 > 10%면 기각. 경계 비교에는
+# _TOL을 더한다.
 def h12(
     run: dict, n: int = H12_N, limit: float = H12_LIMIT, n_boot: int | None = None, seed: int = SEED
 ) -> dict:
@@ -290,6 +353,7 @@ def h12(
     boot = ClusterBootstrap(run, n_boot, seed)
     rates = _rates(boot, [recal_cell(run, f"{light}:{n}") for light in lights])
     lo, hi = _ci(rates["fpr_samples"])
+    # 구간 끝이 상한과 정확히 같은 경우를 부동소수 오차 없이 "이하"로 보도록 _TOL을 더해 비교한다.
     verdict = "지지" if hi <= limit + _TOL else "기각" if lo > limit + _TOL else "판정 불가"
     return {
         "n": n,
@@ -303,6 +367,8 @@ def h12(
     }
 
 
+# 재보정 장수별 표: n = 0(재보정 없음, 실제 조명 R 조건 그대로)과 각 n(8, 30)의 합산 오검출률·검출률. 같은
+# 조명 집합이면 n = 0 대비 차이와 구간도 붙인다. 결과: P0 96.9% → n = 8에서 3.5%, n = 30에서 4.4%.
 def recal_table(run: dict, n_boot: int | None = None, seed: int = SEED) -> list[dict]:
     """Pooled FPR and detection rate over the real illuminations for n = 0 (no recalibration) and each n.
 
@@ -328,6 +394,8 @@ def recal_table(run: dict, n_boot: int | None = None, seed: int = SEED) -> list[
             row[f"{key}_ci"] = _ci(rates[f"{key}_samples"])
         if n == 0:
             base = rates
+        # 재보정한 조명 집합이 n = 0과 같은 아홉 조명일 때만 짝지은 차이를 낸다(집합이 다르면 같은 이미지의
+        # 비교가 아니다).
         elif lights == real:
             for key in ("fpr", "tpr"):
                 row[f"d_{key}"] = rates[key] - base[key]
@@ -336,6 +404,8 @@ def recal_table(run: dict, n_boot: int | None = None, seed: int = SEED) -> list[
     return table
 
 
+# 보조 표(판정 없음): 검사기마다 임계값, 보정 점수 수, 조건별 오검출·검출 수와 AUROC. 합산 수치가 어느
+# 검사기에서 나오는지 볼 때 쓴다.
 def inspector_table(run: dict) -> dict[str, dict]:
     """Supplementary, no verdicts: per inspector its threshold and each condition's counts and AUROC."""
     out = {}
@@ -356,6 +426,9 @@ def inspector_table(run: dict) -> dict[str, dict]:
     return out
 
 
+# 방법마다 조건 표, 재보정 표, 검사기 표를 만들고, 조건이 갖춰져 있으면 H11·H12 수치를 계산한다. 판정
+# 문구(verdict)는 P0에만 남기고 다른 방법(D-S)은 같은 수치를 판정 없이 싣는다(3-B 규칙). 코드 점검 실행이면
+# check 표시가 남는다.
 def build_report(runs: dict[str, dict], n_boot: int | None = None, seed: int = SEED) -> dict:
     """Tables of every method; H11 and H12 are judged on JUDGED_METHOD only."""
     report: dict = {
@@ -392,6 +465,8 @@ def build_report(runs: dict[str, dict], n_boot: int | None = None, seed: int = S
     return report
 
 
+# 리포트의 유한하지 않은 float(nan, inf)를 None으로 바꾼 사본. 표준 JSON에는 NaN 토큰이 없어 다른 프로그램이
+# 파일을 읽지 못하기 때문이다(docstring). drift와 analyze_m2ad_enrol도 리포트를 쓸 때 이 함수를 쓴다.
 def strict_json(value):
     """Copy of a report in which every non-finite float is None, so the file is strict JSON.
 
@@ -421,6 +496,7 @@ def _diff(row: dict, key: str) -> str:
     return f"{row[f'd_{key}'] * 100:+.1f} {_span(row[f'd_{key}_ci'])}"
 
 
+# 콘솔용 표: 방법마다 조건 표와 재보정 표, H11·H12 한 줄씩, 마지막에 판정 방법의 가설 요약.
 def format_report(report: dict) -> str:
     lines = []
     for name, entry in report["methods"].items():
@@ -484,6 +560,8 @@ def format_report(report: dict) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+# 명령행 입구. --check면 코드 점검 실행(outputs/m2ad-<방법>-check, Motor 시점 000의 S와 I02만)을 읽고 파일은
+# 쓰지 않는다. 저장된 점수만 읽으므로 M2AD 테스트 이미지를 다시 읽지 않는다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--methods", nargs="*", default=["p0", "d-s"], help="runs outputs/m2ad-<method>")

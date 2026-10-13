@@ -1,3 +1,13 @@
+# [파일 역할] M2AD(같은 시편을 조명 10가지로 찍은 데이터) 모듈 src/defect_inspect/m2ad.py를 검증한다:
+# 메타데이터 읽기와 라벨 규칙, 시편 단위 겹·재보정 시편·조명 묶음, zip에서 리사이즈 캐시 만들기·읽기, 그리고
+# 캐시를 만들기 전에 봉인 테스트 장부에 기록하는 CLI.
+# [왜 필요한가] 3-B(합성 교란 대 실제 조명)와 7단계(조명 등록·변화 감지)의 모든 수치가 이 행 목록·라벨·겹
+# 위에서 나온다. 라벨 규칙(결함이 보이고 판별 가능한 이미지만 결함)이나 시편 순서가 문서(docs/experiments.md
+# 3-B, 7단계)와 다르면 규칙과 다른 실험이 된다. 캐시는 test 이미지를 배열로 옮기므로 장부 기록이 빠지거나,
+# 실패한 빌드가 장부에 줄을 남기면 봉인 기록이 틀어진다.
+# [방법] 실제 데이터(범주당 약 14GB) 없이, 같은 구조의 가짜 메타데이터와 작은 PNG를 담은 zip을 tmp_path에
+# 만들어 돌린다. 장부는 autouse fixture로 임시 파일로 바꾼다.
+
 import hashlib
 import io
 import json
@@ -7,6 +17,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
+# cache는 디코딩 함수(_decode_image)를 가짜로 바꾸고 기대 이미지를 같은 리사이즈로 만들려고, ledger·paths는
+# 장부 경로와 커밋 값을 바꾸려고 모듈째 가져온다.
 from defect_inspect import cache, ledger, m2ad, paths
 from defect_inspect.m2ad import (
     ILLUMINATIONS,
@@ -19,9 +31,13 @@ from defect_inspect.m2ad import (
     specimen_folds,
 )
 
+# 캐시 이미지 한 변(16px). 실제는 256(P0)·448(D-S)이지만 테스트는 작게 잡는다.
 SIZE = 16
 
 
+# 모든 테스트에 자동으로 적용되는 fixture. 장부 경로(paths.TEST_LEDGER)를 tmp_path 아래로 바꾸고 git_commit을
+# 고정값으로 바꾼다. 테스트가 실수로 저장소의 진짜 reports/test_ledger.jsonl에 줄을 쓰면 봉인 기록이
+# 오염되므로 막는다.
 @pytest.fixture(autouse=True)
 def temporary_ledger(tmp_path, monkeypatch):
     """`m2ad.main` records the read of test images: no test may ever write to the real ledger."""
@@ -31,6 +47,9 @@ def temporary_ledger(tmp_path, monkeypatch):
     return path
 
 
+# meta_unsupervised.json 항목 하나를 실제 M2AD와 같은 키로 만든다. 경로 형식은
+# <범주>/<폴더>/<시편>/A<시점>_I<조명>.png다. m2ad가 읽지 않는 키(cls_name, mask_path 등)도 넣어 실제 파일
+# 모양을 흉내 낸다.
 def entry(category, folder, specimen, view, light, object_anomaly=0, image_anomaly=0, detectable=""):
     return {
         "img_path": f"{category}/{folder}/{specimen}/A{view}_I{light}.png",
@@ -46,6 +65,9 @@ def entry(category, folder, specimen, view, light, object_anomaly=0, image_anoma
     }
 
 
+# 가짜 메타데이터 전체. 쓰지 않는 범주(Car)와 쓰지 않는 시점(030)을 일부러 넣어 걸러지는지 보고, docstring의
+# 세 불량 시편으로 라벨 규칙의 모든 갈래(결함, 판별 불가, 안 보임)를 만든다. 항목 순서를 뒤집어 넣어 파일
+# 순서와 무관하게 정렬되는지도 시험한다.
 def make_meta(train=("000", "003"), normal=("001",), lights=ILLUMINATIONS, views=(*VIEWS, "030")) -> dict:
     """Two kept categories and one that must be ignored; view 030 must be dropped as well.
 
@@ -73,6 +95,8 @@ def make_meta(train=("000", "003"), normal=("001",), lights=ILLUMINATIONS, views
     return meta
 
 
+# 메타데이터를 jsons.zip에 쓴다. 이름이 다른 JSON(meta_other.json)도 같이 넣어 정확한 이름의 멤버 하나만
+# 읽는지 확인한다.
 def write_jsons(tmp_path, meta, member=m2ad.META_MEMBER):
     path = tmp_path / "jsons.zip"
     with zipfile.ZipFile(path, "w") as z:
@@ -81,6 +105,8 @@ def write_jsons(tmp_path, meta, member=m2ad.META_MEMBER):
     return path
 
 
+# 멤버 이름의 SHA-256으로 정해지는 작은 PNG 바이트. 5×5 무작위 색을 40px로 키워 이미지마다 다르지만 재현
+# 가능하므로, 캐시의 각 행이 올바른 이미지에서 왔는지 expected_image와 비교할 수 있다.
 def png_bytes(name: str, side: int = 40) -> bytes:
     seed = int(hashlib.sha256(name.encode()).hexdigest()[:8], 16)
     rng = np.random.default_rng(seed)
@@ -91,6 +117,9 @@ def png_bytes(name: str, side: int = 40) -> bytes:
     return buffer.getvalue()
 
 
+# 범주별 <범주>.zip을 만든다. 원하지 않는 멤버(쓰지 않는 시점, GT 마스크)와 폴더 항목도 넣고, 멤버를 이름의
+# 해시 순으로(reverse면 거꾸로) 넣어 zip 안의 순서가 행 순서·이름 순서와 다르게 한다. skip으로 일부 멤버를 빼
+# 누락 상황을 만든다.
 def write_zips(zip_dir, rows, *, reverse=False, skip=()):
     """`<category>.zip` with every image of `rows` plus members that are not wanted."""
     zip_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +133,7 @@ def write_zips(zip_dir, rows, *, reverse=False, skip=()):
                 z.writestr(name, png_bytes(name))
 
 
+# 조명 2개(01, 02)만 있는 작은 행 목록. 캐시 테스트를 빨리 돌리려는 것이다.
 def small_rows(tmp_path):
     meta = make_meta(lights=("01", "02"))
     # Only two illuminations here, so `read_meta` is not asked for completeness.
@@ -113,6 +143,8 @@ def small_rows(tmp_path):
 # ----------------------------------------------------------------------------------------------- metadata
 
 
+# read_meta가 등록한 두 범주(Motor, Bird)와 세 시점만 남기고(Car와 시점 030 제외), 열 가지 조명을 모두 읽어
+# 기대한 행 수를 내는지 본다.
 def test_read_meta_keeps_two_categories_and_three_views(tmp_path):
     rows = read_meta(write_jsons(tmp_path, make_meta()))
     assert {r.category for r in rows} == {"Motor", "Bird"}
@@ -123,6 +155,8 @@ def test_read_meta_keeps_two_categories_and_three_views(tmp_path):
     assert all(isinstance(r, M2adRow) for r in rows)
 
 
+# 행 순서가 (범주 선언 순서, 분할 train→test, 시편, 시점, 조명)인지 본다. 캐시 배열의 행 순서가 이 순서로
+# 고정되므로, 메타데이터 파일 안의 순서(여기서는 뒤집혀 있음)가 바뀌어도 같은 캐시가 나와야 한다.
 def test_read_meta_order(tmp_path):
     rows = read_meta(write_jsons(tmp_path, make_meta()))
     keys = [
@@ -142,6 +176,9 @@ def test_read_meta_order(tmp_path):
     assert rows[0].img_path == "Motor/Good/000/A000_I01.png"
 
 
+# 등록한 라벨 규칙(experiments.md 3-B)을 시편·시점별로 확인한다: 정상 시편은 두 분할 모두 0, 결함이 보이고
+# detectable이 True면 1, detectable False나 결함이 안 보이는 시점(image_anomaly 0)은 -1(평가 제외). dent처럼
+# 어느 시점에서도 결함이 안 보이는 시편은 불량 시편이지만 모두 제외된다. train에는 0만 있어야 한다.
 def test_label_rule(tmp_path):
     rows = read_meta(write_jsons(tmp_path, make_meta()))
     by = {(r.category, r.specimen, r.view, r.illumination): r for r in rows}
@@ -162,6 +199,7 @@ def test_label_rule(tmp_path):
     assert {r.label for r in rows if r.split == "train"} == {0}
 
 
+# label_of의 진리표. 불량 시편이라도 결함이 보이고(image_anomaly 1) 판별 가능(True)해야만 1이다.
 @pytest.mark.parametrize(
     ("object_anomaly", "image_anomaly", "detectable", "expected"),
     [(0, 0, "", 0), (1, 1, True, 1), (1, 1, False, -1), (1, 0, "", -1), (1, 1, "", -1), (1, 0, True, -1)],
@@ -170,17 +208,24 @@ def test_label_of(object_anomaly, image_anomaly, detectable, expected):
     assert m2ad.label_of(object_anomaly, image_anomaly, detectable) == expected
 
 
+# detectable은 JSON true(파이썬 True)일 때만 결함으로 센다. 1이나 "True" 같은 참으로 읽히는 값이 결함 라벨을
+# 만들면 메타데이터 오류가 조용히 라벨로 바뀐다.
 def test_label_of_needs_a_real_true():
     # A truthy value that is not the JSON `true` does not make a defect label.
     assert m2ad.label_of(1, 1, 1) == -1
     assert m2ad.label_of(1, 1, "True") == -1
 
 
+# 메타 파일이 zip 안 하위 폴더(jsons/)에 있어도 파일 이름으로 찾는지 본다.
 def test_read_meta_finds_the_member_in_a_folder(tmp_path):
     path = write_jsons(tmp_path, make_meta(), member="jsons/" + m2ad.META_MEMBER)
     assert len(read_meta(path)) == 360
 
 
+# 메타데이터 일관성 점검이 문제마다 알맞은 오류를 내는지 본다: 같은 이미지 중복, train에 불량 시편, 정상
+# 시편인데 image_anomaly 1, 모르는 조명(11), detectable이 ""·bool이 아님, 한 시편이 두 분할에 걸침, 범주 항목
+# 없음, 메타 파일 없음. 쓰지 않는 시점(030)의 중복은 걸러진 뒤라 문제가 아니다.
+# 특히 '두 분할에 걸친 시편'은 학습 시편이 평가에 섞여 새는 것이라 반드시 막아야 한다.
 def test_read_meta_rejects_bad_metadata(tmp_path):
     meta = make_meta()
     kept = next(e for e in meta["test"]["Motor"] if e["view"] == "000")
@@ -233,10 +278,14 @@ def test_read_meta_rejects_bad_metadata(tmp_path):
 # ------------------------------------------------------------------------------------------ specimen order
 
 
+# 기준 구현: 중복을 뺀 이름을 UTF-8 SHA-256 16진수 순으로 정렬한다(splits.path_key와 같은 방식이어야 함).
 def sha_order(names):
     return sorted(set(names), key=lambda name: hashlib.sha256(name.encode("utf-8")).hexdigest())
 
 
+# 시편 겹 번호가 SHA-256 순위 mod 5인지 본다. 해시 순서가 이름 순서와 실제로 다른지 먼저 확인하고(같으면
+# 테스트가 헛돈다), 30개면 겹마다 6개씩 고르게 나뉘며, 입력 순서나 이미지마다 반복된 시편 이름이 결과를 바꾸지
+# 않아야 한다.
 def test_folds_follow_the_sha256_rank():
     names = [f"{i:03d}" for i in range(0, 60, 2)]
     folds = specimen_folds(names)
@@ -248,6 +297,9 @@ def test_folds_follow_the_sha256_rank():
     assert specimen_folds(names[::-1] + names) == folds
 
 
+# 재보정 시편이 같은 SHA-256 순서의 앞 n개이고, n = 8이 n = 30의 앞부분(중첩)인지 본다. 3-B는 새 조명의 정상
+# 8장·30장으로 다시 보정한 결과를 비교하므로(README), 8장이 30장의 부분 집합이어야 표본 차이만 남는다. 앞
+# 8개는 겹 0~4를 고루 덮는다. 범위 밖 n은 거절한다.
 def test_recal_specimens_are_the_first_in_the_same_order():
     names = [f"{i:03d}" for i in range(30)]
     ordered = sha_order(names)
@@ -264,6 +316,8 @@ def test_recal_specimens_are_the_first_in_the_same_order():
         recal_specimens(names, -1)
 
 
+# 시편 이름이 문자열이 아니면 TypeError다. 해시 순서가 문자열 인코딩에 의존하므로 숫자가 섞이면 순서가
+# 정의되지 않는다.
 def test_specimen_names_must_be_strings():
     with pytest.raises(TypeError):
         specimen_folds([1, 2, 3])
@@ -272,17 +326,25 @@ def test_specimen_names_must_be_strings():
 # --------------------------------------------------------------------------------------------------- cache
 
 
+# 멤버 이름의 PNG를 VisA 캐시와 같은 리사이즈(cache.resize_image)로 줄인 기대 이미지.
 def expected_image(name: str) -> np.ndarray:
     with Image.open(io.BytesIO(png_bytes(name))) as img:
         return cache.resize_image(img, SIZE)
 
 
+# 등록한 상수(범주 둘, 시점 셋, 조명 I01~I10, 기준 조명 I01, 5겹, 재보정 8·30장)가 experiments.md 3-B와 같은지
+# 고정한다. 무심코 바꾸면 등록한 실험과 다른 것을 재게 된다.
 def test_constants_are_the_registered_ones():
     assert m2ad.CATEGORIES == ("Motor", "Bird") and m2ad.VIEWS == ("000", "120", "240")
     assert m2ad.ILLUMINATIONS == tuple(f"{i:02d}" for i in range(1, 11))
     assert m2ad.REFERENCE == "01" and m2ad.N_FOLDS == 5 and m2ad.RECAL_SIZES == (8, 30)
 
 
+# 캐시 만들기의 핵심 성질을 본다. zipfile.ZipFile.read를 감시해, 각 zip을 놓인 순서(header_offset
+# 오름차순)대로 앞에서 뒤로 읽는지(HDD 순차 읽기), 원하는 멤버만 한 번씩 읽는지, 그 순서가 이름 순서와 다른지
+# 확인한다. zip 안 순서를 정방향·역방향으로 바꿔도 캐시 배열과 색인은 행 순서대로 똑같아야 하고, .part 파일이
+# 남지 않으며, 행마다 올바른 이미지가 들어 있어야 한다. 디코딩 횟수로 원하지 않는 멤버를 디코딩하지 않았는지도
+# 센다. 마지막으로 cache_is_complete가 같은 행 순서·크기에서만 True인지 본다.
 def test_build_cache_follows_the_row_order_not_the_member_order(tmp_path, monkeypatch):
     rows = small_rows(tmp_path)
     decoded = []
@@ -333,6 +395,8 @@ def test_build_cache_follows_the_row_order_not_the_member_order(tmp_path, monkey
     assert not m2ad.cache_is_complete(tmp_path / "cache0", SIZE + 1, rows)
 
 
+# 행 일부(시점 120만)를 거꾸로 된 순서로 캐시해도, M2adCache가 행 객체로 이미지를 찾아 요청한 순서(중복
+# 포함)대로 돌려주는지 본다. 캐시에 없는 행은 KeyError다.
 def test_build_cache_of_a_subset_in_another_order(tmp_path):
     rows = small_rows(tmp_path)
     write_zips(tmp_path / "zips", rows)
@@ -350,6 +414,9 @@ def test_build_cache_of_a_subset_in_another_order(tmp_path):
     store.close()
 
 
+# zip에 멤버 하나가 없으면 이미지를 하나도 디코딩하기 전에(중앙 디렉터리만 보고) FileNotFoundError로 멈추고
+# 출력 폴더에 아무것도 남기지 않는지 본다. 긴 빌드가 끝 무렵에 실패하는 일을 막는다. zip 폴더 자체가 없어도
+# 같은 오류다.
 def test_build_cache_stops_before_decoding_when_a_member_is_missing(tmp_path, monkeypatch):
     rows = small_rows(tmp_path)
     gone = [r.img_path for r in rows if r.category == "Bird"][3]
@@ -366,6 +433,7 @@ def test_build_cache_stops_before_decoding_when_a_member_is_missing(tmp_path, mo
         build_cache(tmp_path / "nowhere", rows, SIZE, tmp_path / "cache")
 
 
+# 디코딩 도중(5번째 이미지) 실패하면 .part 파일까지 모두 지워 반쯤 쓴 캐시가 '완성된 캐시'로 남지 않는지 본다.
 def test_failed_build_leaves_no_files(tmp_path, monkeypatch):
     rows = small_rows(tmp_path)
     write_zips(tmp_path / "zips", rows)
@@ -383,6 +451,7 @@ def test_failed_build_leaves_no_files(tmp_path, monkeypatch):
     assert not list((tmp_path / "cache").iterdir())
 
 
+# 빈 행 목록과 같은 이미지를 두 번 담은 행 목록은 거절한다. 중복 행은 색인에서 이미지를 찾을 때 모호해진다.
 def test_build_cache_rejects_empty_and_repeated_rows(tmp_path):
     rows = small_rows(tmp_path)
     write_zips(tmp_path / "zips", rows)
@@ -392,6 +461,7 @@ def test_build_cache_rejects_empty_and_repeated_rows(tmp_path):
         build_cache(tmp_path / "zips", [rows[0], rows[0]], SIZE, tmp_path / "cache")
 
 
+# 캐시가 없으면 오류 메시지에 만드는 명령(python -m defect_inspect.m2ad --size N)을 알려 주는지 본다.
 def test_cache_names_a_missing_build(tmp_path):
     with pytest.raises(FileNotFoundError, match="defect_inspect.m2ad --size 24"):
         M2adCache(tmp_path, 24)
@@ -400,12 +470,17 @@ def test_cache_names_a_missing_build(tmp_path):
 # ----------------------------------------------------------------------------------------------------- CLI
 
 
+# 임시 장부의 줄들을 dict 목록으로 읽는다(파일이 없으면 빈 목록).
 def ledger_entries(path) -> list[dict]:
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+# CLI가 test 이미지를 읽기 전에 장부에 stage "cache" 한 줄을 남기는지 본다. build_cache를 감싸 호출되는 순간의
+# 장부 줄 수를 기록해 '기록 → 빌드' 순서를 확인한다. 이미 완성된 캐시는 아무것도 읽지 않으므로 줄이 늘지 않고,
+# --force로 다시 만들면 두 번째 줄이 생겨야 한다. 장부는 봉인 테스트 이미지를 읽을 때마다 남긴다는
+# 규칙을 캐시 빌드에도 적용한 것이다(docs/experiments.md 봉인 테스트 절의 예외).
 def test_main_records_the_read_before_it_builds(tmp_path, capsys, monkeypatch, temporary_ledger):
     jsons = write_jsons(tmp_path, make_meta(lights=("01", "02")))
     rows = read_meta(jsons)
@@ -437,6 +512,10 @@ def test_main_records_the_read_before_it_builds(tmp_path, capsys, monkeypatch, t
     assert len(ledger_entries(temporary_ledger)) == 2 and recorded_before_build == [1, 2]
 
 
+# 반대로 이미지를 읽지 못하고 실패하는 빌드(zip 없음, 멤버 누락)는 장부에 줄을 남기지 않아야 한다. 읽지 않은
+# 것을 읽었다고 기록하면 장부가 틀린다. main은 이미지를 읽지 않는 점검(_plan, 교체 가능 여부)을 장부 기록 전에
+# 하므로, 디코딩 함수가 불리면 실패하도록 바꿔 두고 확인한다. 멤버를 되돌리면 같은 명령이 한 줄만 남기고
+# 성공한다.
 def test_main_records_nothing_when_the_zips_cannot_be_read(tmp_path, monkeypatch, temporary_ledger):
     jsons = write_jsons(tmp_path, make_meta(lights=("01", "02")))
     rows = read_meta(jsons)
@@ -464,6 +543,8 @@ def test_main_records_nothing_when_the_zips_cannot_be_read(tmp_path, monkeypatch
     assert len(ledger_entries(temporary_ledger)) == 1
 
 
+# 캐시를 만들 때 출력하는 장수 표가 라벨 규칙 결과를 맞게 세는지 본다. 범주·분할별 시편 수와 정상/결함/제외
+# 장수, test의 (범주, 시점) × 조명별 '정상/결함/제외' 칸을 손 계산(주석)과 맞춘다.
 def test_count_table_lists_every_label(tmp_path):
     rows = read_meta(write_jsons(tmp_path, make_meta()))
     table = m2ad.count_table(rows).splitlines()
@@ -477,6 +558,9 @@ def test_count_table_lists_every_label(tmp_path):
     assert motor_120.split()[2:] == ["1/1/2"] * 10
 
 
+# 7단계 조명 묶음이 I01을 뺀 아홉 조명 이름의 SHA-256 순서로 앞 4개(A)와 나머지 5개(B)인지 본다. 등록한 결과(A
+# = 03, 07, 08, 09 / B = 02, 04, 05, 06, 10, experiments.md 7단계)를 그대로 적어 고정하고, 두 묶음이 기준 조명
+# 없이 아홉 조명을 빠짐없이 나누는지 확인한다.
 def test_illumination_groups_follow_the_sha256_order_of_the_labels():
     a, b = m2ad.illumination_groups()
     ranked = sorted((f"{i:02d}" for i in range(2, 11)), key=lambda s: hashlib.sha256(s.encode()).hexdigest())

@@ -1,8 +1,21 @@
+# [파일 역할] 4단계 격자 실행 스크립트 src/defect_inspect/run_grid.py를 검증한다. PatchCore 설정 하나를 코어셋
+# 비율 여러 개로 채점하면서, 비싼 코어셋 선택은 가장 큰 비율로 한 번만 하고 작은 비율은 그 뱅크의 앞부분을
+# 잘라 쓰는 구조다.
+# [왜 필요한가] 질문 4(CPU 200ms 안에 남는 구성)의 격자는 다섯 설정 × 세 비율을 이 스크립트로 재고 서빙 구성을
+# 고른다(docs/experiments.md 4단계). '앞부분 자르기'가 실제로 그 비율로 새로 고른 뱅크와 같아야 비율별 수치를
+# 믿을 수 있고, 가장 큰 비율 결과는 1단계 run_patchcore와 같아야 단계 사이 수치가 이어진다. 또 test 절차는
+# 봉인 테스트를 읽으므로, 장부 기록 순서와 '실패하면 기록하지 않음', 이전 출력 정리 규칙을 CLI 수준에서
+# 확인한다.
+# [방법] 실제 백본·데이터 없이 4×4 격자 평균색 추출기(GridMean)와 가짜 캐시·매니페스트로 CPU에서 돌린다.
+# torch가 필요하므로 없으면 건너뛴다.
+
 import json
 
 import numpy as np
 import pytest
 
+# torch가 없는 CI에서는 파일 전체를 건너뛴다. 아래 import는 이 줄 뒤에 와야 해서 E402 예외 표시를 달았다.
+# analyze_grid·compare·run_patchcore는 격자 출력이 그 도구들과 호환되는지 확인하려고 가져온다.
 torch = pytest.importorskip("torch")
 
 from defect_inspect import analyze_grid, compare, paths, run_grid, run_patchcore  # noqa: E402
@@ -10,10 +23,14 @@ from defect_inspect.configs import PatchCoreConfig  # noqa: E402
 from defect_inspect.patchcore import build_bank, collect_features, score_images  # noqa: E402
 from defect_inspect.splits import ManifestRow, SealedTestError  # noqa: E402
 
+# 입력 32px, 4×4 격자라 이미지당 패치 16개. RATIOS는 실제 격자(0.1, 0.01, 0.001)보다 큰 비율로 잡아 작은
+# 풀에서도 뱅크 행 수가 비율마다 달라지게 한다.
 SIZE = 32
 RATIOS = [0.5, 0.25, 0.1]
 
 
+# 백본 대신 쓰는 작은 추출기: 8px 칸마다 평균색을 내 [B, 4, 4, 3] 특징을 만든다. name·dim 속성은 실제 추출기와
+# 같은 형태다.
 class GridMean(torch.nn.Module):
     """Tiny stand-in for a backbone: the mean colour of each cell of a 4x4 grid."""
 
@@ -24,6 +41,9 @@ class GridMean(torch.nn.Module):
         return torch.nn.functional.avg_pool2d(x.float(), SIZE // 4).permute(0, 2, 3, 1)
 
 
+# ImageCache 대신 쓰는 가짜 캐시. 매니페스트 행마다 회색 잡음 이미지를 만들고, 결함 행은 흰 사각형과 256 격자
+# 마스크를 넣는다. images·masks가 불릴 때마다 읽은 행의 역할(pool_normal, test_normal 등)을 log에 남겨, CLI가
+# 언제 어떤 이미지(특히 봉인 테스트)를 읽었는지 장부 기록과 순서를 비교할 수 있게 한다.
 class FakeCache:
     size = SIZE
 
@@ -50,6 +70,8 @@ class FakeCache:
         return np.stack([self._masks[r.image] for r in rows])
 
 
+# 범주마다 정상 풀 40장(겹 0~4에 8장씩), dev 결함 6장, test 정상 10장, test 결함 4장인 가짜 매니페스트. dev
+# 절차에서는 겹 0 정상 8장 + dev 결함이 평가 세트, 겹 1~4의 32장이 뱅크 재료가 된다.
 def _manifest(categories=("toy",)):
     rows = []
     for c in categories:
@@ -66,6 +88,7 @@ def _manifest(categories=("toy",)):
     return rows
 
 
+# 작은 입력에 맞춘 구성: 흐림 σ 1(32px 맵이라 기본 σ 4는 크다), 재가중 k 3, 배치 8.
 def _cfg(ratio):
     return PatchCoreConfig(
         name="toy",
@@ -78,6 +101,7 @@ def _cfg(ratio):
     )
 
 
+# 범주 toy 하나로 run_category를 돌리는 도우미. 구성의 coreset_ratio는 RATIOS의 최댓값이어야 한다.
 def _run(tmp_path, protocol="dev", allow_test=False, save_banks=False):
     manifest = _manifest()
     return run_grid.run_category(
@@ -95,6 +119,8 @@ def _run(tmp_path, protocol="dev", allow_test=False, save_banks=False):
     )
 
 
+# 비율 폴더 이름(r0.1 등)과 비율별 뱅크 행 수 계산을 본다. ratio_rows는 patchcore.build_bank와 같은
+# 반올림(가장 가까운 정수, 최소 1행, 비율 1은 전부)이어야 '앞부분 자르기 = 새로 고르기'가 성립한다.
 def test_ratio_names_and_rows():
     assert [run_grid.ratio_name(r) for r in (0.1, 0.01, 0.001, 1)] == ["r0.1", "r0.01", "r0.001", "r1.0"]
     assert run_grid.ratio_rows(512, 0.5) == 256
@@ -104,6 +130,9 @@ def test_ratio_names_and_rows():
     assert run_grid.ratio_rows(7, 1.0) == 7
 
 
+# 격자의 가장 큰 비율 결과가 같은 구성으로 1단계 실행 스크립트(run_patchcore.run_category)를 돌린 결과와
+# 같은지 본다. 평가 이미지·라벨·점수, 교차 적합 점수, 겹, 픽셀 지표가 같아야 한다. 같은 출력 형식이라
+# compare·analyze가 두 결과를 섞어 비교하므로, 계산이 달라지면 단계 사이 수치가 이어지지 않는다.
 def test_largest_ratio_equals_run_patchcore(tmp_path):
     _run(tmp_path / "grid")
     manifest = _manifest()
@@ -121,6 +150,9 @@ def test_largest_ratio_equals_run_patchcore(tmp_path):
         assert float(g["pixel_auroc"]) == pytest.approx(float(p["pixel_auroc"]))
 
 
+# 작은 비율의 점수가 그 비율로 처음부터 뱅크를 새로 만들어 채점한 것과 같은지 본다(docstring). 평가 세트
+# 점수와 뱅크 행 수, 그리고 교차 적합 점수(겹 2 이미지를 '겹 2를 뺀 풀'로 새로 만든 뱅크로 채점)까지 맞춘다.
+# 탐욕적 k-center 선택의 중첩 성질에 기대는 설계가 실제로 맞는지 확인하는 핵심 테스트다.
 @pytest.mark.parametrize("ratio", RATIOS)
 def test_smaller_ratios_equal_a_fresh_selection(tmp_path, ratio):
     """A prefix of the largest bank gives the same scores as building that ratio from scratch."""
@@ -163,6 +195,9 @@ def test_smaller_ratios_equal_a_fresh_selection(tmp_path, ratio):
         np.testing.assert_allclose(z["pool_score_oof"][z["pool_folds"] == 2], oof.image_scores, rtol=1e-6)
 
 
+# 비율이 실제로 결과를 바꾸는지(모든 비율이 같은 뱅크를 쓰는 회귀가 없는지) 본다. 작은 뱅크는 정상 패치를 덜
+# 덮으므로 정상의 교차 적합 점수 평균이 내려가지 않아야 한다. 평가 실행(run_dinomaly 등)이 남기는 점수 맵
+# 파일(*_maps.npy)을 격자는 저장하지 않는다는 것도 확인한다.
 def test_smaller_banks_change_the_scores(tmp_path):
     _run(tmp_path)
     with np.load(tmp_path / "r0.5" / "toy.npz") as a, np.load(tmp_path / "r0.1" / "toy.npz") as b:
@@ -173,6 +208,10 @@ def test_smaller_banks_change_the_scores(tmp_path):
     assert not list(tmp_path.glob("**/*_maps.npy"))
 
 
+# --save-banks로 저장한 뱅크만으로 모든 비율의 점수를 다시 만들 수 있는지 본다. 4단계는 저장한 뱅크로 ONNX
+# 아티팩트를 만들고(export) CPU 경로로 다시 채점하므로(run_export_eval) 필요하다. banks/<범주>.json의 원래
+# 패치 수(전체 32장 × 16, 겹 하나를 뺀 24장 × 16)로 ratio_rows를 계산해 앞부분을 자르면, 평가 점수와 겹별 교차
+# 적합 점수가 저장된 결과와 같아야 한다. 뱅크는 fp16이고 겹 1~4 뱅크 파일이 모두 있어야 한다.
 def test_saved_banks_reproduce_every_ratio(tmp_path):
     _run(tmp_path, save_banks=True)
     manifest = _manifest()
@@ -224,6 +263,8 @@ def test_saved_banks_reproduce_every_ratio(tmp_path):
                 np.testing.assert_allclose(oof, res.image_scores, rtol=1e-6)
 
 
+# test 절차는 allow_test 없이는 SealedTestError로 멈추고, 허용하면 정상 풀 전체(겹 0~4, 40장)를 뱅크에 쓰고
+# 봉인 테스트(정상 10, 결함 4)로 평가하는지 본다.
 def test_test_protocol_is_sealed(tmp_path):
     with pytest.raises(SealedTestError):
         _run(tmp_path, protocol="test")
@@ -231,6 +272,8 @@ def test_test_protocol_is_sealed(tmp_path):
     assert infos[0.5]["pool"] == 40 and infos[0.5]["eval_normal"] == 10 and infos[0.5]["eval_defect"] == 4
 
 
+# 구성의 coreset_ratio가 비율 목록의 최댓값이 아니면 거절한다. 더 작은 비율로 고른 뱅크에서 큰 비율의 앞부분을
+# 잘라낼 수는 없기 때문이다.
 def test_largest_ratio_must_be_the_config_ratio(tmp_path):
     manifest = _manifest()
     with pytest.raises(ValueError, match="largest ratio"):
@@ -248,12 +291,18 @@ def test_largest_ratio_must_be_the_config_ratio(tmp_path):
         )
 
 
+# CLI 실행 중 일어난 장부 쓰기와 캐시 읽기를 순서대로 담는 목록. 장부가 이미지 읽기보다 먼저인지 비교할 때
+# 쓴다.
 @pytest.fixture
 def calls():
     """Ledger writes and cache reads of the CLI runs, in the order they happen."""
     return []
 
 
+# CLI(main)를 데이터·GPU 없이 돌리기 위한 환경. 출력·리포트·장부 경로를 tmp_path로 바꾸고,
+# 매니페스트·캐시·백본 생성을 가짜로 바꾸며, 장부 기록을 감싸 calls에 남긴다. 매니페스트에는 결함이 없는 범주
+# bare를 더해 '평가할 것이 없는 범주' 거절을 시험한다. compare.N_BOOT를 100으로 줄여 analyze_grid의
+# 부트스트랩을 빠르게 한다.
 @pytest.fixture
 def cli(tmp_path, monkeypatch, calls):
     manifest = _manifest(("toy", "two"))
@@ -278,10 +327,18 @@ def cli(tmp_path, monkeypatch, calls):
     return tmp_path
 
 
+# CLI 공통 인자. 백본 이름은 wrn50이지만 make_extractor를 GridMean으로 바꿔 두었다. BASE는 두 범주·두 비율
+# 실행이다.
 SETTING = ["--backbone", "wrn50", "--size", "32", "--device", "cpu"]
 BASE = [*SETTING, "--categories", "toy", "two", "--ratios", "0.5", "0.1"]
 
 
+# CLI가 최상위 run.json(설정, 비율, 절차)과 비율마다 run_patchcore 형식의 폴더를 쓰고,
+# compare.load_patchcore가 그 폴더를 읽는지 본다. 각 비율 폴더의 config는 가장 큰 비율이 아니라 자기 비율을
+# 적어야 하고, 고정값(재가중 9, σ 4, 배치 32, seed 0 = P0 문헌 기본값)과 커밋·뱅크 행 수가 맞아야 한다. dev
+# 실행은 장부를 쓰지 않는다.
+# 이미 끝난 실행은 --overwrite 없이 다시 쓰지 않고, 마지막으로 analyze_grid가 이 출력으로
+# 리포트(grid-dev.json, 가장 큰 비율 대비 차이 포함)를 만드는지 확인한다.
 def test_cli_writes_a_run_per_ratio_that_compare_can_read(cli, capsys):
     run_grid.main([*BASE, "--protocol", "dev"])
     out = cli / "outputs" / "grid-wrn50-32-dev"
@@ -323,6 +380,10 @@ def test_cli_writes_a_run_per_ratio_that_compare_can_read(cli, capsys):
     assert rows[0]["bank_rows_mean"] == 32 * 16 * 0.5
 
 
+# test 절차는 --allow-test와 --stage가 둘 다 있어야 하고, 하나라도 빠지면 아무것도 읽지 않고 장부도 쓰지
+# 않는다. 둘 다 있으면 장부에 정확히 한 줄(stage 4, config grid-wrn50-32)이 생기고, 그 줄이 어떤 이미지
+# 읽기보다 먼저여야 한다(calls의 첫 항목). 이미 끝난 test 실행은 --overwrite 없이 다시 읽지 않아 장부 줄도
+# 늘지 않는다. 봉인 테스트를 읽을 때마다 기록한다는 규칙(docs/experiments.md 봉인 테스트)을 CLI에서 확인한다.
 def test_cli_test_protocol_needs_flags_and_writes_the_ledger(cli, calls):
     ledger = cli / "reports" / "test_ledger.jsonl"
     for extra in ([], ["--allow-test"], ["--stage", "4"]):
@@ -344,12 +405,17 @@ def test_cli_test_protocol_needs_flags_and_writes_the_ledger(cli, calls):
     assert not calls and len(ledger.read_text(encoding="utf-8").splitlines()) == 1
 
 
+# dev 절차가 읽는 이미지 역할이 정상 풀과 dev 결함뿐인지(test_normal·test_defect를 읽지 않는지) 캐시 읽기
+# 기록으로 확인한다.
 def test_cli_dev_protocol_reads_no_sealed_image(cli, calls):
     run_grid.main([*BASE, "--protocol", "dev"])
     assert {role for _, roles in calls for role in roles} == {"pool_normal", "dev_defect"}
     assert not (cli / "reports" / "test_ledger.jsonl").exists()
 
 
+# 범주 인자 오류(오타, 평가할 결함이 없는 범주, 같은 범주 두 번)를 장부 기록과 출력 폴더 생성 전에 잡는지
+# test·dev 두 절차에서 본다. 실패한 실행이 '봉인 테스트를 읽었다'는 기록만 남기면 장부가 틀리기 때문이다. 오류
+# 메시지에 문제 이름이 들어 있어야 한다.
 @pytest.mark.parametrize(
     ("categories", "named"),
     [
@@ -368,6 +434,8 @@ def test_cli_checks_the_categories_before_the_ledger(cli, calls, capsys, categor
     assert not (cli / "outputs").exists()
 
 
+# 이전 출력을 지우다 실패하면(파일이 다른 곳에서 열려 있음을 PermissionError로 흉내 냄) 장부 줄 없이 멈추는지
+# 본다. main은 clear_outputs를 장부 기록 전에 부른다.
 def test_cli_clears_old_outputs_before_the_ledger(cli, calls, monkeypatch):
     """Old outputs that cannot be deleted (a file in use) stop the run without a ledger line."""
 
@@ -380,10 +448,15 @@ def test_cli_clears_old_outputs_before_the_ledger(cli, calls, monkeypatch):
     assert not calls and not (cli / "reports" / "test_ledger.jsonl").exists()
 
 
+# 폴더 아래 모든 파일의 상대 경로 목록(정렬, / 구분). 실행 뒤 남은 파일을 정확히 비교하는 데 쓴다.
 def _files(folder):
     return sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file())
 
 
+# --overwrite가 이전 실행이 쓴 것(최상위·비율 run.json, 범주 npz, 저장한 뱅크)만 지우고 다시 쓰는지 본다. 이전
+# 실행에만 있던 비율(r0.25)이나 범주(two)가 남으면 compare.load_patchcore가 완성된 결과처럼 읽기 때문이다.
+# 반대로 이 모듈이 쓰지 않은 파일(notes.txt, reports/ 아래 npz, r로 시작하지만 비율 폴더가 아닌 r0.5x)은
+# 남겨야 한다.
 def test_cli_overwrite_removes_what_the_earlier_call_wrote(cli):
     out = cli / "outputs" / "grid-wrn50-32-dev"
     first = [*SETTING, "--protocol", "dev", "--categories", "toy", "two", "--ratios", "0.5", "0.25", "0.1"]
@@ -403,6 +476,10 @@ def test_cli_overwrite_removes_what_the_earlier_call_wrote(cli):
     assert list(compare.load_patchcore(out / "r0.5").cats) == ["toy"]
 
 
+# --overwrite 실행이 두 번째 범주에서 끊기면(KeyboardInterrupt) 어느 수준에도 run.json이 남지 않아,
+# analyze_grid.load_grid와 compare.load_patchcore가 이 폴더를 완성된 실행으로 읽지 않는지 본다. main은 시작할
+# 때 최상위 run.json부터 지우고, 끝날 때 맨 마지막에 쓴다. 다음 호출은 완성된 실행이 없으므로 --overwrite 없이
+# 깨끗한 폴더에서 시작해야 한다.
 def test_interrupted_overwrite_does_not_leave_a_finished_looking_run(cli, monkeypatch):
     out = cli / "outputs" / "grid-wrn50-32-dev"
     run_grid.main([*BASE, "--protocol", "dev"])
@@ -430,6 +507,8 @@ def test_interrupted_overwrite_does_not_leave_a_finished_looking_run(cli, monkey
     assert _files(out) == ["r0.5/run.json", "r0.5/two.npz", "run.json"]
 
 
+# DINOv2는 패치 크기 14의 배수 입력만 받으므로 256을 거절하고, 비율은 (0, 1] 밖(0, 1.5, 음수, nan)을
+# 거절하는지 본다. 거절한 경우 출력 폴더를 만들지 않는다.
 def test_cli_rejects_bad_arguments(cli, capsys):
     with pytest.raises(SystemExit):
         run_grid.main(["--backbone", "dinov2_vits14", "--size", "256", "--protocol", "dev", *BASE[6:]])

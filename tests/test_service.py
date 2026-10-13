@@ -1,3 +1,14 @@
+# [파일 역할] FastAPI 검사 서비스(`defect_inspect.service`)를 검증하는 테스트 묶음이다. 모델 파일 없이 도는
+# 오프라인 앱(합성 범주 demo, 작은 PatchCore 흉내)으로 /inspect, /calibrate, DELETE /calibrate, /categories,
+# /healthz, 데모 페이지와 정적 파일을 시험한다.
+# [왜 필요한가] 이 서비스는 업로드를 받아 판정하고 관리자가 임계값을 바꿀 수 있으므로, 점수 정확성뿐 아니라
+# 입력 검증(형식·크기·16비트·투명도), 보호 장치(Host 검사, 다른 출처의 쓰기 요청 거절, 관리자 토큰, 본문 크기
+# 제한, 보안 헤더), 동시성(범주별 잠금, 작업자 수 제한과 503)이 모두 맞아야 한다. docs/security.md의 DAST
+# 판정(예: Anti-CSRF 지적을 오탐으로 본 근거)도 이 파일의 테스트에 기대고 있다.
+# [주요 구성] 요청 도우미와 ASGI 직접 호출 → 판정·히트맵·입력 형식 → 잘못된 요청과 크기 제한 →
+# 손상·16비트·투명도·미리보기 → 재보정과 되돌리기 → 관리자 토큰·다른 출처 거절 → 잠금과 동시 요청·대기열 →
+# Host 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors) → 데모 페이지 JS(node가 있을 때).
+
 import asyncio
 import base64
 import inspect as pyinspect
@@ -13,19 +24,25 @@ import numpy as np
 import pytest
 from PIL import Image, ImageOps
 
+# 서비스는 serve 의존성 그룹(FastAPI, 업로드 파싱용 python-multipart)이 있어야 돈다. 기본 패키지만 설치한
+# 환경에서는 이 파일 전체를 건너뛴다. torch는 필요 없다.
 pytest.importorskip("fastapi")
 pytest.importorskip("multipart")
 
+# TestClient는 실제 서버를 띄우지 않고 앱을 같은 프로세스에서 HTTP처럼 부른다.
 from fastapi.testclient import TestClient  # noqa: E402
 
 from defect_inspect import service  # noqa: E402
 
+# 기본 허용 Host(127.0.0.1)로 요청하는 주소, 테스트용 관리자 토큰과 그 헤더, 모든 응답에 붙어야 하는 보안 헤더
+# 이름들.
 HOST = "http://127.0.0.1"
 TOKEN = "test-admin-token"
 ADMIN = {"X-Admin-Token": TOKEN}
 SECURITY = ("x-content-type-options", "x-frame-options", "content-security-policy", "referrer-policy")
 
 
+# 배열이나 PIL 이미지를 원하는 형식의 파일 바이트로 인코딩한다(업로드 본문을 만드는 데 쓴다).
 def _encode(array: np.ndarray | Image.Image, fmt: str = "PNG", **options) -> bytes:
     image = array if isinstance(array, Image.Image) else Image.fromarray(array)
     buffer = io.BytesIO()
@@ -37,10 +54,12 @@ def _png(array: np.ndarray) -> bytes:
     return _encode(array)
 
 
+# 오프라인 검사기의 '정상'과 같은 분포(밝기 110~146 회색 잡음)의 64px 이미지.
 def _normal(seed=1, size=64) -> np.ndarray:
     return np.random.default_rng(seed).integers(110, 146, (size, size, 3), dtype=np.uint8)
 
 
+# 정상 이미지 가운데(20~36px)에 흰 사각형을 넣은 '결함' 이미지.
 def _defect(seed=1) -> np.ndarray:
     image = _normal(seed)
     image[20:36, 20:36] = 255
@@ -52,10 +71,12 @@ def _bright(count: int) -> list[np.ndarray]:
     return [np.clip(_normal(seed=s).astype(np.int16) + 60, 0, 255).astype(np.uint8) for s in range(count)]
 
 
+# /calibrate에 보낼 multipart 파일 목록(필드 이름 images).
 def _files(images) -> list:
     return [("images", (f"{i}.png", _png(im), "image/png")) for i, im in enumerate(images)]
 
 
+# 관리자 토큰을 켠 오프라인 앱의 TestClient. settings로 작업자 수, 대기열, 허용 Host 등을 바꿀 수 있다.
 def _client(**settings) -> TestClient:
     settings.setdefault("admin_token", TOKEN)
     return TestClient(service.create_offline_app(**settings), base_url=HOST)
@@ -66,6 +87,7 @@ def client():
     return _client()
 
 
+# /inspect 호출 도우미(이미지 파일 + 범주 폼 필드, 쿼리 파라미터는 heatmap·preview).
 def _inspect(client, data: bytes, category="demo", headers=None, **params):
     return client.post(
         "/inspect",
@@ -76,16 +98,21 @@ def _inspect(client, data: bytes, category="demo", headers=None, **params):
     )
 
 
+# /calibrate 호출 도우미. 기본으로 관리자 토큰 헤더를 붙인다.
 def _calibrate(client, images, headers=ADMIN, **fields):
     return client.post(
         "/calibrate", files=_files(images), data={"category": "demo", **fields}, headers=headers
     )
 
 
+# /categories에서 demo 범주의 현재 임계값 상태(임계값, alpha, 보정 기록 등)를 읽는다.
 def _state(client) -> dict:
     return client.get("/categories").json()[0]
 
 
+# HTTP 클라이언트를 거치지 않고 ASGI 앱을 직접 부르는 도우미. 클라이언트가 경로의 '..'을 정리해 버리거나
+# 본문을 한꺼번에 보내는 것을 피해, 경로 탈출 시도와 '본문을 조각으로 보낼 때 앱이 얼마나 읽었는가(pulled)'를
+# 그대로 시험할 수 있다.
 def _asgi(app, method: str, path: str, *, headers=(), chunks=()):
     """Call the ASGI app itself: the path is not normalised by a client and the body arrives in pieces.
 
@@ -125,6 +152,8 @@ def _asgi(app, method: str, path: str, *, headers=(), chunks=()):
     return start["status"], out, payload, pulled
 
 
+# multipart 본문의 앞부분만 만든다. 파일 부분이 끝나지 않는 본문을 이어 보내, 크기 제한이 본문을 끝까지 읽기
+# 전에 작동하는지 시험하는 데 쓴다.
 def _multipart_head(field: str = "image") -> tuple[dict, bytes]:
     """Header and the opening of a multipart body whose file part never has to end."""
     head = (
@@ -135,6 +164,8 @@ def _multipart_head(field: str = "image") -> tuple[dict, bytes]:
     return {"Content-Type": "multipart/form-data; boundary=B"}, head
 
 
+# /healthz와 /categories의 기본 응답. 오프라인 검사기는 정상 24장으로 보정돼 있어 보정 기록이 holdout, n 24,
+# 보장됨이다. 헤더만 묻는 HEAD 요청(상태 점검 도구가 쓰는 방식)도 200이어야 한다.
 def test_health_and_categories(client):
     response = client.get("/healthz")
     assert response.status_code == 200 and response.json() == {"status": "ok", "categories": ["demo"]}
@@ -146,6 +177,8 @@ def test_health_and_categories(client):
     assert client.head("/healthz").status_code == 200 and client.head("/").status_code == 200
 
 
+# 정상은 통과하고 결함은 불량으로 판정되며, 히트맵은 256x256 8비트 PNG이고 흰 사각형 자리(256 격자 80~144)가
+# 가장 뜨겁다. heatmap=false면 히트맵 없이 같은 점수를 낸다.
 def test_a_normal_image_passes_and_a_defect_is_flagged_with_a_heatmap(client):
     ok = _inspect(client, _png(_normal(seed=3)))
     assert ok.status_code == 200
@@ -165,6 +198,9 @@ def test_a_normal_image_passes_and_a_defect_is_flagged_with_a_heatmap(client):
     assert "heatmap_png" not in without and without["score"] == pytest.approx(bad["score"])
 
 
+# 크기·비율이 다른 회색조, JPEG, 팔레트, BMP, WebP 모두 받아 검사기 자체의 파이프라인과 같은 점수를 내는지
+# 본다. 서비스는 디코딩 직후 모델 입력 크기로 줄이는데(큰 원본을 메모리에 두지 않으려고), 그 리사이즈가
+# inspector.preprocess와 같은 BICUBIC 호출이라 점수가 바뀌지 않아야 한다.
 def test_any_image_size_and_8_bit_mode_is_scored_like_the_inspector_itself(client):
     twin = service.offline_inspector()
     big = np.random.default_rng(0).integers(110, 146, (300, 480), dtype=np.uint8)  # greyscale, not square
@@ -187,6 +223,8 @@ def test_any_image_size_and_8_bit_mode_is_scored_like_the_inspector_itself(clien
     assert np.array_equal(np.asarray(decoded), np.asarray(expected))
 
 
+# 잘못된 요청의 상태 코드: 모르는 범주 404, 이미지가 아닌 바이트·빈 업로드 400, 필드 누락 422, 64자를 넘는
+# 범주 이름 422, 업로드 크기 초과 413, 픽셀 수 초과 400. 크기 제한은 monkeypatch로 작게 바꿔 시험한다.
 def test_bad_requests_are_rejected(client, monkeypatch):
     assert _inspect(client, _png(_normal()), category="nope").status_code == 404
     assert _inspect(client, b"this is not an image").status_code == 400
@@ -205,6 +243,8 @@ def test_bad_requests_are_rejected(client, monkeypatch):
     assert _inspect(client, _png(_normal())).status_code == 400
 
 
+# 422 검증 오류가 입력값(스크립트 문자열 등)이나 파이썬 타입 이름을 되돌려 보내지 않는지 확인한다. 오류 항목은
+# loc·type·msg만 가진다. 입력을 그대로 비추는 응답은 반사형 XSS나 내부 정보 노출의 통로가 될 수 있다.
 def test_validation_errors_do_not_echo_the_input(client):
     probe = "<script>alert(1)</script>" * 3
     responses = [
@@ -223,6 +263,11 @@ def test_validation_errors_do_not_echo_the_input(client):
             assert set(item) == {"loc", "type", "msg"} and item["loc"][0] == "body"
 
 
+# 본문 크기 제한이 Content-Length에 기대지 않는지 확인한다. 큰 Content-Length를 밝히면 본문을 한 바이트도 앱에
+# 넘기기 전에 413이고, 길이를 밝히지 않는 chunked 본문도 413이며, 조각으로 계속 들어오면 한도(업로드 한도 +
+# multipart 여유) 바로 뒤에서 읽기를 멈추고 Connection: close로 답한다. 어느 거절에도 보안 헤더가 붙는다.
+# /calibrate는 여러 장을 받으므로 본문 전체 한도(MAX_REQUEST_BYTES)가 따로 있고, 그 한도를 넘으면 첫 조각 뒤에
+# 멈춘다.
 def test_the_body_limit_holds_without_a_content_length(monkeypatch):
     app = service.create_offline_app(admin_token=TOKEN)
     client = TestClient(app, base_url=HOST)
@@ -261,6 +306,10 @@ def test_the_body_limit_holds_without_a_content_length(monkeypatch):
     assert status == 413 and len(pulled) == 1
 
 
+# 손상된 파일(데이터 길이를 반으로 줄인 PNG, 잘린 PNG)과 받지 않는 형식(GIF, PPM)은 500이 아니라 같은 문구의
+# 400이어야 한다. Pillow 디코더는 손상 파일에서 OSError 말고도 SyntaxError 등을 내므로, 서비스가 모든 디코딩
+# 예외를 400으로 바꾸는지 본다. 보정 요청에 손상 파일이 한 장만 섞여도 400이고, Image.open 자체가 예상 밖
+# 예외를 내도 400이다.
 def test_damaged_and_unsupported_files_are_a_400_not_a_500(client, monkeypatch):
     rgba = np.dstack([_normal(), np.full((64, 64), 255, np.uint8)])
     damaged = bytearray(_png(rgba))
@@ -287,6 +336,8 @@ def test_damaged_and_unsupported_files_are_a_400_not_a_500(client, monkeypatch):
     assert _inspect(client, _png(_normal())).status_code == 400
 
 
+# 모델이 예상 밖 오류를 내면 응답은 내용 없는 JSON 500이고 보안 헤더가 붙으며, 오류 메시지는 응답에 나가지
+# 않고 로그에만 남는다(_Guard가 처리하지 않은 예외를 직접 감싸는 부분).
 def test_an_unhandled_error_is_a_json_500_with_the_security_headers(client, caplog):
     class Broken:
         def run(self, names, feeds):
@@ -300,6 +351,8 @@ def test_an_unhandled_error_is_a_json_500_with_the_security_headers(client, capl
     assert "the model fell over" not in response.text and "the model fell over" in caplog.text
 
 
+# 16비트·부동소수 이미지는 거절한다. Pillow가 RGB로 바꿀 때 255로 잘라 이미지 전체가 흰색으로 채점되기
+# 때문이다(소스의 DEEP_MODES 주석). 보정 요청에 섞여도 400이고 임계값은 그대로다.
 def test_16_bit_images_are_refused_instead_of_scored_as_white(client):
     grey = np.random.default_rng(3).integers(110, 146, (64, 64), dtype=np.uint8)
     assert _inspect(client, _png(grey)).json()["is_defect"] is not None
@@ -311,6 +364,8 @@ def test_16_bit_images_are_refused_instead_of_scored_as_white(client):
     assert _state(client)["calibration"]["n"] == 24
 
 
+# 완전히 불투명한 알파 채널은 무시하고 같은 점수를 낸다. 투명한 픽셀이 있으면(투명 영역 아래 흰 결함, 팔레트
+# 투명색) 거절한다. 보는 사람에게는 보이지 않는 픽셀이 채점되는 일을 막으려는 것이다.
 def test_transparency_is_refused_and_an_opaque_alpha_channel_is_ignored(client):
     plain = _inspect(client, _png(_normal())).json()
     alpha = np.full((64, 64), 255, np.uint8)
@@ -328,6 +383,9 @@ def test_transparency_is_refused_and_an_opaque_alpha_channel_is_ignored(client):
         assert response.status_code == 400 and "transparency" in response.json()["detail"]
 
 
+# preview=true의 input_png가 모델이 실제로 본 그림인지 확인한다. EXIF 회전 정보가 있는 JPEG도 회전하지 않은
+# 저장 픽셀을 채점하고(모델과 뱅크를 만든 리사이즈 캐시와 같은 방식), 미리보기·점수·히트맵이 모두 같은 그림을
+# 가리킨다. 브라우저가 그리지 못하는 TIFF도 미리보기가 오고, 요청하지 않으면 미리보기를 보내지 않는다.
 def test_preview_is_the_picture_the_model_saw(client):
     stored = np.random.default_rng(2).integers(110, 146, (48, 80, 3), dtype=np.uint8)
     stored[2:14, 2:20] = 255  # top-left in the stored pixels
@@ -354,6 +412,10 @@ def test_preview_is_the_picture_the_model_saw(client):
     assert "input_png" not in _inspect(client, _png(_normal())).json()
 
 
+# 재보정: 더 밝은 촬영 조건에서는 기존 임계값으로 정상도 불량이 된다. 그 조건의 정상 25장으로 /calibrate를
+# 부르면 임계값이 올라가고 보정 기록(holdout, n 25, 보장됨)이 바뀌며, 보정에 쓰지 않은 같은 조건 이미지는
+# 대부분 통과한다. 서비스는 잠금 밖에서 점수를 매기고 규칙을 직접 적용하므로, 결과가 Inspector.calibrate와
+# 같은지도 비교한다.
 def test_calibrate_replaces_the_threshold(client):
     before = _state(client)["threshold"]
     # A brighter line: every image of the new condition is flagged with the old threshold.
@@ -379,6 +441,9 @@ def test_calibrate_replaces_the_threshold(client):
     assert state["alpha"] == twin.meta["alpha"] and state["calibration"] == twin.meta["calibration"]
 
 
+# 등각 순위가 장수 안에 들어오지 않을 만큼 적은 이미지(α 5%에서 19장 미만, 10%에서 9장 미만)는 400으로
+# 거절하고 필요한 장수를 알려 준다. allow_unguaranteed를 켜면 받아들이되 보정 기록에 '보장 안 됨'으로 남긴다.
+# 거절된 호출은 상태를 바꾸지 않는다.
 def test_too_few_calibration_images_need_an_explicit_flag(client):
     before = _state(client)
     refused = _calibrate(client, _bright(3))
@@ -395,6 +460,8 @@ def test_too_few_calibration_images_need_an_explicit_flag(client):
     assert _calibrate(client, _bright(9), alpha="0.1").json()["calibration"]["guaranteed"] is True
 
 
+# 보정 요청 검증: 모르는 범주 404, alpha가 (0, 0.5] 밖이거나 숫자가 아니면 422, 이미지 없음 422, 읽을 수 없는
+# 이미지 400, 파일 수 한도 초과 413. 거절된 호출 뒤 임계값은 그대로다.
 def test_calibrate_validation(client, monkeypatch):
     assert (
         client.post(
@@ -413,6 +480,9 @@ def test_calibrate_validation(client, monkeypatch):
     assert _state(client)["calibration"]["n"] == 24
 
 
+# 관리자 토큰: 토큰을 설정하지 않으면 /calibrate와 DELETE /calibrate가 아예 꺼져 있다(403 disabled). 토큰을
+# 설정하면 틀린 토큰·빈 값·다른 헤더는 403이고, 거절은 업로드 본문을 읽기 전에 일어난다(pulled가 비어 있음).
+# 토큰은 환경 변수(DEFECT_INSPECT_ADMIN_TOKEN, 컨테이너가 받는 방식)로도 줄 수 있다.
 def test_calibration_needs_the_admin_token(monkeypatch):
     monkeypatch.delenv("DEFECT_INSPECT_ADMIN_TOKEN", raising=False)
     white = [np.full((64, 64, 3), 255, np.uint8)] * 19
@@ -451,6 +521,10 @@ def test_calibration_needs_the_admin_token(monkeypatch):
     assert _calibrate(env, white, headers={"X-Admin-Token": "from-env"}).status_code == 200
 
 
+# 다른 출처의 페이지가 브라우저를 시켜 보낸 쓰기 요청(POST)을 거절하는지 확인한다. Sec-Fetch-Site가
+# cross-site·same-site이거나, fetch 메타데이터가 없을 때 Origin이 Host와 다르거나 null이면 403이다.
+# 읽기(GET)는 해가 없어 허용한다. 같은 출처, 직접 입력(none), Host를 바꾸는 프록시 뒤의 same-origin은
+# 통과한다. docs/security.md에서 데모 폼의 Anti-CSRF 지적을 오탐으로 본 근거 가운데 하나다.
 def test_requests_started_by_another_site_are_refused(client):
     before = _state(client)
     cross = [
@@ -476,6 +550,8 @@ def test_requests_started_by_another_site_are_refused(client):
         assert _inspect(client, _png(_normal()), headers=headers).status_code == 200
 
 
+# DELETE /calibrate는 토큰이 있어야 하고, 아티팩트를 읽었을 때의 임계값·alpha·보정 기록으로 정확히 되돌린다.
+# 보정 기록이 없던 아티팩트는 되돌린 뒤에도 그 키가 없어야 한다(재보정한 값이 남지 않게).
 def test_reset_restores_the_threshold_of_the_artifact(client):
     before = _state(client)
     changed = _calibrate(client, _bright(25), alpha="0.1").json()
@@ -503,6 +579,8 @@ def test_reset_restores_the_threshold_of_the_artifact(client):
     assert _state(bare)["alpha"] is None and _state(bare)["calibration"] is None
 
 
+# 검사기 meta 대신 끼우는 dict. alpha·calibration에 접근할 때마다 그 순간 범주 잠금이 잡혀 있었는지 기록해,
+# 임계값 상태를 잠금 밖에서 읽거나 쓰는 코드를 찾아낸다.
 class _WatchedMeta(dict):
     """Inspector meta that records whether the category lock was held at each threshold-state access."""
 
@@ -530,6 +608,8 @@ class _WatchedMeta(dict):
         super().__setitem__(key, value)
 
 
+# 보정·조회·되돌리기의 모든 임계값 상태 접근이 범주 잠금 안에서 일어나는지 확인한다. 예전 처리기가 잠금을 푼
+# 뒤 응답용으로 meta를 읽었던 문제(기존 주석)의 회귀를 막는다.
 def test_threshold_state_is_only_touched_under_the_category_lock(client):
     inspector = client.app.state.inspectors["demo"]
     meta = _WatchedMeta(inspector.meta, client.app.state.locks["demo"])
@@ -542,6 +622,8 @@ def test_threshold_state_is_only_touched_under_the_category_lock(client):
     assert not client.app.state.locks["demo"].locked()
 
 
+# 서로 다른 보정(25장 α 5%, 3장 α 10%)을 네 스레드에서 겹쳐 보내도, 각 응답과 그 직후 상태의 임계값·alpha·보정
+# 기록이 한 보정에서 온 짝으로 맞아야 한다. 보정 결과의 일부만 보이는 상태(반쯤 바뀐 상태)가 없는지 확인한다.
 def test_overlapping_calibrations_answer_with_their_own_record(client):
     sets = {25: ("0.05", _files(_bright(25))), 3: ("0.1", _files(_bright(3)))}
     expected = {}
@@ -577,6 +659,9 @@ def test_overlapping_calibrations_answer_with_their_own_record(client):
     assert mixed == []
 
 
+# 같은 범주의 검사 두 개가 모델 안에서 동시에 돌 수 있는지 확인한다. 모델 호출에 Barrier(2)를 걸어, 두 요청이
+# 같이 들어오지 않으면 막혀 깨진다. 점수 계산은 잠금 밖에서 하므로(잠금은 임계값 상태만 보호) 범주 하나의
+# 검사가 줄을 서지 않아야 한다.
 def test_inspections_of_one_category_run_side_by_side(client):
     inspector = client.app.state.inspectors["demo"]
     real, together = inspector.session, threading.Barrier(2, timeout=10)
@@ -599,6 +684,9 @@ def test_inspections_of_one_category_run_side_by_side(client):
     assert codes == [200, 200] and not together.broken
 
 
+# 작업자 1, 대기 0으로 띄우고 첫 검사를 모델 안에 붙잡아 두면, 다음 검사와 보정은 503(Retry-After: 1)이고
+# /healthz, /categories, 데모 페이지는 여전히 200이어야 한다. 이 처리기들은 async 함수라 작업자 스레드를
+# 기다리지 않는다는 것도 확인한다. 첫 검사가 끝나면 자리가 다시 난다.
 def test_a_full_queue_answers_503_and_the_health_check_stays_up():
     client = _client(workers=1, queue=0)
     inspector = client.app.state.inspectors["demo"]
@@ -633,6 +721,8 @@ def test_a_full_queue_answers_503_and_the_health_check_stays_up():
         assert pyinspect.iscoroutinefunction(endpoints[path])
 
 
+# _Gate 단위 테스트: 수용량(작업자 + 대기)을 넘으면 503 HTTPException이고, 블록을 빠져나오면(안에서 예외가
+# 나도) 자리가 돌아온다. run은 전용 스레드 풀에서 작업을 돌려 결과를 돌려준다. 작업자 0은 ValueError다.
 def test_gate_admission():
     gate = service._Gate(workers=1, queue=1)
     with gate.admitted(), gate.admitted():
@@ -650,6 +740,10 @@ def test_gate_admission():
         service._Gate(workers=0, queue=1)
 
 
+# 허용된 Host 이름에만 답하는지 확인한다. 기본 목록은 포트와 대소문자를 무시하고 받으며, 접미사
+# 위장(127.0.0.1.evil.example)이나 빈 Host는 400이다. 정적 파일 폴더의 리디렉션은 Location을 Host로 만들므로,
+# 거절된 Host로는 리디렉션 자체가 나가지 않아야 한다. 환경 변수로 이름과 '*.도메인' 와일드카드를 줄 수 있고,
+# '*'는 모두 허용한다.
 def test_only_allowed_hosts_are_answered(monkeypatch):
     monkeypatch.delenv("DEFECT_INSPECT_ALLOWED_HOSTS", raising=False)
     client = _client()
@@ -675,6 +769,9 @@ def test_only_allowed_hosts_are_answered(monkeypatch):
     assert anyone.get("/healthz").status_code == 200
 
 
+# 데모 페이지는 인라인 스크립트 없이 /static/demo.js를 읽는다(CSP의 script-src 'self'와 맞춤). 페이지, 상태
+# 점검, 404, 정적 파일 모두에 보안 헤더가 붙는다. CSP 아래에서 동작할 수 없는 대화형 문서(/docs, /redoc)는
+# 내지 않지만, DAST 도구가 경로를 가져가는 /openapi.json은 남아 있어야 한다.
 def test_demo_page_static_files_and_security_headers(client):
     page = client.get("/")
     assert page.status_code == 200 and "text/html" in page.headers["content-type"]
@@ -692,6 +789,9 @@ def test_demo_page_static_files_and_security_headers(client):
     assert {"/inspect", "/calibrate", "/categories", "/healthz"} <= set(paths)
 
 
+# 정적 파일 경로로 패키지 밖 파일(service.py, pyproject.toml)을 읽을 수 없는지 확인한다. '..', 백슬래시, URL
+# 인코딩된 점, 절대 경로 등 여러 탈출 시도를 _asgi로 정리 없이 보내 모두 404인지, 응답에 소스가 섞이지 않는지
+# 본다.
 def test_static_files_cannot_be_escaped(client):
     # Sent to the app as written: an HTTP client would collapse the dot segments before sending.
     status, headers, body, _ = _asgi(client.app, "GET", "/static/demo.js")
@@ -710,6 +810,8 @@ def test_static_files_cannot_be_escaped(client):
         assert headers["x-content-type-options"] == "nosniff"
 
 
+# 아티팩트 경로가 없으면 환경 변수 이름을 알려 주는 RuntimeError, 경로에 검사기 아티팩트가 없으면 ValueError로
+# 시작 단계에서 멈춘다.
 def test_create_app_needs_artifacts(tmp_path, monkeypatch):
     monkeypatch.delenv("DEFECT_INSPECT_ARTIFACTS", raising=False)
     with pytest.raises(RuntimeError, match="DEFECT_INSPECT_ARTIFACTS"):
@@ -718,6 +820,13 @@ def test_create_app_needs_artifacts(tmp_path, monkeypatch):
         service.create_app(tmp_path)
 
 
+# load_inspectors가 같은 모델 파일을 쓰는 범주끼리 ONNX Runtime 세션 하나를 나눠 쓰는지 확인한다(범주마다
+# 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘어난다는 소스 docstring의 이유). InferenceSession을 가짜로
+# 바꿔, 상위 폴더의 공용 모델은 한 번, 자기 모델을 가진 pcb2는 따로 한 번 만들어지는지와 스레드 수·CPU 공급자
+# 설정을 본다.
+# 이어서 각 검사기의 모든 속성이 Inspector.load가 만든 것과 같은지(로더가 바뀌어도 이쪽이 뒤처지지 않게),
+# 정밀도 검증, 그리고 아티팩트 문제(meta 불일치, 깨진 JSON, pickle이 든 뱅크, 모델 거부, 뱅크 없음)가 모두
+# 폴더 이름을 담은 ValueError가 되는지 확인한다.
 def test_load_inspectors_shares_one_session_per_model_file(tmp_path, monkeypatch):
     ort = pytest.importorskip("onnxruntime")
     from defect_inspect.inspector import Inspector
@@ -805,12 +914,17 @@ def test_load_inspectors_shares_one_session_per_model_file(tmp_path, monkeypatch
         service.load_inspectors(tmp_path)
 
 
+# 히트맵 PNG의 밝기 척도: 점수 0은 검정, 임계값의 1.5배 이상은 흰색(255), 그 사이는 선형(0.75 → 128).
 def test_heatmap_png_scale():
     heat = np.array([[0.0, 0.75], [1.5, 3.0]], dtype=np.float32)
     grey = np.asarray(Image.open(io.BytesIO(base64.b64decode(service.heatmap_png(heat, 1.0)))))
     assert grey.tolist() == [[0, 128], [255, 255]]
 
 
+# _DEMO_HARNESS: node에서 demo.js를 vm 샌드박스로 돌리는 JavaScript 하네스. 폼 제출에 필요한 만큼의 가짜
+# DOM·fetch·Image를 두고, 서버 응답 목록을 차례로 돌려주며 매 제출 뒤 화면 상태(결과 숨김, 판정, 점수, 임계값,
+# 상태 문구, 버튼, 캔버스에 그린 것)를 기록한다. URL.createObjectURL을 부르면 실패하게 해 페이지가 로컬 파일을
+# 직접 디코딩하지 않는지도 본다.
 # A browser stand-in for demo.js: just enough DOM to submit the form and look at what the page shows.
 _DEMO_HARNESS = r"""
 const fs = require("fs");
@@ -889,6 +1003,11 @@ vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), sandbox);
 """
 
 
+# 데모 페이지가 새 업로드 옆에 이전 판정을 남기지 않는지 확인한다(node가 없으면 건너뛴다). 성공, 400 거절,
+# 네트워크 오류, JSON이 아닌 502, 그릴 수 없는 미리보기, 422, Dinomaly 크기의 작은 점수 순서로 응답을 주고
+# 화면을 본다. 오류면 결과를 숨기고 상태 문구를 보여야 하며, 미리보기를 그릴 수 없어도 이번 판정은 보이되 이전
+# 그림은 지운다. 그림은 항상 서버의 preview(모델이 본 그림)에서 오고, 점수는 유효숫자 4자리로 보여 0.01 근처의
+# 점수와 임계값이 같은 숫자로 보이지 않게 한다.
 def test_demo_page_never_shows_the_previous_verdict_next_to_a_new_upload(tmp_path):
     node = shutil.which("node")
     if node is None:

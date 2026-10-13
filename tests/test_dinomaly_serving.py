@@ -1,8 +1,20 @@
+# [파일 역할] Dinomaly 모델의 CPU 서빙 파이프라인(`defect_inspect.dinomaly_serving`)의 세 명령 export(ONNX
+# 내보내기와 아티팩트 세트 쓰기), score(onnxruntime CPU 채점), calibrate(서비스용 홀드아웃 임계값)를 검증하는
+# 테스트 묶음이다.
+# [왜 필요한가] 6단계 서빙 모델(dms-280-car)은 torch에서 학습·평가하고 onnxruntime CPU로 서빙한다. (1) 내보낸
+# ONNX가 torch 그래프와 같은 점수·맵을 내는지, (2) score가 봉인 테스트를 --allow-test와 --stage가 있을 때만,
+# 장부(ledger)에 먼저 기록한 뒤 읽는지, (3) 합성 교란 조건이 평가 이미지에만 걸리고 임계값용 겹 0 정상에는
+# 걸리지 않는지, (4) calibrate가 '교란 없는 test 절차 채점'의 겹 0 점수로만 임계값을 정하는지를 확인한다.
+# [설계] 무작위 가중치 28px 모델을 한 번 내보내 모든 테스트가 같이 쓰고, 매니페스트·캐시·장부·출력 경로는
+# tmp_path와 monkeypatch로 가짜를 꽂아 실제 데이터와 reports/test_ledger.jsonl을 건드리지 않는다.
+
 import json
 
 import numpy as np
 import pytest
 
+# export에는 torch·anomalib·timm·onnx가, 채점에는 onnxruntime이 필요하다. 하나라도 없으면 파일 전체를
+# 건너뛴다.
 torch = pytest.importorskip("torch")
 pytest.importorskip("anomalib")
 pytest.importorskip("timm")
@@ -16,9 +28,17 @@ from defect_inspect.dinomaly_model import ServingGraph  # noqa: E402
 from defect_inspect.inspector import ReconstructionInspector, preprocess  # noqa: E402
 from defect_inspect.splits import SEALED_ROLES, ManifestRow, write_manifest  # noqa: E402
 
+# 28px = 14px 패치 2×2 격자. 내보내기와 채점을 CPU에서 빠르게 돌리려는 최소 크기다.
 SIZE = 28  # a 2x2 patch grid
 
 
+# 6단계 구성과 같은 옵션(입력 크기 고정, 인코더 10블록, scaled 어텐션)의 무작위 가중치 ViT-S Dinomaly를
+# 파일에서 한 번만 내보내는 fixture(내보내기와 INT8 양자화가 느려서 module 범위).
+# - timm.create_model을 pretrained=False로 바꿔 내려받기를 막고, anomalib가 바꿔 두는 resample_abs_pos_embed를
+#   context가 끝날 때 원래대로 되돌린다.
+# - git_commit을 고정값으로 바꿔 기록되는 commit을 확인할 수 있게 한다.
+# - 디코더 가중치를 흔들어 초기값(출력이 거의 0)에서만 맞는 우연을 피한다.
+# - 범주 두 개(toy, other)와 동적 INT8 모델까지 쓴다.
 @pytest.fixture(scope="module")
 def exported(tmp_path_factory):
     """A random-weight ViT-S Dinomaly with a disturbed decoder, exported once for the module."""
@@ -54,10 +74,17 @@ def exported(tmp_path_factory):
         yield {"model": model, "out": out, "info": info}
 
 
+# seed로 고정한 무작위 uint8 이미지 [n, 28, 28, 3].
 def _images(n, seed=0):
     return np.random.default_rng(seed).integers(0, 256, (n, SIZE, SIZE, 3), dtype=np.uint8)
 
 
+# 확인: export가 FP32·동적 INT8 ONNX, artifacts.json, 범주별 meta.json(kind=reconstruction, 256 맵, 아직 보정
+# 안 된 임계값 0과 strategy none, ONNX sha256)을 쓰고, 내보낼 때 잰 torch-onnxruntime 차이가 허용치(1e-3)
+# 안이다. 이어서 서비스가 쓰는 ReconstructionInspector로 읽은 점수·맵이 torch ServingGraph와 같고, INT8 모델도
+# 유한한 점수를 낸다.
+# 왜: 6단계 관문 1 규칙이 내보낼 때 점수 상대 1e-3, 맵 절대 1e-3 이하를 요구한다. meta의 ONNX sha256은 나중에
+# calibrate가 '같은 모델로 채점한 점수인지' 확인할 때 쓴다.
 def test_export_writes_an_artifact_set_that_matches_torch(exported):
     out, info = exported["out"], exported["info"]
     assert (out / "model_fp32.onnx").exists() and (out / "model_int8_dynamic.onnx").exists()
@@ -83,6 +110,12 @@ def test_export_writes_an_artifact_set_that_matches_torch(exported):
     assert quantized.precision == "int8-dynamic" and np.isfinite(scores).all()
 
 
+# 리사이즈 캐시(ImageCache) 대신 쓰는 가짜. 매니페스트 행마다 무작위 이미지를 만들고(결함 행에는 흰 사각형을
+# 넣어 점수가 달라지게 함), 봉인 테스트 역할(SEALED_ROLES)의 이미지를 요청받으면 장부 파일에 이미 줄이 있는지
+# 단언한다.
+# 왜: '봉인 테스트 이미지는 장부에 기록한 뒤에만 읽는다'는 규칙(docs/experiments.md 봉인 테스트)을 실제 순서로
+# 검사하려는 것이다. requested에는 요청된 이미지 경로가 쌓여 dev 실행이 테스트 이미지를 건드리지 않았는지 볼
+# 수 있다.
 class FakeCache:
     """Images by manifest row; asserts that a sealed image is only handed out after the ledger line."""
 
@@ -106,6 +139,8 @@ class FakeCache:
         return np.stack([self._images[r.image] for r in rows])
 
 
+# 범주 두 개의 작은 매니페스트. 범주마다 학습 풀 정상 20장(겹 = i % 5이므로 겹 0은 n0·n5·n10·n15), dev 결함
+# 3장, 봉인 테스트 정상 5장·결함 2장이다.
 def _manifest():
     rows = []
     for category in ("toy", "other"):
@@ -124,6 +159,8 @@ def _manifest():
     return rows
 
 
+# 프로젝트 경로를 tmp_path로 돌리는 fixture. 매니페스트 CSV, 장부, outputs 경로, ImageCache, git_commit을
+# monkeypatch로 바꿔 실제 저장소 파일을 건드리지 않는다. sizes에는 캐시를 연 입력 크기가 기록된다.
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     manifest = _manifest()
@@ -144,7 +181,20 @@ def project(tmp_path, monkeypatch):
     return {"cache": cache, "ledger": ledger, "outputs": tmp_path / "outputs", "sizes": sizes}
 
 
+# 확인(흐름 전체): dev 채점 → test 채점의 플래그 검사와 장부 → 교란 조건 → 임계값 보정을 한 번에 따라간다.
+# - dev: 장부를 쓰지 않고, 평가 세트가 겹 0 정상 + dev 결함이며, 보정 점수는 비어 있고(dev에서는 겹 0 정상이
+#   곧 평가 정상이라 따로 모으지 않는다), 점수가 서비스 inspector 점수와 같고, 테스트 이미지(파일 이름이 t로
+#   시작)를 한 장도 요청하지 않는다.
+# - test: --stage 없이 --allow-test만 주면 멈추고 장부도 생기지 않는다. 둘 다 주면 장부에 stage·config 한 줄을
+#   남기고, 보정 점수(cal)는 겹 0 정상, 평가는 봉인 테스트다.
+# - 교란: brightness-3을 주면 평가 점수만 바뀌고 보정 점수는 교란 없는 실행과 같다. 모르는 조건은 거부한다.
+# - calibrate: dev 실행과 교란 실행으로는 임계값을 만들 수 없고, 교란 없는 test 실행에서만 겹 0 점수로
+#   conformal 임계값(목표 5%)을 meta에 쓴다. 겹 0이 4장뿐이라 (n+1)(1−α) 순위가 n을 넘어 최댓값을 쓰고
+#   guaranteed가 False다.
+# 왜: 서비스 임계값은 학습에 쓰지 않은 정상(겹 0)으로 정한다는 6단계 규칙(README 검사 서비스 절)이 코드로
+# 강제되는지 본다.
 def test_score_cli_dev_test_conditions_and_calibrate(exported, project, tmp_path):
+    # module fixture의 아티팩트를 복사해 쓰므로 calibrate가 meta.json을 고쳐도 다른 테스트에 영향이 없다.
     import shutil
 
     art = tmp_path / "dms-toy"
@@ -204,6 +254,8 @@ def test_score_cli_dev_test_conditions_and_calibrate(exported, project, tmp_path
     assert ReconstructionInspector.load(art / "toy").threshold == meta["threshold"]
 
 
+# 확인: export는 --model(학습한 모델)과 --untrained(지연 관문용 초기값 모델) 가운데 정확히 하나만 받는다. 둘
+# 다 없거나 둘 다 주면 출력 폴더를 만들기 전에 멈춘다.
 def test_export_cli_needs_exactly_one_model_source(tmp_path):
     with pytest.raises(SystemExit):
         dinomaly_serving.main(["export", "--config", "dms-280", "--out", str(tmp_path / "a")])

@@ -1,3 +1,14 @@
+# [파일 역할] 3-A 분석 모듈(`defect_inspect.analyze_perturb`)을 검증하는 테스트 묶음이다. run_perturb가 저장한
+# '조건 × 이미지' 점수에서 조건마다 평균 이미지 AUROC와, 원본 실행의 보정 점수로 한 번 정한 임계값의 합산
+# 오검출률·검출률, 교란 없는 조건과의 짝지은 차이를 표로 만들고 H9를 판정하는 코드다.
+# [왜 필요한가] H9는 'P0에서 평균 이미지 AUROC가 1.0%p 미만으로 떨어지는데 합산 오검출률이 10%(목표의 두 배)
+# 이상인 조건이 하나라도 있다'를 점 추정값으로 판정한다(docs/experiments.md 3-A). README의 '어둡게 하면
+# AUROC는 그대로인데 오검출률이 15%, 41%로 뛴다'는 결론이 이 판정에서 나온다. 그래서 경계(정확히 1.0%p, 정확히
+# 10%), '증가분이 아니라 비율 자체', '점수 > 임계값', 범주 합산(비율의 평균이 아님), 조건 사이의 짝지은
+# 부트스트랩, 12개 범주 전부일 때만 판정한다는 규칙을 하나씩 고정한다.
+# [흐름] 합성 실행 만들기 → 표 모양과 점 추정 → 경계 규칙 → H9 판정 → 부트스트랩 대조 → 보정 점수 없는
+# 실행·잘못된 실행 → 파일 읽기와 출력 형식 → CLI(방법 순서, 일부 범주 실행, 프로토콜 확인).
+
 import json
 
 import numpy as np
@@ -9,12 +20,17 @@ from defect_inspect.conditions import condition_names
 from defect_inspect.metrics import auroc
 from defect_inspect.stats import percentile_ci, stratified_indices
 
+# 범주별 (정상 수, 결함 수). 합계 정상 250장, 결함 64장이다. NAMES는 등록한 조건 16개(clean + 15)이고, 그
+# 가운데 세 조건만 점수를 바꿔 효과를 미리 안다.
 # Categories of different sizes, so that a pooled rate differs from a mean of per-category rates.
 SIZES = {"alpha": (80, 24), "beta": (50, 10), "gamma": (120, 30)}
 NAMES = condition_names()
 SHIFTED, BLURRED, BROKEN = "brightness-2", "blur-3", "jpeg-3"
 
 
+# 점수를 1/1024 단위로 반올림해 두면 +2.0, −2.5를 더해도 float32에서 정확해져 'AUROC 차이가 정확히 0' 같은
+# 단언이 가능하다. meta에는 run_perturb의 run.json처럼 방법, 프로토콜, 원본 실행, 범주별
+# clean_max_rel_diff(교란 없는 재채점이 원본 점수와 얼마나 같은지)를 넣는다.
 def _run(seed=0, cal=100, method="p0", protocol="dev"):
     """A synthetic perturbation run.
 
@@ -53,6 +69,8 @@ def _run(seed=0, cal=100, method="p0", protocol="dev"):
     return {"meta": meta, "cats": cats}
 
 
+# 합성 실행을 run_perturb 출력과 같은 폴더 구조(run.json + 범주별 npz)로 쓴다. load와 CLI를 실제 파일로 검사할
+# 때 쓴다.
 def _write(run, run_dir):
     run_dir.mkdir(parents=True)
     (run_dir / "run.json").write_text(json.dumps(run["meta"]), encoding="utf-8")
@@ -60,10 +78,13 @@ def _write(run, run_dir):
         np.savez(run_dir / f"{name}.npz", **cat)
 
 
+# 표에서 조건 이름으로 행 하나를 찾는다.
 def _row(table, name):
     return next(row for row in table if row["condition"] == name)
 
 
+# 범주 하나짜리 실행을 손으로 만든다. 조건마다 정상 점수만 바꾸고 결함 점수는 같게 두어, 경계 규칙을 정확한
+# 숫자로 시험한다.
 def _tiny(normals, defects, cal):
     """A one-category run written out by hand: `normals` maps each condition to its normal scores.
 
@@ -82,11 +103,16 @@ def _tiny(normals, defects, cal):
     return {"meta": {"method": "p0", "categories": [{"category": "only"}]}, "cats": {"only": cat}}
 
 
+# 보정 점수 0..99(목표 5%)의 임계값은 95다. 정상 100장 가운데 정확히 count장만 그 위에 오도록 점수를 만들어
+# 오검출률을 count%로 맞춘다.
 def _above(count, of=100):
     """Normal scores of which exactly `count` lie above the threshold 95 of `np.arange(100)`."""
     return [100.0] * count + [0.0] * (of - count)
 
 
+# 확인: 조건마다 한 행이 등록 순서로 나오고(clean이 먼저), clean 행에는 차이 키가 없으며 나머지 행에는
+# AUROC·오검출률·검출률의 차이와 구간이 있다. 모든 점 추정값이 자기 구간 안에 있고, 보정 점수와 정상이 같은
+# 분포라 clean 오검출률이 목표 5% 근처다.
 def test_table_has_one_row_per_condition_with_clean_first():
     table = analyze_perturb.condition_table(_run(), n_boot=100)
     assert [row["condition"] for row in table] == NAMES
@@ -110,6 +136,10 @@ def test_table_has_one_row_per_condition_with_clean_first():
     assert 0.0 < clean["fpr"] < 0.12 and clean["macro_image_auroc"] > 0.95
 
 
+# 확인: 점 추정값을 직접 계산한 값과 맞춘다. 평균 AUROC는 범주별 AUROC의 평균이고, 오검출률·검출률은 범주별
+# 비율의 평균이 아니라 개수를 합쳐 전체 정상 250장·결함 64장으로 나눈 합산 비율이다(공통 규칙의 '합산').
+# 목표를 1%로 엄격하게 하면 오검출률이 줄어 α가 실제로 임계값을 정하는지도 본다.
+# 왜: 범주 크기가 다르므로(SIZES) 합산과 평균이 다른 값이 된다. 이 차이를 잡으려고 크기를 일부러 다르게 했다.
 def test_point_estimates_match_a_direct_computation():
     run = _run()
     table = analyze_perturb.condition_table(run, n_boot=20)
@@ -130,6 +160,10 @@ def test_point_estimates_match_a_direct_computation():
     assert strict[0]["fpr"] < table[0]["fpr"]
 
 
+# 확인: 판정 규칙은 '점수 > 임계값'이라 임계값(95)과 정확히 같은 점수는 불량이 아니다. 점 추정과 부트스트랩
+# 표본 모두 같은 규칙을 쓰는지, 같은 추출을 직접 만들어 구간까지 맞춘다.
+# 왜: conformal 임계값은 보정 점수 가운데 하나이므로 같은 값이 실제로 나온다. ≥로 바꾸면 오검출률이 이론값보다
+# 커진다.
 def test_a_score_equal_to_its_threshold_is_not_flagged():
     # 100 calibration scores 0..99 at a 5% target: the 96th smallest, 95, is the threshold.
     cal = np.arange(100)
@@ -148,6 +182,13 @@ def test_a_score_equal_to_its_threshold_is_not_flagged():
     assert table[0]["tpr_ci"] == pytest.approx(percentile_ci(tpr), abs=1e-12)
 
 
+# 확인: 세 가지 전형적인 교란 효과가 표에 그대로 나타난다.
+# - 모든 점수를 같이 올림(SHIFTED): 순위가 그대로라 AUROC 차이와 구간이 정확히 0인데 오검출률은 50%를 넘는다.
+#   H9가 겨냥한 '정확도로는 보이지 않는 고장'이다.
+# - 결함 점수만 내림(BLURRED): AUROC와 검출률이 떨어지고 정상은 그대로라 오검출률 차이가 정확히 0이다.
+# - 둘 다(BROKEN): 오검출률은 SHIFTED와 같지만 AUROC 하락이 보이므로 H9 조건이 아니다.
+# 바뀌지 않은 조건은 차이와 구간이 모두 정확히 0이다(조건 사이에 같은 추출을 쓰기 때문). 결국 H9는 SHIFTED
+# 하나로 '지지'다.
 def test_upward_shift_keeps_accuracy_and_breaks_the_threshold_h9_supported():
     table = analyze_perturb.condition_table(_run(), n_boot=200)
     clean, shifted = table[0], _row(table, SHIFTED)
@@ -171,6 +212,10 @@ def test_upward_shift_keeps_accuracy_and_breaks_the_threshold_h9_supported():
     assert analyze_perturb.h9(table) == {"verdict": "지지", "conditions": [SHIFTED]}
 
 
+# 확인: H9의 경계를 손으로 만든 행으로 짚는다. AUROC 하락이 1.0%p '미만'(정확히 −1.0%p는 해당 안 됨)이고
+# 오검출률이 목표의 두 배 '이상'(정확히 10%는 해당)인 조건만 센다. clean 행은 비율이 커도 후보가 아니다. 두 배
+# 기준은 α를 따라 바뀌고(α 10%면 20%, 1%면 2%), 보정 점수가 없는 행이 있으면 ValueError다. 또 기준은 clean
+# 대비 증가분이 아니라 오검출률 자체다(clean 7%에서 12%면 해당, 9%면 해당 안 됨).
 def test_h9_rule_on_hand_made_tables():
     def row(name, d_auroc, fpr):
         return {"condition": name, "d_auroc": d_auroc, "fpr": fpr}
@@ -205,6 +250,9 @@ def test_h9_rule_on_hand_made_tables():
     assert analyze_perturb.h9(full) == {"verdict": "지지", "conditions": ["g"]}
 
 
+# 확인: 결함이 모든 정상보다 높아 AUROC가 늘 1.0인 실행에서, clean 오검출률 7%에 대해 12%와 정확히 10%인
+# 조건은 증가분이 10%p가 안 돼도 H9 조건이고 9%는 아니다. 그런 조건이 없으면 clean 비율이 커도 '기각'이다.
+# condition_table이 만든 실제 표에서 등록 문구('합산 오검출률은 10% 이상')를 그대로 따르는지 본다.
 def test_h9_is_judged_on_the_rate_not_on_its_increase():
     # A clean rate of 7%. Every defect scores above every normal under every condition, so the AUROC
     # never moves and only the pooled false positive rate decides.
@@ -229,6 +277,8 @@ def test_h9_is_judged_on_the_rate_not_on_its_increase():
     }
 
 
+# 확인: 기본값이 등록값(부트스트랩 2,000번, seed 0, 목표 5%, AUROC 하락 기준 1.0%p, H9는 P0)이고, 인자를
+# 생략한 결과가 등록값을 명시한 결과와 같으며 횟수나 seed를 바꾸면 달라진다.
 def test_defaults_are_the_registered_ones():
     assert (analyze_perturb.N_BOOT, analyze_perturb.SEED, analyze_perturb.ALPHA) == (2000, 0, 0.05)
     assert analyze_perturb.MAX_AUROC_DROP == 0.01 and analyze_perturb.H9_METHOD == "p0"
@@ -239,6 +289,11 @@ def test_defaults_are_the_registered_ones():
     assert table != analyze_perturb.condition_table(run, 0.05, 2000, 1)
 
 
+# 확인: 구간을 반복문으로 직접 계산한 부트스트랩과 맞춘다. 추출은 생성기 하나로 '범주마다 정상, 그다음 결함'
+# 순서의 묶음을 뽑고, 모든 조건에 같은 추출을 쓴다. 차이의 구간은 '두 구간의 차'가 아니라 '표본마다 차이를 낸
+# 뒤의 구간'(짝지은 차이)이다. 같은 seed면 결과가 같고 다른 seed면 다르다.
+# 왜: 공통 규칙은 범주 안 정상·이상을 따로 복원 추출하고, 두 조건을 비교할 때 같은 추출로 차이의 구간을 내도록
+# 정했다. 짝짓지 않으면 같은 이미지의 흔들림이 차이 구간을 불필요하게 넓힌다.
 def test_intervals_and_paired_differences_match_a_direct_bootstrap():
     run = _run(seed=3)
     n_boot, seed = 60, 5
@@ -283,6 +338,9 @@ def test_intervals_and_paired_differences_match_a_direct_bootstrap():
     assert analyze_perturb.condition_table(run, n_boot=n_boot, seed=6) != table
 
 
+# 확인: 보정 점수를 10만큼 올리면 모든 조건의 오검출률이 0이 되고 AUROC는 그대로다. 임계값은 원본 실행의 보정
+# 점수로만 정하고 평가 점수나 교란 점수로 다시 잡지 않는다(3-A 규칙: 임계값을 그대로 쓰고 다시 보정하지
+# 않는다).
 def test_thresholds_are_fixed_from_the_calibration_scores_only():
     run = _run()
     table = analyze_perturb.condition_table(run, n_boot=20)
@@ -294,6 +352,9 @@ def test_thresholds_are_fixed_from_the_calibration_scores_only():
     assert [row["macro_image_auroc"] for row in moved] == [row["macro_image_auroc"] for row in table]
 
 
+# 확인: 보정 점수가 없는 실행은 AUROC만 표에 싣고 오검출률·검출률과 그 차이를 None으로, 출력 표에서는 '-'로
+# 둔다. H9는 고정 임계값이 필요하므로 ValueError이고, 보장된 범주 수도 None이다. 일부 범주에만 보정 점수가
+# 없으면 '임계값 없는 실행'이 아니라 잘못된 실행으로 보고 그 범주 이름을 담은 ValueError를 낸다.
 def test_run_without_calibration_scores_has_accuracy_only():
     run = _run(cal=0)
     table = analyze_perturb.condition_table(run, n_boot=50)
@@ -318,6 +379,9 @@ def test_run_without_calibration_scores_has_accuracy_only():
         analyze_perturb.condition_table(partly, n_boot=20)
 
 
+# 확인: 범주마다 조건 목록이 다르거나, clean 조건이 없거나, 점수 배열 모양이 '조건 × 이미지'와 맞지 않거나,
+# 점수에 NaN이 있거나, 범주가 하나도 없으면 각각 알맞은 ValueError다. 잘못 만든 실행으로 표를 조용히 만들지
+# 않는다.
 def test_inconsistent_runs_are_rejected():
     run = _run()
     run["cats"]["beta"]["conditions"] = run["cats"]["beta"]["conditions"][::-1].copy()
@@ -345,6 +409,9 @@ def test_inconsistent_runs_are_rejected():
         analyze_perturb.condition_table({"meta": {}, "cats": {}}, n_boot=20)
 
 
+# 확인: load가 run.json의 범주 순서대로 npz를 읽어 메모리의 실행과 같은 배열·같은 표를 만든다. describe는
+# 이미지·보정 점수 수, 보장된 범주 수, clean_max_rel_diff의 최댓값, 원본 실행의 commit을 요약한다(리포트에
+# '표가 무엇을 바탕으로 했는지'를 남긴다).
 def test_load_reads_a_run_directory_in_run_order(tmp_path):
     run = _run()
     _write(run, tmp_path / "run")
@@ -363,6 +430,8 @@ def test_load_reads_a_run_directory_in_run_order(tmp_path):
     assert info["clean_max_rel_diff"] == pytest.approx(3e-5) and info["source_commit"] == "src1234"
 
 
+# 확인: 출력 표가 방법마다 하나씩 나오고, clean 행의 변화 칸 세 개는 '-'이며, 변화는 부호가 붙은 %p로 적히고,
+# 마지막 줄이 H9 판정(조건 이름 또는 none)이다.
 def test_format_tables():
     tables = {m: analyze_perturb.condition_table(_run(method=m), n_boot=50) for m in ("p0", "d-s")}
     verdict = {"method": "p0", **analyze_perturb.h9(tables["p0"])}
@@ -380,6 +449,8 @@ def test_format_tables():
     assert rejected.splitlines()[-1] == "H9: 기각 (conditions: none)"
 
 
+# CLI 테스트용 fixture. outputs·reports 경로를 tmp_path로 돌리고 부트스트랩을 100번으로 줄이며, 합성 범주 세
+# 개를 '전체 범주'(원래는 VisA 12개)로 바꿔 H9 판정 경로를 탈 수 있게 한다.
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     monkeypatch.setattr(analyze_perturb.paths, "OUTPUTS", tmp_path / "outputs")
@@ -390,6 +461,8 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
+# 일부 범주만 다시 돌린 실행 흉내: run.json에는 그 범주만 남고, 다른 범주의 npz 파일은 디스크에 그대로 남아
+# 있는 상황이다.
 def _only(run, categories):
     """The run as `run_perturb --categories ... --overwrite` leaves it: run.json lists only these."""
     meta = dict(run["meta"])
@@ -397,6 +470,9 @@ def _only(run, categories):
     return {"meta": meta, "cats": run["cats"]}
 
 
+# 확인: CLI가 세 방법(P0, D-S, DM)의 표를 모두 출력·저장하고 H9는 P0로만 판정한다. 리포트는 줄바꿈이 LF이고,
+# 프로토콜·α·부트스트랩 횟수·방법별 이미지 수·commit을 담으며, 보정 점수가 없는 DM은 오검출률이 None이다.
+# 저장된 P0 표는 파일을 읽어 직접 만든 표와 같고, 표가 어떤 범주와 이미지 수를 바탕으로 했는지 함께 출력한다.
 def test_cli_writes_every_table_and_judges_h9_on_p0(project, capsys):
     outputs = project / "outputs"
     _write(_run(method="p0"), outputs / "perturb-p0-dev")
@@ -426,6 +502,8 @@ def test_cli_writes_every_table_and_judges_h9_on_p0(project, capsys):
     assert "p0: 250 normal and 64 defect images, 300 calibration scores" in text
 
 
+# 확인: --methods 순서가 D-S, P0여도 H9는 P0 표로만 판정한다. D-S 표만 보면 지지인데 P0(임계값이 모든 점수
+# 위)는 기각이므로, 첫 번째 방법을 쓰는 실수를 잡는다(H9의 판정 대상은 P0로 등록됐다).
 def test_cli_judges_h9_on_p0_whatever_the_order_of_the_methods(project, capsys):
     outputs = project / "outputs"
     # p0 with thresholds far above every score: no false positive under any condition, so H9 is
@@ -444,6 +522,10 @@ def test_cli_judges_h9_on_p0_whatever_the_order_of_the_methods(project, capsys):
     assert text.splitlines()[-1] == "H9 (p0): 기각 (conditions: none)"
 
 
+# 확인: test 절차에서는 run.json이 일부 범주만 담은 실행(다른 범주 npz가 디스크에 남아 있어도)이나 범주 순서가
+# 등록 순서와 다른 실행을 거부하고 리포트를 쓰지 않는다.
+# 왜: 봉인 테스트 결과는 12개 범주 전체에 대해 말하고, 부트스트랩은 등록한 범주 순서로 묶음을 뽑으므로 순서가
+# 바뀌면 같은 추출이 아니게 된다(analyze_perturb의 CATEGORIES 주석).
 def test_cli_refuses_a_test_run_that_covers_part_of_the_categories(project, capsys):
     outputs = project / "outputs"
     # A finished three-category run redone for one category: the other npz files are still on disk,
@@ -465,6 +547,8 @@ def test_cli_refuses_a_test_run_that_covers_part_of_the_categories(project, caps
     assert "gamma" in capsys.readouterr().err and not (project / "reports").exists()
 
 
+# 확인: dev 절차에서는 일부 범주만 돈 실행(코드 점검)도 표를 만들되, 'partial run'이라고 적고 H9를 판정하지
+# 않으며 지지·기각 문구를 출력하지 않는다. 표는 그 두 범주만으로 직접 만든 표와 같다.
 def test_cli_dev_run_on_part_of_the_categories_is_marked_and_not_judged(project, capsys):
     outputs = project / "outputs"
     _write(_only(_run(method="p0"), ["alpha", "beta"]), outputs / "perturb-p0-dev")
@@ -485,6 +569,9 @@ def test_cli_dev_run_on_part_of_the_categories_is_marked_and_not_judged(project,
     assert report["tables"]["p0"] == json.loads(json.dumps(analyze_perturb.condition_table(direct)))
 
 
+# 확인: 방법마다 범주 목록이 다르면 표를 나란히 둘 수 없으므로 build_report와 CLI가 'different categories'
+# ValueError를 내고 아무것도 출력·저장하지 않는다. 각 방법을 따로 넣으면 그 범주만큼의 표가 나오고, 범주가
+# 모자란 쪽은 complete False·판정 없음이다.
 def test_methods_must_cover_the_same_categories(project, capsys):
     outputs = project / "outputs"
     _write(_only(_run(method="p0"), ["alpha"]), outputs / "perturb-p0-dev")
@@ -501,6 +588,8 @@ def test_methods_must_cover_the_same_categories(project, capsys):
     assert alone["complete"] is False and alone["h9"] is None and len(alone["tables"]["p0"]) == 16
 
 
+# 확인: '전체 범주'는 VisA의 12개 범주(visa.CATEGORIES)다. 합성 범주 세 개로는 판정하지 않고, 같은 데이터를
+# 12개 실제 이름으로 붙이면 complete True가 돼 H9가 판정된다.
 def test_the_full_set_is_the_twelve_visa_categories(tmp_path):
     from defect_inspect.visa import CATEGORIES
 
@@ -522,6 +611,7 @@ def test_the_full_set_is_the_twelve_visa_categories(tmp_path):
     assert report["h9"] == {"method": "p0", "verdict": "지지", "conditions": [SHIFTED]}
 
 
+# 확인: P0 없이 D-S만 넣으면 H9를 판정하지 않고, --no-write면 출력만 하고 리포트 파일을 만들지 않는다.
 def test_cli_without_p0_gives_no_verdict_and_no_write_prints_only(project, capsys):
     outputs = project / "outputs"
     _write(_run(method="d-s", protocol="test"), outputs / "perturb-d-s-test")
@@ -531,6 +621,10 @@ def test_cli_without_p0_gives_no_verdict_and_no_write_prints_only(project, capsy
     assert not (project / "reports").exists()
 
 
+# 확인: 아직 돌리지 않은 방법의 실행 폴더가 없으면 그 경로를 알려 주며 멈추고, --methods가 비었거나 모르는
+# 방법이거나 --protocol이 없으면 거부한다. 폴더 이름과 run.json의 방법·프로토콜이 다르면(perturb-p0-test 안에
+# D-S 실행, test 폴더 안에 dev 실행) 거부하고 리포트를 쓰지 않는다. 다른 실행의 점수를 엉뚱한 이름으로
+# 보고하는 실수를 막는다.
 def test_cli_rejects_missing_and_mismatched_runs(project, capsys):
     outputs = project / "outputs"
     _write(_run(method="p0"), outputs / "perturb-p0-dev")

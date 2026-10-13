@@ -1,13 +1,27 @@
+# [파일 역할] 2단계 지도 학습 헤드 모듈 `defect_inspect.supervised`를 검증하는 테스트 묶음이다. 헤드
+# 구조(SegHead), 패치 정답(patch_targets), 양성 가중치, 배치 나누기와 뒤집기 증강, 학습 루프(train_head: 시드,
+# 최적화기, 손실, 에폭 선택), 예측(predict: 이미지 점수와 맵), 특징 추출(extract)을 확인한다.
+# [왜 필요한가] 지도 학습의 규칙(헤드, 손실, 일정, 증강, 모델 선택)은 측정 전에 docs/experiments.md '2단계 /
+# 지도 학습'과 규칙 변경 4에 고정했다. 이 파일은 그 규칙을 한 줄씩 코드로 확인해, 결과(결함 몇 장부터 지도
+# 학습이 이기는가)가 적어 둔 절차로 나왔음을 보장한다.
+# [설계 메모] DINOv2 특징 대신 작은 합성 특징(8x8 격자, 6차원 잡음에 결함 칸만 채널 0을 키움)과 손으로
+# 가중치를 정한 헤드를 써서 CPU에서 빠르게, 기대값을 손으로 계산할 수 있게 한다.
+
 import math
 
 import numpy as np
 import pytest
 
+# supervised는 torch를, 그 import 경로의 backbones는 torchvision을 모듈 수준에서 쓰므로 둘 중 하나라도 없으면
+# 파일 전체를 건너뛴다(CI 기본 환경).
 torch = pytest.importorskip("torch")
 pytest.importorskip("torchvision")
 
 import torch.nn.functional as F  # noqa: E402
 
+# backbones의 ImageNet 평균·표준편차는 특징 추출 기대값을 손으로 계산하는 데, metrics.auroc는 검증 AUROC를
+# 다시 계산하는 데, patchcore의 ScoreResult·collect_features는 예측 결과 형식과 특징 추출 경로를 대조하는 데
+# 쓴다.
 from defect_inspect import supervised  # noqa: E402
 from defect_inspect.backbones import IMAGENET_MEAN, IMAGENET_STD  # noqa: E402
 from defect_inspect.metrics import auroc  # noqa: E402
@@ -24,9 +38,13 @@ from defect_inspect.supervised import (  # noqa: E402
     train_head,
 )
 
+# 합성 데이터의 패치 격자(8x8)와 특징 차원(6).
 G, DIM = 8, 6  # patch grid and feature dimension of the synthetic data
 
 
+# 결함을 '심은' 합성 특징을 만든다. 정상은 순수 잡음이고, 결함 이미지는 무작위 위치의 2x2 칸에서 채널 0만
+# strength만큼 커진다. 정답 위치를 알고 있으므로 학습이 결함을 찾는지, 맵이 그 자리에서 가장 높은지를 확인할
+# 수 있다.
 def planted(n_normal: int, n_defect: int, seed: int, strength: float = 6.0):
     """Gaussian noise features; defect images get `strength` added to channel 0 in one 2x2 block.
 
@@ -44,9 +62,12 @@ def planted(n_normal: int, n_defect: int, seed: int, strength: float = 6.0):
     return feats.to(torch.float16), targets, labels
 
 
+# 테스트용 짧은 학습 구성(10에폭, 배치 16, 5에폭마다 검증). 규칙의 기본값은 60에폭·배치 32다.
 FAST = TrainConfig(epochs=10, batch_size=16, eval_every=5, seed=0)
 
 
+# 합성 학습 세트(시드 1)와 검증 세트(시드 2, 정상 12 + 결함 6)로 CPU에서 헤드를 학습해 결과와 검증 데이터를
+# 돌려준다.
 def fit(cfg: TrainConfig = FAST, n_normal: int = 24, n_defect: int = 8):
     train_feats, train_targets, _ = planted(n_normal, n_defect, seed=1)
     val_feats, _, val_labels = planted(12, 6, seed=2)
@@ -54,6 +75,8 @@ def fit(cfg: TrainConfig = FAST, n_normal: int = 24, n_defect: int = 8):
     return result, val_feats, val_labels
 
 
+# 가중치를 손으로 정한 헤드: 채널 0을 ReLU 두 번 거쳐 그대로 내보내고 bias를 더한다. 학습 없이 로짓을 정확히
+# 알 수 있어 predict의 점수·맵 정의를 숫자로 확인하는 데 쓴다.
 def pass_through_head(dim: int, bias: float = -1.0) -> SegHead:
     """Eval-mode head with hand-set weights: logit = relu(channel 0) / (1 + eps) + bias."""
     head = SegHead(dim=dim, hidden=4)
@@ -69,6 +92,7 @@ def pass_through_head(dim: int, bias: float = -1.0) -> SegHead:
     return head.eval()
 
 
+# pass_through_head가 내야 하는 로짓의 기대값(numpy로 직접 계산).
 def pass_through_logits(feats: torch.Tensor, bias: float = -1.0) -> np.ndarray:
     # Two eval-mode BatchNorm layers with fresh statistics each divide by sqrt(1 + 1e-5).
     return np.maximum(feats[..., 0].double().numpy(), 0.0) / (1.0 + 1e-5) + bias
@@ -77,6 +101,8 @@ def pass_through_logits(feats: torch.Tensor, bias: float = -1.0) -> np.ndarray:
 # --- head ---------------------------------------------------------------------------------------
 
 
+# 헤드 구조가 등록 규칙과 같은지: Conv3x3(384→256)-BN-ReLU-Conv3x3(256→256)-BN-ReLU-Conv1x1(256→1), 패딩
+# 1(격자 크기 유지). 정답 격자는 32x32(GRID)다.
 def test_seg_head_layers():
     assert GRID == 32
     head = SegHead()
@@ -99,6 +125,9 @@ def test_seg_head_layers():
     assert head.net[1].num_features == head.net[4].num_features == 256
 
 
+# 헤드가 채널이 마지막인 특징 [B, H, W, D]를 받아 격자 모양 그대로 로짓 [B, H, W]를 내는지 본다. H와 W를
+# 다르게 해 축이 바뀌면 드러나게 하고, 3x3 합성곱 두 번이라 한 패치의 변화가 두 칸 밖까지만 퍼지며 다른
+# 이미지에는 영향이 없는지도 확인한다. 4차원이 아닌 입력은 ValueError다.
 def test_seg_head_takes_channels_last_and_keeps_the_grid():
     torch.manual_seed(0)
     head = SegHead(dim=5, hidden=7).eval()
@@ -118,6 +147,7 @@ def test_seg_head_takes_channels_last_and_keeps_the_grid():
         head(torch.zeros(3, 6, 5))
 
 
+# 다른 테스트가 기대는 손 설정 헤드가 실제로 기대 로짓을 내는지 먼저 확인한다(도구 자체의 검증).
 def test_pass_through_head_is_what_the_tests_assume():
     feats = torch.randn(3, 4, 4, 2, generator=torch.Generator().manual_seed(0))
     with torch.no_grad():
@@ -128,6 +158,8 @@ def test_pass_through_head_is_what_the_tests_assume():
 # --- targets ------------------------------------------------------------------------------------
 
 
+# 패치 정답이 256 마스크를 8x8 블록으로 최대 풀링한 32x32라는 규칙을 확인한다: 픽셀 하나만 결함이어도 그
+# 패치는 결함이고, 블록 경계의 좌표가 맞는 패치로 가며, 결과가 torch max_pool2d와 같다.
 def test_patch_targets_is_a_max_pool():
     masks = np.zeros((3, 256, 256), dtype=np.uint8)
     masks[0, 0, 0] = 1  # a single pixel is enough for its patch
@@ -145,6 +177,8 @@ def test_patch_targets_is_a_max_pool():
     np.testing.assert_array_equal(targets, pooled)
 
 
+# 다른 격자 크기에서도 최대 풀링과 같고, bool·0/1·0보다 큰 임의 값 마스크가 같은 결과를 낸다. 빈 입력은 빈
+# 격자, 정사각형이 아니거나 격자가 변을 나누지 못하면 ValueError다.
 def test_patch_targets_grid_dtypes_and_errors():
     rng = np.random.default_rng(0)
     masks = (rng.random((4, 256, 256)) < 0.001).astype(np.uint8)
@@ -163,6 +197,8 @@ def test_patch_targets_grid_dtypes_and_errors():
         patch_targets(np.zeros((1, 256, 256), dtype=np.uint8), grid=30)
 
 
+# 양성 가중치 = min(학습 세트 전체의 음성 패치 수 / 양성 패치 수, 상한). 양성이 없으면 1.0, 모두 양성이면
+# 0이다(규칙: min(음성 ÷ 양성, 100)).
 def test_pos_weight_is_the_capped_ratio_over_the_whole_set():
     targets = np.zeros((4, 8, 8), dtype=bool)
     assert pos_weight(targets, 100.0) == 1.0  # no positive patch
@@ -176,6 +212,8 @@ def test_pos_weight_is_the_capped_ratio_over_the_whole_set():
 # --- batches and flips --------------------------------------------------------------------------
 
 
+# 에폭당 배치 수: 마지막 배치가 한 장뿐일 때만 버리고, 두 장 이상이면 남긴다. 배치 크기 1이면 버릴 것이 없다.
+# 이 값이 코사인 일정의 전체 스텝 수가 된다.
 def test_steps_per_epoch_drops_a_single_image_batch_only():
     assert steps_per_epoch(64, 32) == 2
     assert steps_per_epoch(65, 32) == 2  # the 65th image alone is dropped
@@ -185,6 +223,8 @@ def test_steps_per_epoch_drops_a_single_image_batch_only():
     assert steps_per_epoch(3, 1) == 3  # batch size 1 has no partial batch
 
 
+# 채널에 (이미지 번호, 행, 열)을 적은 특징과 (0, 0) 칸만 표시한 정답을 만든다. 뒤집기·섞기 뒤에 각 값이 어디서
+# 왔는지 읽어 낼 수 있게 하려는 것이다.
 def coordinate_features(n: int, h: int, w: int):
     """fp16 features whose channels are (image id, row, column); the target marks cell (0, 0)."""
     feats = torch.zeros(n, h, w, 3)
@@ -196,6 +236,8 @@ def coordinate_features(n: int, h: int, w: int):
     return feats.to(torch.float16), targets
 
 
+# _flipped_batch가 고른 이미지를 뽑아 flips의 열 0이면 좌우(W), 열 1이면 상하(H)로 뒤집고, 특징과 정답을 같은
+# 인덱스로 함께 옮기는지 확인한다. 입력 텐서는 바뀌지 않는다.
 def test_flipped_batch_flips_the_named_axis_of_both_tensors():
     feats, targets = coordinate_features(4, 2, 3)
     index = torch.tensor([3, 0, 2, 1])
@@ -215,6 +257,10 @@ def test_flipped_batch_flips_the_named_axis_of_both_tensors():
     assert torch.equal(feats, again)
 
 
+# 한 에폭의 배치: 401장을 16장씩 나누면 마지막 한 장은 버려진다. 정답이 간 자리에 원래 (0, 0) 칸의 특징도 함께
+# 가고(특징·정답 어긋남 없음), 이미지끼리 섞이지 않으며, 순서는 섞인다. 좌우·상하 뒤집기는 각각 확률 0.5로
+# 독립이라 네 조합이 고르게 나온다.
+# 같은 생성기 상태면 같은 에폭이 다시 나오고, 같은 생성기로 다음 에폭을 뽑으면 달라진다.
 def test_epoch_batches_keep_features_and_targets_together():
     n, h, w = 401, 2, 3
     feats, targets = coordinate_features(n, h, w)
@@ -246,6 +292,7 @@ def test_epoch_batches_keep_features_and_targets_together():
     assert not torch.equal(second[0][0], batches[0][0])
 
 
+# 두 장 이상인 마지막 부분 배치는 남기고, 배치 수가 steps_per_epoch와 같으며, 모든 이미지가 한 번씩 나온다.
 @pytest.mark.parametrize(
     ("n", "batch_size", "sizes"), [(34, 16, [16, 16, 2]), (5, 8, [5]), (3, 1, [1, 1, 1])]
 )
@@ -261,6 +308,8 @@ def test_epoch_batches_keep_the_last_partial_batch(n, batch_size, sizes):
 # --- training -----------------------------------------------------------------------------------
 
 
+# 순서와 뒤집기가 구성의 seed로 만든 CPU 생성기 하나에서 에폭 내내 이어져 나오는지 확인한다. CPU 생성기를
+# 쓰므로 장치가 달라도 순서와 뒤집기가 같다(train_head 주석).
 def test_order_and_flips_come_from_one_generator_seeded_with_the_config(monkeypatch):
     seen = []
     real = supervised._epoch_batches
@@ -275,6 +324,8 @@ def test_order_and_flips_come_from_one_generator_seeded_with_the_config(monkeypa
     assert len({entry[3] for entry in seen}) == 1  # one generator carried through the epochs
 
 
+# 같은 시드면 학습 기록, 고른 에폭, 가중치가 비트 단위로 같고, 전역 난수 상태와 무관하다. 다른 시드면
+# 초기화·순서·뒤집기가 달라진다(CPU·같은 스레드 수에서의 재현성, train_head docstring).
 def test_training_is_deterministic_for_a_seed():
     first, _, _ = fit()
     torch.randn(5)  # the state of the global generator between two runs does not matter
@@ -289,6 +340,9 @@ def test_training_is_deterministic_for_a_seed():
     assert other.history != first.history
 
 
+# 학습이 실제로 작동하는지: 심은 결함을 검증 AUROC 0.98 이상으로 가르고 손실이 절반 아래로 준다. 저장된
+# 특징(fp16, CPU)은 뒤집기나 형 변환으로 바뀌지 않는다. 돌려받은 헤드가 보고된 검증 AUROC를 그대로 재현하고,
+# 보지 못한 이미지도 가른다.
 def test_head_separates_planted_defects():
     train_feats, train_targets, _ = planted(24, 8, seed=1)
     before = train_feats.clone()
@@ -309,6 +363,9 @@ def test_head_separates_planted_defects():
     assert auroc(scores[test_labels == 0], scores[test_labels == 1]) >= 0.98
 
 
+# 검증 뒤 헤드가 다시 학습 모드로 돌아오는지 확인한다. 학습 배치는 매 에폭 기울기 켜짐·학습 모드, 검증 배치는
+# 기울기 꺼짐·평가 모드여야 한다. 고른 에폭의 BatchNorm 통계는 그 에폭까지의 학습 배치로만 갱신된다(검증이
+# 통계를 바꾸지 않음). auroc를 점점 오르는 가짜 값으로 바꿔 마지막 에폭이 뽑히게 한다.
 def test_head_is_back_in_train_mode_after_every_validation(monkeypatch):
     modes = []
 
@@ -331,6 +388,8 @@ def test_head_is_back_in_train_mode_after_every_validation(monkeypatch):
         assert int(layer.num_batches_tracked) == 4 * steps_per_epoch(32, 16)
 
 
+# 학습 기록은 에폭마다 하나(epoch, loss, val_auroc)이고, 검증은 eval_every 배수와 마지막 에폭에서만 한다(4, 8,
+# 10). 고른 에폭은 검증한 에폭 가운데 최고값의 에폭이다.
 def test_history_and_evaluation_epochs():
     result, _, _ = fit(TrainConfig(epochs=10, batch_size=16, eval_every=4))
     assert [h["epoch"] for h in result.history] == list(range(1, 11))
@@ -345,6 +404,9 @@ def test_history_and_evaluation_epochs():
     assert result.history[result.best_epoch - 1]["val_auroc"] == best
 
 
+# 최적화기와 일정: 구성의 학습률·weight decay로 AdamW를 만들고, 전체 스텝(에폭 × 에폭당 배치) 동안 워밍업 없이
+# 코사인으로 0까지 줄인다. 이미지 수를 32·33·34장으로 바꿔 한 장짜리 마지막 배치를 버리는 규칙이 스텝 수에
+# 반영되는지도 본다.
 @pytest.mark.parametrize(("n_normal", "steps"), [(24, 2), (25, 2), (26, 3)])
 def test_adamw_with_cosine_annealing_over_all_steps(monkeypatch, n_normal, steps):
     created = []
@@ -372,6 +434,9 @@ def test_adamw_with_cosine_annealing_over_all_steps(monkeypatch, n_normal, steps
     assert optimizer.param_groups[0]["lr"] == pytest.approx(0.0, abs=1e-12)
 
 
+# 손실이 패치 격자 위의 BCE(평균, 로짓 입력)이고 양성 가중치가 학습 세트 전체에서 한 번 계산돼 모든 배치에
+# 같게 쓰이는지 확인한다. 여기서 비율은 63이다. 상한(20)을 넘으면 상한으로 자르고, 정답에 양성이 없으면
+# 1.0이다.
 def test_loss_is_weighted_bce_on_the_patch_grid(monkeypatch):
     calls = []
     real = F.binary_cross_entropy_with_logits
@@ -403,6 +468,9 @@ def test_loss_is_weighted_bce_on_the_patch_grid(monkeypatch):
     assert {c[2] for c in calls} == {1.0}
 
 
+# 에폭 선택 규칙: 검증 AUROC가 같으면 뒤의 에폭을 고르고(규칙 변경 4), 더 낮은 값은 바꾸지 않으며, 검증은
+# eval_every 배수와 마지막 에폭에서만 한다. 돌려받은 헤드가 고른 에폭의 가중치를 가지고 있어 그때의 검증
+# 점수를 그대로 재현하는지, 다른 에폭의 점수와는 다른지도 본다.
 @pytest.mark.parametrize(
     ("values", "eval_every", "best_epoch"),
     [
@@ -441,6 +509,8 @@ def test_best_epoch_rule(monkeypatch, values, eval_every, best_epoch):
     assert all(len(s) == len(val_labels) for s in seen)
 
 
+# 쓸 수 없는 입력은 학습 전에 거절한다: 검증에 정상이나 결함 한쪽만 있음(AUROC 정의 불가), 학습 이미지 한
+# 장(배치가 없음), 정답·특징 모양 불일치, 검증 특징 차원 불일치, 검증 라벨 수 불일치, 에폭 0.
 def test_train_head_rejects_unusable_inputs():
     train_feats, train_targets, _ = planted(6, 2, seed=1)
     val_feats, _, val_labels = planted(4, 2, seed=2)
@@ -461,6 +531,8 @@ def test_train_head_rejects_unusable_inputs():
         train_head(train_feats, train_targets, val_feats, val_labels, TrainConfig(epochs=0), device="cpu")
 
 
+# TrainConfig 기본값이 등록 규칙(60에폭, 배치 32, 학습률 1e-3, weight decay 1e-4, 5에폭마다 검증, 양성 가중치
+# 상한 100, 시드 0)과 같고, frozen이라 바꿀 수 없는지 확인한다.
 def test_train_config_defaults_are_the_registered_ones():
     cfg = TrainConfig()
     assert (cfg.epochs, cfg.batch_size, cfg.lr, cfg.weight_decay) == (60, 32, 1e-3, 1e-4)
@@ -472,6 +544,9 @@ def test_train_config_defaults_are_the_registered_ones():
 # --- prediction ---------------------------------------------------------------------------------
 
 
+# predict의 정의: 이미지 점수는 패치 로짓의 최댓값(float32), 맵은 로짓 자체를 bilinear(align_corners=False)로
+# 키운 float16이다. 확률 대신 로짓을 쓰는 이유는 float16 확률이 로짓 약 8.3 위에서 1.0으로 포화해 픽셀 지표에
+# 동점이 생기기 때문이다(규칙 변경 4). 기본 맵 크기는 256이다.
 def test_predict_scores_and_maps_match_the_definition():
     feats = torch.randn(5, 4, 4, 3, generator=torch.Generator().manual_seed(0)).to(torch.float16)
     head = pass_through_head(3)
@@ -493,6 +568,8 @@ def test_predict_scores_and_maps_match_the_definition():
     assert predict(head, feats, device="cpu").maps.shape == (5, 256, 256)  # default map size
 
 
+# predict는 헤드를 평가 모드로 바꿔(BatchNorm이 누적 통계를 쓰게) 배치 크기와 무관하게 같은 결과를 낸다. 빈
+# 입력은 빈 결과, 4차원이 아닌 입력과 배치 크기 0은 ValueError다.
 def test_predict_batching_empty_input_and_eval_mode():
     feats = torch.randn(7, 4, 4, 3, generator=torch.Generator().manual_seed(1)).to(torch.float16)
     torch.manual_seed(0)
@@ -512,6 +589,7 @@ def test_predict_batching_empty_input_and_eval_mode():
         predict(head, feats, batch_size=0, device="cpu")
 
 
+# 로짓에 inf가 생기면 조용히 저장하지 않고 FloatingPointError로 멈춘다.
 def test_predict_raises_on_non_finite_logits():
     head = pass_through_head(3)
     feats = torch.zeros(2, 4, 4, 3)
@@ -520,6 +598,9 @@ def test_predict_raises_on_non_finite_logits():
         predict(head, feats, device="cpu", map_size=4)
 
 
+# 학습한 헤드의 맵이 심은 결함 자리에서 가장 높은지 확인한다. 맵 크기 64에서 패치 하나는 8픽셀이고, 정점이
+# 심은 2x2 블록 안에 있으며, 블록 안 평균 로짓이 양수이고 두 패치 넘게 떨어진 곳보다 분명히 높다. 픽셀
+# 지표(AUPRO, 픽셀 AUROC)가 이 맵에서 계산되므로 위치가 맞아야 한다.
 def test_map_peaks_at_the_planted_patch():
     result, _, _ = fit()
     block = 8  # map pixels per patch at map_size 64
@@ -545,6 +626,7 @@ def test_map_peaks_at_the_planted_patch():
 # --- features -----------------------------------------------------------------------------------
 
 
+# 정규화한 이미지를 2x4 격자로 평균 풀링하는 가짜 특징 추출기. 칸 하나의 값을 손으로 계산할 수 있다.
 class PoolExtractor(torch.nn.Module):
     """Fake extractor: average-pools the normalised image into a [B, 2, 4, 3] feature grid."""
 
@@ -555,6 +637,8 @@ class PoolExtractor(torch.nn.Module):
         return F.adaptive_avg_pool2d(x, (2, 4)).permute(0, 2, 3, 1)
 
 
+# extract가 collect_features와 같은 값을 [N, H, W, D] CPU fp16 격자로 돌려주는지, 칸 하나의 값이 그 영역
+# 픽셀을 ImageNet 평균·표준편차로 정규화해 평균한 값과 같은지 확인한다. 빈 입력도 처리한다.
 def test_extract_returns_cpu_fp16_grids():
     images = np.random.default_rng(0).integers(0, 256, size=(5, 8, 8, 3), dtype=np.uint8)
     extractor = PoolExtractor()

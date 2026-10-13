@@ -1,3 +1,13 @@
+# [파일 역할] 검사 경로의 장당 지연을 재는 `defect_inspect.bench`를 검증하는 테스트 묶음이다. CPU onnxruntime
+# 경로(time_inspector), GPU torch 경로(time_torch, _TorchScorer), 원본 사진 리사이즈 시간, 지연 리포트
+# 누적(merge_into), CLI가 쓰는 '리사이즈 + 추론' 합계를 다룬다.
+# [왜 필요한가] 4단계와 6단계의 핵심 판정(CPU 장당 200ms 이하)이 이 숫자로 정해진다. 규칙은 지연을 '워밍업 뒤
+# 반복의 중앙값'으로, CPU 지연은 1500×1000 사진의 리사이즈 시간을 더한 값으로 정했다(docs/experiments.md 4단계
+# 격자, 규칙 변경 5에서 리사이즈를 빼던 코드를 고침). 워밍업이 섞이거나 평균을 쓰거나 리사이즈를 빼면 예산
+# 근처 구성의 판정이 바뀐다.
+# [설계] 실제 시간 대신 FakeClock으로 bench 모듈의 time을 바꿔, 가짜 검사기가 '이 단계는 몇 ms 걸렸다'고
+# 시계를 직접 움직인다. 그래서 중앙값·p95·워밍업 제외를 정확한 수치로 단언할 수 있다.
+
 import json
 from types import SimpleNamespace
 
@@ -7,6 +17,8 @@ import pytest
 from defect_inspect import bench
 
 
+# bench 안의 time 모듈 대신 쓰는 가짜 시계. perf_counter는 현재 값만 돌려주고, 시간은 가짜 단계가
+# advance(ms)를 부를 때만 흐른다.
 class FakeClock:
     """Stands in for the `time` module inside bench: time only passes when a fake stage says so."""
 
@@ -20,6 +32,10 @@ class FakeClock:
         self.now += ms / 1e3
 
 
+# CPU 경로 Inspector 흉내. 처음 slow_first번 호출은 800ms(워밍업이 느린 상황), outlier_at번째 호출은 500ms
+# 이상치, 나머지 특징 단계는 4.0 또는 4.125ms, 탐색 단계는 늘 2ms가 걸린 것처럼 시계를 움직인다. seen에는
+# 처리한 이미지 번호가 쌓여 이미지를 돌려 쓰는 순서를 확인할 수 있다. sigma 0이면 맵 단계(score_map)는 실제로
+# 계산하지만 가짜 시간이 흐르지 않는다.
 class FakeInspector:
     """Stage costs in ms per call: the warm-up calls are slow, one timed call is an outlier."""
 
@@ -49,12 +65,14 @@ class FakeInspector:
         return 1.0, np.ones((4, 4), np.float32)
 
 
+# 왼쪽 위 픽셀 값에 이미지 번호를 넣은 빈 이미지 n장(FakeInspector가 몇 번째 이미지인지 읽는다).
 def _images(n):
     images = np.zeros((n, 32, 32, 3), np.uint8)
     images[:, 0, 0, 0] = np.arange(n)
     return images
 
 
+# monkeypatch로 bench.time을 FakeClock으로 바꾸는 fixture. 테스트가 끝나면 원래 time 모듈로 돌아간다.
 @pytest.fixture
 def clock(monkeypatch):
     clock = FakeClock()
@@ -62,6 +80,11 @@ def clock(monkeypatch):
     return clock
 
 
+# 확인: 워밍업 5회(800ms씩)는 재지 않고, 이미지 4장을 돌려 쓰며 10회를 잰다. 단계별 값은 평균이 아니라
+# 중앙값이라 500ms 이상치 하나가 결과를 끌어올리지 않는다(특징 4.0625, 탐색 2.0, 맵 0, 합계 6.0625ms). p95는
+# 이상치를 반영하고, 반복 수·뱅크 행 수·정밀도·스레드도 기록된다.
+# 왜: 지연 규칙은 '워밍업 5회 뒤 50회의 중앙값'이다(6단계 관문 1, 4단계와 같은 방법). 첫 호출의 세션 준비
+# 비용이나 순간적인 방해가 판정 값에 섞이면 안 된다.
 def test_time_inspector_leaves_out_the_warmup_and_reports_medians(clock):
     fake = FakeInspector(clock, slow_first=5, outlier_at=9)
     timing = bench.time_inspector(fake, _images(4), warmup=5, repeats=10)
@@ -81,6 +104,8 @@ def test_time_inspector_leaves_out_the_warmup_and_reports_medians(clock):
     )
 
 
+# 확인: warmup=0이면 느린 첫 호출까지 표본에 들어가 p95가 700ms를 넘는다(워밍업이 실제로 빠지는지의 대조).
+# 이미지가 0장이거나 반복이 0이면 ValueError다.
 def test_time_inspector_without_warmup_times_every_call(clock):
     fake = FakeInspector(clock, slow_first=1)
     timing = bench.time_inspector(fake, _images(2), warmup=0, repeats=3)
@@ -92,6 +117,12 @@ def test_time_inspector_without_warmup_times_every_call(clock):
         bench.time_inspector(fake, _images(2), repeats=0)
 
 
+# 확인: GPU torch 경로 측정은 뱅크를 장치로 옮기고 중심화하는 준비를 한 번만 하고(300ms, bank_setup_ms로 따로
+# 기록), 워밍업 3회를 뺀 8회의 중앙값(5ms)을 total_ms로 낸다. reweight_k·sigma 인자는 그대로 scorer에
+# 전달된다.
+# 왜: patchcore.score_images는 호출마다 뱅크를 옮기고 중심화하므로 그대로 장당으로 재면 서비스에서는 한 번만
+# 드는 비용을 매 장에 물리게 된다(_TorchScorer docstring). monkeypatch로 _TorchScorer를 가짜로 바꿔 시간만
+# 본다.
 def test_time_torch_prepares_the_bank_once_and_leaves_out_the_warmup(clock, monkeypatch):
     pytest.importorskip("torch")
     made = []
@@ -123,6 +154,10 @@ def test_time_torch_prepares_the_bank_once_and_leaves_out_the_warmup(clock, monk
         bench.time_torch(None, bank, _images(0), device="cpu")
 
 
+# 확인: 장당 채점기 _TorchScorer의 이미지 점수와 fp16 맵이 patchcore.score_images와 비트 단위로 같다(맵 크기
+# 64와 256 둘 다). 호출자의 뱅크를 제자리에서 중심화하지 않고, 특징 차원이 뱅크와 다르거나 뱅크가 비면
+# ValueError다. 마지막으로 실제 시계로 CPU에서 돌려 문서에 적힌 키가 나오는지 본다.
+# 왜: 지연을 잰 경로가 정확도를 잰 경로와 다른 계산이면 지연 수치가 그 구성의 것이 아니게 된다.
 def test_the_torch_scorer_is_score_images_with_a_prepared_bank():
     torch = pytest.importorskip("torch")
     from defect_inspect.patchcore import build_bank, collect_features, score_images
@@ -168,6 +203,9 @@ def test_the_torch_scorer_is_score_images_with_a_prepared_bank():
     assert timing["bank_setup_ms"] > 0 and timing["bank_rows"] == bank.shape[0]
 
 
+# 확인: 지연 리포트에 같은 키로 여러 번 쓰면 정밀도별 항목(cpu_fp32, cpu_int8)이 합쳐지고, 다른 키는 따로
+# 쌓이며, 파일은 줄바꿈으로 끝난다. FP32와 INT8, 구성 15개를 따로 재도 한 파일(reports/stage4/latency.json)에
+# 모인다.
 def test_latency_file_accumulates_entries(tmp_path):
     path = tmp_path / "stage4" / "latency.json"
     bench.merge_into(path, "a", {"cpu_fp32": {"total_ms": 1.0}})
@@ -177,12 +215,20 @@ def test_latency_file_accumulates_entries(tmp_path):
     assert path.read_text(encoding="utf-8").endswith("}\n")
 
 
+# 확인: 리사이즈 원본 크기가 등록한 1500×1000(가로, 세로)이고, 리사이즈 시간이 양수이며, CPU 이름을 문자열로
+# 얻는다(Windows에서는 레지스트리의 ProcessorNameString).
 def test_time_resize_and_cpu_name():
     assert bench.RESIZE_SOURCE == (1500, 1000)  # the registered photo size (width, height)
     assert bench.time_resize(64, source=(200, 100), repeats=2) > 0
     assert isinstance(bench.cpu_name(), str)
 
 
+# 확인: CLI가 정밀도마다 total_with_resize_ms = 리사이즈(12ms) + 추론 중앙값을 기록한다. 추론만 195ms인 구성도
+# 합계 207ms라 200ms 예산을 넘는다. 스레드 설정이 Inspector.load에 전달되고, 지연용 이미지는 그 범주 dev 풀(겹
+# 1~4) 정상의 앞 N장이며 겹 0과 봉인 테스트는 읽지 않는다.
+# monkeypatch: bench.main은 ImageCache와 read_manifest를 함수 안에서 import하므로 원래
+# 모듈(defect_inspect.cache, defect_inspect.splits)의 이름을 바꿔야 가짜가 쓰인다. 출력 경로(paths.REPORTS)도
+# tmp_path로 돌린다.
 def test_cli_adds_the_resize_time_to_the_cpu_latency(tmp_path, monkeypatch):
     """The registered CPU latency is resize + inference; the entry must carry that sum."""
     from defect_inspect import paths

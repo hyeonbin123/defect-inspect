@@ -8,12 +8,28 @@ A reconstruction (Dinomaly) artifact has no bank: its inference path is the norm
 call that returns the score and the map (`time_reconstruction`).
 """
 
+# [파일 역할] 검사 경로의 한 장당 지연을 재는 4·6단계 측정 모듈이다(`python -m defect_inspect.bench`). 서빙과
+# 같은 onnxruntime CPU 경로(inspector.py)와, 비교용 torch GPU 경로를 잰다.
+# [측정 규칙] 범주 pcb1의 dev 풀 정상 50장(봉인 테스트 아님)을 한 장씩 넣고, 워밍업 5회 뒤 50회의 중앙값을
+# 쓴다. CPU 지연의 판정값은 "원본 크기(1500×1000) 사진을 입력 크기로 줄이는 시간 + 추론
+# 중앙값"이다(docs/experiments.md 4단계 격자, 6단계 관문 1). CPU가 한가할 때 재야 한다는 조건(규칙 변경 6)은
+# 이 코드가 확인하지 않으므로 실행하는 쪽이 지킨다.
+# [설계 이유] PatchCore는 단계별(백본, 최근접 탐색, 맵)로 나눠 잰다. 4단계에서 WideResNet 10% 뱅크의 지연
+# 대부분(82~91%)이 최근접 탐색이라는 것을 이 분해로 보였고, 그래서 코어셋 비율이 지연을 좌우했다.
+# Dinomaly(복원 방식)는 뱅크가 없고 ONNX 호출 한 번이 점수와 맵을 함께 내므로 전체만 잰다.
+# [연결] 결과는 reports/stage4/latency.json(기본) 또는 `--out`으로 reports/stage6/latency.json에 키별로 합쳐
+# 쓴다. analyze_grid와 analyze_stage6이 이 파일을 읽어 판정하고, runtime_compare가 time_resize와 cpu_name을
+# 가져다 쓴다.
+
 import argparse
 import json
 import platform
 import time
 from pathlib import Path
 
+# numpy는 중앙값·백분위 계산과 가짜 사진 생성에, PIL은 리사이즈 시간 측정에 쓴다. inspector에서는 서빙과
+# 똑같은 CPU 검사기(PatchCore용 Inspector, Dinomaly용 ReconstructionInspector)와 맵 계산 함수를 가져와,
+# 서비스가 실제로 도는 코드 그대로의 시간을 잰다.
 import numpy as np
 from PIL import Image
 
@@ -26,14 +42,23 @@ from .inspector import (
     score_map,
 )
 
+# 카메라 원본 크기의 가정(가로 1500, 세로 1000, VisA 원본 약 1,300~1,560 × 960~1,180px과 비슷한 크기). 이
+# 사진을 입력 크기로 줄이는 시간을 CPU 지연에 더하는 것이 등록된 규칙이다.
 RESIZE_SOURCE = (1500, 1000)  # width, height of the photo whose resize is added to the CPU latency
 
 
+# 밀리초 목록의 중앙값과 95백분위. 평균 대신 중앙값을 써서 가끔 튀는 한 번(다른 프로그램의 끼어듦 등)에 덜
+# 흔들리게 한다.
 def _stats(ms: list[float]) -> dict:
     values = np.asarray(ms, dtype=np.float64)
     return {"median": float(np.median(values)), "p95": float(np.percentile(values, 95))}
 
 
+# PatchCore CPU 검사기의 단계별 지연. backbone_ms는 정규화 + ONNX 백본, search_ms는 뱅크 최근접 탐색 + 이미지
+# 점수, map_ms는 히트맵 계산이다. 이미지 목록을 돌려 쓰고(i % N), 앞의 warmup회는 세지 않는다(첫 호출의 메모리
+# 할당·스레드 풀 준비 시간을 빼려는 것). 결과에 뱅크 행 수·정밀도·스레드 수를 같이 남긴다. 리사이즈는 여기
+# 들어가지 않고 main이 time_resize 값을 더한다.
+# 호출 위치: main. 4단계 표의 "리사이즈 7.7 + 백본 91.1 + 최근접 탐색 83.7 + 맵 2.0ms" 같은 분해가 이 값이다.
 def time_inspector(inspector: Inspector, images: np.ndarray, *, warmup: int = 5, repeats: int = 50) -> dict:
     """Latency per stage of the CPU path on uint8 images [N, S, S, 3] (cycled), in milliseconds.
 
@@ -74,6 +99,10 @@ def time_inspector(inspector: Inspector, images: np.ndarray, *, warmup: int = 5,
     return out
 
 
+# Dinomaly(복원 방식) 검사기의 지연. inspector.run 한 번이 정규화 + ONNX 호출(점수와 256×256 맵)이라 전체
+# 시간만 잰다. 6단계 관문 1(학습 전 모델)과 학습 뒤 아티팩트의 지연(dms-280-car FP32 추론 141.7ms + 리사이즈
+# 8.0ms = 149.7ms)이 이 함수로 잰 값이다. 호출 위치: main. runtime_compare는 같은 방식으로 원시 값을 직접
+# 잰다.
 def time_reconstruction(inspector, images: np.ndarray, *, warmup: int = 5, repeats: int = 50) -> dict:
     """Latency of a reconstruction inspector on uint8 images [N, S, S, 3] (cycled), in milliseconds.
 
@@ -103,6 +132,10 @@ def time_reconstruction(inspector, images: np.ndarray, *, warmup: int = 5, repea
     }
 
 
+# GPU torch 경로를 한 장씩 재기 위한 채점기. patchcore.score_images는 부를 때마다 뱅크를 장치로 옮기고
+# 중심화하고 행 노름을 계산하는데, 서비스라면 이것을 한 번만 한다. 그 비용은 뱅크가 클수록 커지므로 이미지마다
+# 매기면 지연이 부풀려진다(docstring). 그래서 뱅크 준비는 생성자에서 한 번 하고, 이미지마다의 일은
+# score_images와 같은 patchcore 내부 함수 순서를 그대로 부른다.
 class _TorchScorer:
     """`patchcore.score_images` for one image at a time, with the bank prepared once.
 
@@ -114,6 +147,8 @@ class _TorchScorer:
     def __init__(
         self, extractor, bank, *, device: str = "cuda", reweight_k: int = 9, sigma: float = 4.0, map_size=256
     ):
+        # torch와 patchcore는 GPU 측정을 할 때만 불러온다. 이 모듈의 CPU 측정은 torch 없이(serve 의존성만으로)
+        # 돌아야 하기 때문이다.
         import torch
 
         from . import patchcore
@@ -123,6 +158,8 @@ class _TorchScorer:
         self._patchcore = patchcore
         self.device = torch.device(device)
         self.extractor = extractor.to(self.device).eval()
+        # 뱅크를 fp32로 장치에 복사하고 평균을 빼 둔다(질의도 같은 평균을 뺀다). 거리는 그대로이고 ||a||² +
+        # ||b||² − 2a·b 전개식의 반올림 오차가 줄어든다. 행 노름 제곱도 미리 계산해 매 탐색에 다시 쓴다.
         self.bank = bank.to(device=self.device, dtype=torch.float32, copy=True)
         self.centre = self.bank.mean(dim=0, keepdim=True)
         self.bank -= self.centre
@@ -131,6 +168,9 @@ class _TorchScorer:
         self.reweight_k = reweight_k
         self.map_size = map_size
 
+    # 한 장 채점: 특징 추출 → 뱅크 평균 빼기 → 최근접 탐색 → PatchCore 재가중 이미지 점수 → 패치 점수를 입력
+    # 크기로 키우고 가우시안 흐림 → 256×256 맵. 결과를 호스트(CPU 메모리)로 가져오는 것까지 포함해, 서비스가
+    # 실제로 기다리는 시간을 잰다.
     def __call__(self, image: np.ndarray) -> tuple[float, np.ndarray]:
         """uint8 [S, S, 3] -> (image score, float16 map [map_size, map_size]), both back on the host."""
         import torch
@@ -165,6 +205,8 @@ class _TorchScorer:
             return float(score.cpu().numpy()[0]), maps[0, 0].to(torch.float16).cpu().numpy()
 
 
+# GPU torch 파이프라인(fp16)의 한 장당 지연. 뱅크 준비 시간은 bank_setup_ms로 따로 적고 지연에서는 뺀다. 4단계
+# 표의 "GPU fp16 ms"(예: wrn50-256 코어셋 1% 10.8ms)가 이 값이다. 호출 위치: main(`--gpu`).
 def time_torch(
     extractor,
     bank,
@@ -189,6 +231,8 @@ def time_torch(
         raise ValueError(f"need warmup >= 0 and repeats >= 1, got {warmup} and {repeats}")
     on_cuda = torch.device(device).type == "cuda"
 
+    # CUDA 연산은 비동기라 그냥 시각을 읽으면 GPU 일이 끝나기 전 시각이 된다. 시각을 읽기 전에
+    # torch.cuda.synchronize로 GPU 작업이 끝나기를 기다린다.
     def clock() -> float:
         if on_cuda:
             torch.cuda.synchronize()
@@ -216,6 +260,8 @@ def time_torch(
     }
 
 
+# 1500×1000 RGB 사진(시드 0의 무작위 픽셀)을 입력 크기로 PIL BICUBIC 리사이즈하는 시간의 중앙값(20회).
+# 서비스와 캐시가 쓰는 것과 같은 리사이즈다. 4·6단계에서 약 8ms였다.
 def time_resize(size: int, source: tuple[int, int] = RESIZE_SOURCE, repeats: int = 20) -> float:
     """Median milliseconds to resize a camera-sized RGB image to the input size (PIL BICUBIC)."""
     rng = np.random.default_rng(0)
@@ -228,6 +274,8 @@ def time_resize(size: int, source: tuple[int, int] = RESIZE_SOURCE, repeats: int
     return float(np.median(ms))
 
 
+# 측정한 CPU 이름을 결과에 남긴다. Windows에서 platform.processor()는 "AMD64 Family ..." 같은 일반 문자열만
+# 주므로, 레지스트리의 ProcessorNameString(예: AMD Ryzen 5 3600)을 읽고 실패하면 그 문자열을 그대로 쓴다.
 def cpu_name() -> str:
     name = platform.processor()
     if platform.system() == "Windows":
@@ -248,6 +296,8 @@ def _write_json(path: Path, data: dict) -> None:
         f.write("\n")
 
 
+# 지연 파일(JSON)에 key 항목을 합쳐 쓴다. 파일 하나에 여러 구성(키)의 결과가 쌓이고, 같은 키도 기존 필드를
+# 지우지 않고 새 필드로 덮어쓴다. 그래서 CPU 측정과 GPU 측정을 따로 돌려도 한 항목에 모인다.
 def merge_into(path: Path, key: str, entry: dict) -> dict:
     """Add `entry` under `key` to the JSON file at `path` (created if missing); returns the whole content."""
     data = {}
@@ -259,6 +309,11 @@ def merge_into(path: Path, key: str, entry: dict) -> dict:
     return data
 
 
+# 명령행 입구. 흐름: 아티팩트의 범주 폴더(meta.json)를 읽음 → 같은 범주의 dev 풀 정상 앞 N장을 리사이즈
+# 캐시에서 가져옴 → 아티팩트 종류(meta의 kind)에 맞는 정밀도인지 확인 → 리사이즈 시간 측정 → 정밀도마다 CPU
+# 지연을 재고 total_with_resize_ms(판정값)를 더함 → (PatchCore이고 --gpu면) GPU 지연 → latency 파일에 합쳐 씀.
+# 정밀도: PatchCore 아티팩트는 fp32·int8(정적 양자화), 복원 아티팩트는 fp32·int8-dynamic(MatMul만 동적
+# 양자화)이다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--artifacts", type=Path, required=True, help="artifact set directory")
@@ -287,6 +342,8 @@ def main(argv: list[str] | None = None) -> None:
     with open(art_dir / "meta.json", encoding="utf-8") as f:
         meta = json.load(f)
     manifest = read_manifest(paths.VISA_MANIFEST)
+    # 지연용 이미지는 dev 풀 정상(학습 풀, 봉인 테스트 아님)이므로 장부 기록 없이 읽는다. 뱅크가 범주마다 달라
+    # PatchCore 지연은 범주에 따라 다르고, 측정은 pcb1 하나로 정했다(4단계 규칙).
     rows = select(manifest, protocol="dev", part="pool_normal", category=args.category)[: args.images]
     images = ImageCache(paths.CACHE, meta["img_size"]).images(rows)
 
@@ -294,6 +351,7 @@ def main(argv: list[str] | None = None) -> None:
     allowed = set(RECONSTRUCTION_PRECISIONS) if reconstruction else {"fp32", "int8"}
     if not set(args.precision) <= allowed:
         parser.error(f"precisions of this artifact: {sorted(allowed)}")
+    # --gpu는 PatchCore의 torch 파이프라인을 재는 옵션이라 복원 아티팩트에는 쓸 수 없다.
     if reconstruction and args.gpu:
         parser.error("--gpu times the PatchCore torch pipeline; a reconstruction artifact has none")
 

@@ -1,3 +1,14 @@
+# [파일 역할] 봉인 테스트를 읽을 때마다 reports/test_ledger.jsonl에 한 줄을 남기는 장부
+# 모듈(src/defect_inspect/ledger.py)을 검증한다.
+# [왜 필요한가] 이 프로젝트의 측정 방식은 '규칙을 먼저 커밋하고, 봉인 테스트는 단계가 끝날 때 정해 둔 것만 한
+# 번 읽는다'이다(docs/plan.md 측정 방식). 장부는 언제·어느 커밋에서·어느 단계가 테스트를 봤는지의 유일한
+# 증거이므로, 줄이 빠지거나 두 줄이 섞이거나 커밋 표시가 틀리면 그 증거가 무너진다.
+# [주요 구성] (1) 기록 형식(키 순서, UTF-8, UTC 시각) (2) git_commit의 '+dirty' 판정과 실패 시 "unknown" (3)
+# 스레드·프로세스 동시 기록에서 줄이 하나도 빠지거나 겹치지 않는지 (4) 잠금 파일의 대기·시간 초과·오래된 잠금
+# 정리·실패 후 해제 (5) 직렬화 실패·끊긴 마지막 줄 같은 예외 상황.
+# [주의] 동시 기록 테스트 두 개는 CPU가 아주 바쁠 때 10초 잠금 대기(LOCK_TIMEOUT_S)를 넘겨 실패한 적이
+# 있다(docs/experiments.md 서비스 모델 교체 점검의 2026-10-04 정정). 따로 돌리면 통과했다.
+
 import json
 import os
 import shutil
@@ -10,8 +21,12 @@ from pathlib import Path
 
 import pytest
 
+# 모듈째 가져와 LOCK_TIMEOUT_S, git_commit, subprocess 같은 모듈 속성을 monkeypatch로 바꿀 수 있게 한다.
 from defect_inspect import ledger
 
+# 여러 프로세스 동시 기록 테스트에서 각 자식 프로세스가 실행할 코드. 준비 파일(ready)을 만든 뒤 go 파일이 생길
+# 때까지 기다렸다가 기록을 시작하므로, 모든 자식이 같은 순간에 장부를 두드리게 된다. 프로세스 시작 시간 차이
+# 때문에 사실상 순서대로 쓰는 일이 없게 하려는 장치다.
 # Child process for the multi-process test: waits for the "go" file, then appends argv[3] entries.
 CHILD = """
 import sys, time
@@ -27,6 +42,9 @@ for i in range(n):
 """
 
 
+# 장부 파일 전체가 온전한지 검사하는 공용 도우미. 줄바꿈이 LF로만 끝나고, 모든 줄이 JSON으로 읽히며(끊기거나
+# 두 줄이 붙은 줄은 여기서 실패한다), 키 순서가 정해진 대로이고, 기대한 stage가 빠짐없이 정확히 한 번씩
+# 있으며, 기록이 끝난 뒤 잠금 파일이 남지 않았는지 본다.
 def check_ledger(path: Path, stages: set[str]) -> None:
     """Every line is one complete JSON entry, and exactly the expected entries are there."""
     raw = path.read_bytes()
@@ -39,6 +57,10 @@ def check_ledger(path: Path, stages: set[str]) -> None:
     assert not ledger.lock_path(path).exists()
 
 
+# 호출 한 번에 JSON 한 줄이 덧붙고, 반환값과 파일 내용이 같은지 본다. 시각은 초 단위로 잘리고(마이크로초
+# 버림), 키 순서는 time, commit, stage, config, note로 고정이다. 한글 메모가 \u 이스케이프가 아니라 UTF-8
+# 그대로 쓰여 사람이 장부를 바로 읽을 수 있는지, Windows에서도 CRLF가 섞이지 않는지 확인한다. 부모
+# 폴더(reports/)가 없어도 만들어야 한다.
 def test_record_appends_one_json_line_per_call(tmp_path):
     path = tmp_path / "reports" / "test_ledger.jsonl"
     now = datetime(2026, 9, 30, 12, 0, 5, 123456, tzinfo=UTC)
@@ -61,6 +83,8 @@ def test_record_appends_one_json_line_per_call(tmp_path):
     assert "다시 잼" in lines[1]  # written as UTF-8, not \u escapes
 
 
+# 시간대가 붙은 시각(KST)은 UTC로 바꿔 적고, 시간대가 없는 시각은 UTC로 간주하는지 본다. 장부 시각을 한
+# 기준으로 맞춰야 커밋 시각·다른 기록과 순서를 비교할 수 있다.
 def test_time_is_converted_to_utc(tmp_path):
     path = tmp_path / "ledger.jsonl"
     kst = timezone(timedelta(hours=9))
@@ -72,6 +96,8 @@ def test_time_is_converted_to_utc(tmp_path):
     assert naive["time"] == "2026-10-01T08:00:00+00:00"
 
 
+# now와 commit을 주지 않으면 현재 UTC 시각과 git_commit() 결과를 쓰는지 본다. git_commit을 가짜로 바꿔 실제
+# 저장소 상태에 따라 결과가 달라지지 않게 하고, 시각은 앞뒤 2초 범위로만 확인한다.
 def test_defaults_use_current_time_and_git(tmp_path, monkeypatch):
     monkeypatch.setattr(ledger, "git_commit", lambda root=None: "feed123")
     before = datetime.now(UTC) - timedelta(seconds=2)
@@ -82,6 +108,9 @@ def test_defaults_use_current_time_and_git(tmp_path, monkeypatch):
     assert entry["commit"] == "feed123"
 
 
+# git이 설치되지 않았거나(FileNotFoundError) 명령이 실패해도(CalledProcessError) 예외 대신 "unknown"을
+# 돌려주는지 본다. 커밋 정보를 못 얻었다는 이유로 측정 실행 전체가 멈추면 안 되기 때문이다. subprocess.run을
+# 가짜로 바꿔 두 실패를 만든다.
 def test_git_commit_unknown_when_git_fails(tmp_path, monkeypatch):
     def missing(*args, **kwargs):
         raise FileNotFoundError("git")
@@ -96,12 +125,16 @@ def test_git_commit_unknown_when_git_fails(tmp_path, monkeypatch):
     assert ledger.git_commit(tmp_path) == "unknown"
 
 
+# 임시 git 저장소에서 git_commit을 실제로 돌려 본다: 커밋이 없으면 "unknown", 커밋 직후는 짧은 해시(16진수 7자
+# 이상), 추적하지 않는 새 파일이나 수정된 파일이 있으면 '+dirty'다. 새 모듈 파일도 동작을 바꾸므로 dirty로
+# 세야 리포트 수치가 커밋된 코드에서 나왔는지 가릴 수 있다(git_commit docstring). git이 없으면 건너뛴다.
 def test_git_commit_in_a_real_repository(tmp_path):
     if shutil.which("git") is None:
         pytest.skip("git is not installed")
     repo = tmp_path / "repo"
     repo.mkdir()
 
+    # 사용자 git 설정에 기대지 않도록 이름·메일을 명령마다 -c로 넘긴다(전역 설정이 없는 CI에서도 커밋이 된다).
     def git(*args):
         identity = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
         subprocess.run(["git", *identity, *args], cwd=repo, check=True, capture_output=True)
@@ -123,6 +156,10 @@ def test_git_commit_in_a_real_repository(tmp_path):
     assert ledger.git_commit(repo) == clean + "+dirty"
 
 
+# 스레드 8개가 Barrier로 동시에 출발해 50줄씩, 모두 400줄을 쓴 뒤 한 줄도 빠지거나 겹치지 않는지 본다.
+# Windows에서는 덧붙이기가 원자적이지 않아 두 기록자가 같은 끝 위치에 쓰면 한 줄이 덮일 수 있으므로, 잠금
+# 파일로 한 번에 하나씩만 쓰게 한 설계(ledger._locked docstring)를 확인하는 테스트다. 스레드 안의 예외는
+# errors에 모아 메인 스레드에서 단언한다.
 def test_concurrent_appends_from_threads_are_all_kept(tmp_path):
     path = tmp_path / "ledger.jsonl"
     n_threads, n_each = 8, 50
@@ -146,6 +183,10 @@ def test_concurrent_appends_from_threads_are_all_kept(tmp_path):
     check_ledger(path, {f"{t}-{i}" for t in range(n_threads) for i in range(n_each)})  # 400 lines
 
 
+# 같은 검사를 별도 프로세스 4개(60줄씩)로 한다. 실제로는 서로 다른 측정 실행(프로세스)이 같은 장부에 쓸 수
+# 있으므로 스레드만으로는 부족하다. 자식이 설치 여부와 관계없이 이 저장소의 defect_inspect를 import하도록
+# PYTHONPATH 앞에 패키지 상위 폴더를 넣는다. 자식이 모두 준비 파일을 만들 때까지 기다린 뒤 go 파일로 동시에
+# 출발시키고, 끝나면 남은 자식을 kill해 테스트가 멈춘 프로세스를 남기지 않게 한다.
 def test_concurrent_appends_from_processes_are_all_kept(tmp_path):
     path = tmp_path / "ledger.jsonl"
     go = tmp_path / "go"
@@ -174,6 +215,9 @@ def test_concurrent_appends_from_processes_are_all_kept(tmp_path):
     check_ledger(path, {f"{p}-{i}" for p in range(n_procs) for i in range(n_each)})
 
 
+# 다른 기록자가 잠금을 쥐고 있으면(잠금 파일을 미리 만들어 흉내 냄) 바로 실패하지 않고 기다렸다가, 0.3초 뒤
+# 잠금이 풀리면 기록하는지 본다. 걸린 시간이 0.25초 이상이면 실제로 기다렸다는 뜻이다. 잠금 파일은 장부와 같은
+# 폴더의 다른 이름이어야 한다.
 def test_append_waits_for_a_lock_that_is_released(tmp_path):
     path = tmp_path / "ledger.jsonl"
     lock = ledger.lock_path(path)
@@ -188,6 +232,9 @@ def test_append_waits_for_a_lock_that_is_released(tmp_path):
     check_ledger(path, {"1"})
 
 
+# 잠금이 풀리지 않으면 대기 시간(여기서는 0.2초로 줄임) 뒤 TimeoutError를 내고 장부에는 아무것도 쓰지 않는지
+# 본다. 남의 잠금 파일은 지우지 않아야 한다. 기록이 실패하면 예외로 호출한 실행이 테스트를 읽기 전에 멈추는
+# 것이 장부의 설계다.
 def test_held_lock_times_out_and_nothing_is_written(tmp_path, monkeypatch):
     path = tmp_path / "ledger.jsonl"
     path.write_bytes(b'{"kept": true}\n')
@@ -200,6 +247,9 @@ def test_held_lock_times_out_and_nothing_is_written(tmp_path, monkeypatch):
     assert lock.exists()  # it belongs to the other writer
 
 
+# 기록 도중 죽은 프로세스가 남긴 오래된 잠금 파일(수정 시각을 LOCK_STALE_S의 두 배 전으로 돌림)은 지우고
+# 기록을 이어 가는지 본다. 그러지 않으면 한 번의 비정상 종료로 장부가 영원히 잠긴다. 상수 값(오래된 잠금 60초,
+# 대기 10초)도 함께 고정해 무심코 바꾸지 않게 한다.
 def test_stale_lock_is_broken(tmp_path):
     path = tmp_path / "ledger.jsonl"
     lock = ledger.lock_path(path)
@@ -211,6 +261,8 @@ def test_stale_lock_is_broken(tmp_path):
     check_ledger(path, {"1"})
 
 
+# 장부 경로가 폴더라서 쓰기가 실패해도 OSError가 그대로 올라오고 잠금 파일은 지워지는지 본다(_locked의
+# finally). 잠금이 남으면 다음 실행이 10초를 기다린 뒤 실패한다.
 def test_lock_is_released_when_the_append_fails(tmp_path):
     path = tmp_path / "a_directory"
     path.mkdir()
@@ -219,6 +271,8 @@ def test_lock_is_released_when_the_append_fails(tmp_path):
     assert not ledger.lock_path(path).exists()
 
 
+# JSON으로 바꿀 수 없는 값(object())이 들어오면 TypeError가 나고, 장부 파일도 잠금 파일도 생기지 않는지 본다.
+# 직렬화를 잠금을 잡기 전에 끝내는 구현 순서를 확인하는 것이다.
 def test_entry_that_cannot_be_serialised_writes_nothing(tmp_path):
     path = tmp_path / "ledger.jsonl"
     with pytest.raises(TypeError):
@@ -226,6 +280,8 @@ def test_entry_that_cannot_be_serialised_writes_nothing(tmp_path):
     assert not path.exists() and not ledger.lock_path(path).exists()
 
 
+# 이전 기록자가 줄 중간에서 죽어 마지막 줄이 줄바꿈 없이 끊겨 있으면, 새 기록 앞에 줄바꿈을 붙여 새 줄이 끊긴
+# 줄에 이어 붙지 않는지 본다. 끊긴 줄은 그대로 두고(지우지 않음) 새 기록은 독립된 한 줄로 읽혀야 한다.
 def test_entry_is_not_glued_to_a_torn_last_line(tmp_path):
     path = tmp_path / "ledger.jsonl"
     path.write_bytes(b'{"time": "cut off')  # a previous writer died in the middle of its line
@@ -236,6 +292,9 @@ def test_entry_is_not_glued_to_a_torn_last_line(tmp_path):
     assert lines[0] == '{"time": "cut off' and json.loads(lines[1]) == entry and len(lines) == 2
 
 
+# git_commit이 잠금 파일을 만들기 전에 불리는지 본다. 잠금 파일은 저장소 안 장부 옆에 생기므로, 그 뒤에 git
+# status를 보면 추적하지 않는 파일로 잡혀 깨끗한 코드도 '+dirty'로 잘못 기록된다. 가짜 git_commit이 불린 순간
+# 잠금 파일이 있었는지를 seen에 남겨 확인한다.
 def test_git_state_is_read_before_the_lock_is_taken(tmp_path, monkeypatch):
     # The lock file sits next to the ledger inside the repository: `git status` must not see it.
     path = tmp_path / "ledger.jsonl"
