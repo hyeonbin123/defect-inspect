@@ -29,7 +29,7 @@ import numpy as np
 from . import paths
 from .calibrate import conformal_threshold
 from .metrics import ProHistograms, aupro_bootstrap, auroc, fpr_at_tpr
-from .stats import percentile_ci, stratified_indices
+from .stats import percentile_ci, stratified_indices, verdict
 
 # 판정 상수(docs/experiments.md 공통 규칙과 2단계 규칙).
 # - N_BOOT, SEED: 부트스트랩 2,000번, seed 0. ALPHA: 고정 임계값의 목표 오검출률 5%.
@@ -273,17 +273,13 @@ def summarize(run: MethodRun, boot: Bootstrap) -> dict:
 
 
 # 짝지은 차이와 등록된 세 갈래 문구. 구간이 0을 포함하면 "판정 불가", 포함하지 않고 크기가 최소 효과 이상이면
-# "차이 있음", 최소 효과보다 작으면 "차이 작음"이다(공통 규칙).
+# "차이 있음", 최소 효과보다 작으면 "차이 작음"이다(공통 규칙). 문구는 stats.verdict가 정한다. 예전에는 같은
+# 규칙을 여기서 따로 구현해 점 추정이 NaN일 때 '판정 불가'가 아니라 '차이 작음'이 나올 수 있었다(기록된
+# 리포트에는 NaN 점 추정이 없어 바뀐 판정은 없다).
 def difference(point: float, samples: np.ndarray, min_effect: float = MIN_EFFECT_AUROC) -> dict:
-    """Paired difference with its interval and the registered three-way wording."""
+    """Paired difference with its interval and the registered three-way wording (`stats.verdict`)."""
     lo, hi = _ci(samples)
-    if not (lo > 0 or hi < 0):
-        verdict = "판정 불가"
-    elif abs(point) >= min_effect:
-        verdict = "차이 있음"
-    else:
-        verdict = "차이 작음"
-    return {"diff": float(point), "ci": [lo, hi], "verdict": verdict}
+    return {"diff": float(point), "ci": [lo, hi], "verdict": verdict(samples, float(point), min_effect)}
 
 
 # H7용: 지도 학습 실행(k, 시드)마다, 학습에 쓴 결함 k장의 유형과 하나도 겹치지 않는 테스트 결함을 표시한다.

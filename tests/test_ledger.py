@@ -7,7 +7,9 @@
 # 스레드·프로세스 동시 기록에서 줄이 하나도 빠지거나 겹치지 않는지 (4) 잠금 파일의 대기·시간 초과·오래된 잠금
 # 정리·실패 후 해제 (5) 직렬화 실패·끊긴 마지막 줄 같은 예외 상황.
 # [주의] 동시 기록 테스트 두 개는 CPU가 아주 바쁠 때 10초 잠금 대기(LOCK_TIMEOUT_S)를 넘겨 실패한 적이
-# 있다(docs/experiments.md 서비스 모델 교체 점검의 2026-10-04 정정). 따로 돌리면 통과했다.
+# 있다(docs/experiments.md 서비스 모델 교체 점검의 2026-10-04 정정). 따로 돌리면 통과했다. 이 두 테스트가 보는
+# 것은 줄이 빠지거나 섞이지 않는지이고 대기 시간은 아니므로, 둘 다 대기 시간을 CONCURRENT_LOCK_TIMEOUT_S로
+# 늘려 돈다. 시간 초과 동작은 test_held_lock_times_out_and_nothing_is_written이 따로 본다.
 
 import json
 import os
@@ -27,6 +29,7 @@ from defect_inspect import ledger
 # 여러 프로세스 동시 기록 테스트에서 각 자식 프로세스가 실행할 코드. 준비 파일(ready)을 만든 뒤 go 파일이 생길
 # 때까지 기다렸다가 기록을 시작하므로, 모든 자식이 같은 순간에 장부를 두드리게 된다. 프로세스 시작 시간 차이
 # 때문에 사실상 순서대로 쓰는 일이 없게 하려는 장치다.
+# 자식은 잠금 대기 시간을 argv[6]으로 받는다(동시 기록 테스트의 대기 시간, 위 [주의]).
 # Child process for the multi-process test: waits for the "go" file, then appends argv[3] entries.
 CHILD = """
 import sys, time
@@ -34,12 +37,17 @@ from pathlib import Path
 from defect_inspect import ledger
 path, tag, n = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
 ready, go = Path(sys.argv[4]), Path(sys.argv[5])
+ledger.LOCK_TIMEOUT_S = float(sys.argv[6])
 ready.write_bytes(b"")
 while not go.exists():
     time.sleep(0.001)
 for i in range(n):
     ledger.record_test_access(path, stage=f"{tag}-{i}", config="c", commit="x")
 """
+
+# 동시 기록 테스트 두 개의 잠금 대기 시간(초). 기본 10초는 CPU가 바쁠 때 모자란 적이 있어 넉넉히 늘린다.
+# Lock wait of the two concurrent-append tests: they check that no line is lost, not how long a writer waits.
+CONCURRENT_LOCK_TIMEOUT_S = 120.0
 
 
 # 장부 파일 전체가 온전한지 검사하는 공용 도우미. 줄바꿈이 LF로만 끝나고, 모든 줄이 JSON으로 읽히며(끊기거나
@@ -160,7 +168,8 @@ def test_git_commit_in_a_real_repository(tmp_path):
 # Windows에서는 덧붙이기가 원자적이지 않아 두 기록자가 같은 끝 위치에 쓰면 한 줄이 덮일 수 있으므로, 잠금
 # 파일로 한 번에 하나씩만 쓰게 한 설계(ledger._locked docstring)를 확인하는 테스트다. 스레드 안의 예외는
 # errors에 모아 메인 스레드에서 단언한다.
-def test_concurrent_appends_from_threads_are_all_kept(tmp_path):
+def test_concurrent_appends_from_threads_are_all_kept(tmp_path, monkeypatch):
+    monkeypatch.setattr(ledger, "LOCK_TIMEOUT_S", CONCURRENT_LOCK_TIMEOUT_S)
     path = tmp_path / "ledger.jsonl"
     n_threads, n_each = 8, 50
     errors: list[BaseException] = []
@@ -195,9 +204,11 @@ def test_concurrent_appends_from_processes_are_all_kept(tmp_path):
     inherited = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([package_parent, *inherited]))
     ready = [tmp_path / f"ready-{p}" for p in range(n_procs)]
+    wait = str(CONCURRENT_LOCK_TIMEOUT_S)
     procs = [
         subprocess.Popen(
-            [sys.executable, "-c", CHILD, str(path), str(p), str(n_each), str(ready[p]), str(go)], env=env
+            [sys.executable, "-c", CHILD, str(path), str(p), str(n_each), str(ready[p]), str(go), wait],
+            env=env,
         )
         for p in range(n_procs)
     ]

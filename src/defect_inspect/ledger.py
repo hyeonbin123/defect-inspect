@@ -22,7 +22,8 @@ from pathlib import Path
 
 # 잠금 대기 시간(초). 다른 기록자가 잠금을 쥐고 있으면 10초까지 기다리다 TimeoutError를 낸다.
 # docs/experiments.md(서비스 모델 교체 절의 2026-10-04 정정)에는 CPU가 아주 바쁠 때 tests/test_ledger.py의
-# 동시 추가 테스트 두 개가 이 10초 안에 잠금을 얻지 못해 실패한 기록이 있다.
+# 동시 추가 테스트 두 개가 이 10초 안에 잠금을 얻지 못해 실패한 기록이 있다. 그 두 테스트는 이제 대기 시간을
+# 늘려 돈다(이 값 자체는 그대로).
 # LOCK_STALE_S: 이보다 오래된 잠금 파일은 기록 도중 죽은 프로세스가 남긴 것으로 보고 지운다. _LOCK_POLL_S:
 # 잠금을 다시 시도하는 간격(5ms).
 LOCK_TIMEOUT_S = 10.0  # how long an append waits for another writer before it gives up

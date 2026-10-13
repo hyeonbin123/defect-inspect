@@ -179,7 +179,7 @@ def pooled_rate_bootstrap(
 # 이상이면 "차이 있음", 그보다 작으면 "차이 작음"이다(docs/experiments.md 신뢰구간과 판정).
 # 점추정이나 구간이 NaN이면 차이로 보지 않고 "판정 불가"로 둔다. 비교 결과가 정의되지 않았는데 차이 있음으로
 # 잘못 나오는 것을 막는다.
-# 참고: 현재 src에서 직접 부르는 곳은 없다(compare.difference가 같은 규칙을 자체 코드로 적용한다).
+# 호출 위치: compare.difference(analyze_grid, analyze_export, analyze_stage6도 그 함수를 거친다).
 # tests/test_stats.py가 검증한다.
 def verdict(diff_samples: np.ndarray, point: float, min_effect: float) -> str:
     """Pre-registered verdict for a difference: its 95% percentile interval and a minimum effect size.

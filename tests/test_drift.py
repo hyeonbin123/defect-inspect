@@ -81,7 +81,7 @@ def test_the_martingale_alarms_soon_after_the_pvalues_turn_small():
     p[1, 40:] = 0.03
     alarm = drift.first_alarm(p)
     assert 40 <= alarm[0] <= 43 and 40 <= alarm[1] <= 50
-    # Without the jump, the best function would not have lost so much during the quiet stretch.
+    # Tiny p-values from the first step alarm within three steps; p = 0.5 throughout never alarms.
     assert drift.first_alarm(np.full((1, 3), 1e-12))[0] in (0, 1, 2)
     assert drift.first_alarm(np.full((1, 100), 0.5))[0] == -1
     with pytest.raises(ValueError):

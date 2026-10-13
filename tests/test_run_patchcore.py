@@ -145,7 +145,8 @@ def test_dev_run_feeds_the_analysis(tmp_path, monkeypatch):
 
 # --save-bank로 저장한 전체 뱅크(fp16, 코어셋 선택 순서)로 dev 결함을 다시 채점하면 실행이 기록한 점수와
 # 같아야 한다. 3단계 교란 실행(run_perturb)이 이 저장 뱅크를 읽어 새 조건을 채점하므로, 저장한 뱅크가 실제로
-# 쓴 뱅크와 같은지가 중요하다.
+# 쓴 뱅크와 같은지가 중요하다. 저장하는 뱅크는 전체 뱅크 하나뿐이고 겹 뱅크(minus_fold_*)는 남기지 않으므로,
+# 실행 폴더의 .npy 파일은 이 범주의 점수 맵과 그 뱅크 둘이어야 한다.
 def test_saved_bank_reproduces_the_scores(tmp_path):
     from defect_inspect.patchcore import score_images
 
@@ -160,7 +161,8 @@ def test_saved_bank_reproduces_the_scores(tmp_path):
     )
     with np.load(tmp_path / "toy.npz") as z:
         np.testing.assert_allclose(res.image_scores, z["eval_score_full"][8:], rtol=1e-5)
-    assert not (tmp_path / "other_bank.npy").exists()
+    # Only the full bank is kept: no fold bank is written next to it.
+    assert sorted(p.name for p in tmp_path.glob("*.npy")) == ["toy_bank.npy", "toy_maps.npy"]
 
 
 # 뱅크 저장은 선택 사항이라 기본 실행에서는 뱅크 파일을 남기지 않는다.

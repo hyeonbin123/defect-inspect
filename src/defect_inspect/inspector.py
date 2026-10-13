@@ -680,7 +680,8 @@ class ReconstructionInspector:
 
 # 단일 범주 아티팩트 폴더(모델 파일, bank.npy, meta.json)를 쓴다. 쓰기 전에 check_meta와 _check_bank로 형식을
 # 확인하고, 원본과 대상이 같은 파일이면 복사하지 않는다.
-# 이 저장소에서는 tests/test_export.py가 쓴다(실제 4단계 아티팩트는 export.build_artifacts가 만든다).
+# 이 저장소에서는 테스트만 쓴다(실제 4단계 아티팩트는 export.build_artifacts가 만든다). 두 함수가 쓰는
+# bank.npy·meta.json이 바이트까지 같다는 것은 tests/test_run_export_eval.py가 확인한다.
 def save_artifact(
     artifact_dir: Path, *, onnx_fp32: Path, bank: np.ndarray, meta: dict, onnx_int8: Path | None = None
 ) -> None:

@@ -269,7 +269,7 @@ uv run python -m defect_inspect.figures
 uv run python -m defect_inspect.figures --examples outputs/dm-test --allow-test --name examples-dinomaly
 uv run python -m defect_inspect.figures --examples outputs/p0-test --allow-test --name examples-patchcore
 ```
-`--allow-test`가 붙은 실행은 봉인 테스트 이미지(`run_m2ad`는 M2AD 테스트 이미지)를 읽고, 읽을 때마다 `reports/test_ledger.jsonl`에 한 줄을 남긴다. 테스트 이미지를 캐시로 옮기는 `cache`와 `m2ad`도 한 줄을 남긴다. `--protocol test`만 붙은 분석 명령(`compare`, `analyze_perturb`, `analyze_grid`)은 저장된 점수만 읽는다. 지연은 다른 프로그램이 CPU를 쓰지 않을 때 잰다(규칙 변경 6).
+`--allow-test`가 붙은 실행은 봉인 테스트 이미지(`run_m2ad`는 M2AD 테스트 이미지)를 읽고, 읽을 때마다 `reports/test_ledger.jsonl`에 한 줄을 남긴다. 테스트 이미지를 캐시로 옮기는 `cache`와 `m2ad`도 한 줄을 남긴다. 예외는 `run_m2ad --check`(3단계 M2AD 실험에 등록한 코드 점검)다. M2AD에는 검증 분할이 없어 `--allow-test` 없이 M2AD 테스트 이미지 가운데 Motor 시점 000 검사기의 기준 조명(S)과 I02 이미지만 읽고, 장부에 남기지 않으며 결과는 `<출력 폴더>-check`에 쓴다. `--protocol test`만 붙은 분석 명령(`compare`, `analyze_perturb`, `analyze_grid`)은 저장된 점수만 읽는다. 지연은 다른 프로그램이 CPU를 쓰지 않을 때 잰다(규칙 변경 6).
 
 ## 검사 서비스
 torch 없이 onnxruntime만으로 CPU에서 돈다. 6단계에서 가설을 지지한 Dinomaly ViT-S 모델(280px + CAR, `artifacts/dms-280-car`, FP32)을 서빙한다(2026-10-04에 4단계 PatchCore에서 바꿈). ONNX 모델 하나를 12개 범주가 같이 쓰고, 범주 폴더에는 임계값만 있다(메모리 뱅크 없음). 6단계 봉인 테스트 기준으로 이미지 AUROC 96.5, 목표 오검출률 5%에서 실제 오검출률 4.3%와 검출률 83.3%, 모델 경로의 CPU 지연 150ms(Ryzen 5 3600, CPU가 한가할 때, 1500×1000 사진의 리사이즈 + 정규화 + ONNX 한 번)다. 서비스의 `POST /inspect`는 여기에 업로드 읽기와 디코딩, 히트맵 PNG 인코딩이 더해지므로 응답의 `latency_ms`(데모 페이지의 "처리")는 이보다 크다. 서비스의 전체 응답 시간은 재지 않았다. 4단계 PatchCore 아티팩트(`defect_inspect.export`, 범주별 메모리 뱅크)도 그대로 읽는다. 모델 파일은 저장소에 없으므로 위 재현 명령(6단계의 `dinomaly_serving export`와 `calibrate`)으로 만든다. 교체한 서비스가 dev 이미지 1,398장에 6단계 기록과 같은 점수(최대 상대 차이 0)와 같은 임계값을 내는 것을 확인했다([교체 점검](docs/experiments.md#서비스-모델-교체-점검-규칙-2026-10-04-교체-전)).

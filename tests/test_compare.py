@@ -110,6 +110,15 @@ def test_difference_wording():
     assert compare.difference(-0.03, -clear)["verdict"] == "차이 있음"
 
 
+# 확인: 점 추정이 NaN이면 구간이 0을 포함하지 않아도 '판정 불가'다(stats.verdict와 같은 규칙). abs(NaN) ≥ 최소
+# 효과가 거짓이라, 따로 막지 않으면 정의되지 않은 차이가 '차이 작음'으로 나온다.
+def test_difference_with_an_undefined_point_is_inconclusive():
+    clear = np.random.default_rng(0).normal(0.03, 0.005, 500)
+    for samples in (clear, -clear):
+        d = compare.difference(float("nan"), samples)
+        assert d["verdict"] == "판정 불가" and d["ci"][0] * d["ci"][1] > 0
+
+
 # 확인: 한 범주라도 평가 이미지 순서가 다른 실행을 섞으면 'different images' ValueError다. 같은 인덱스로
 # 부트스트랩을 짝짓기 때문에 이미지가 어긋나면 비교 자체가 무의미해진다.
 def test_different_evaluation_images_are_rejected():

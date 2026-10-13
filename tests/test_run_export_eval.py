@@ -30,7 +30,7 @@ from defect_inspect import (  # noqa: E402
     run_export_eval,
     run_grid,
 )
-from defect_inspect.inspector import Inspector  # noqa: E402
+from defect_inspect.inspector import Inspector, save_artifact  # noqa: E402
 from defect_inspect.patchcore import score_images  # noqa: E402
 from defect_inspect.splits import ManifestRow  # noqa: E402
 
@@ -537,3 +537,33 @@ def test_grid_without_saved_banks_is_refused(world):
         export.build_artifacts(grid_dir, 0.5, world / "artifacts" / "x")
     with pytest.raises(SystemExit):
         run_export_eval.main(["--grid", str(grid_dir), "--ratio", "0.5", "--artifacts", str(world / "x")])
+
+
+# inspector.save_artifact(단일 폴더 배치, 테스트가 쓰는 쪽)와 export.build_artifacts(세트 배치, 4단계
+# 아티팩트를 만든 쪽)가 같은 형식을 쓰는지 본다. 같은 뱅크·meta·모델을 save_artifact로 다시 쓰면 bank.npy와
+# meta.json이 바이트까지 같고, 모델 파일만 범주 폴더 안에 놓인다. 두 폴더를 같은 세트에 두면
+# 서비스(load_inspectors)가 둘 다 읽고 같은 점수를 낸다. 두 함수가 따로 쓰므로 한쪽 형식만 바뀌는 일을 여기서
+# 잡는다.
+def test_save_artifact_writes_what_build_artifacts_writes(world):
+    pytest.importorskip("fastapi")
+    from defect_inspect.service import load_inspectors
+
+    grid_dir = _grid(world, "dev")
+    art = world / "artifacts" / "tiny"
+    export.build_artifacts(grid_dir, 0.25, art, int8=False)
+    built = art / "toy"
+    meta = json.loads((built / "meta.json").read_text(encoding="utf-8"))
+    one = art / "toy-saved"
+    save_artifact(
+        one,
+        onnx_fp32=art / "model_fp32.onnx",
+        bank=np.load(built / "bank.npy"),
+        meta={k: v for k, v in meta.items() if k != "version"},  # save_artifact adds the version
+    )
+    assert sorted(p.name for p in one.iterdir()) == ["bank.npy", "meta.json", "model_fp32.onnx"]
+    for name in ("bank.npy", "meta.json"):
+        assert (one / name).read_bytes() == (built / name).read_bytes(), name
+    inspectors = load_inspectors(art, threads=1)
+    assert sorted(inspectors) == ["toy", "toy-saved", "two"]
+    images = FakeCache(_manifest()).images([r for r in _manifest() if r.category == "toy"][:4])
+    np.testing.assert_array_equal(inspectors["toy-saved"].scores(images), inspectors["toy"].scores(images))

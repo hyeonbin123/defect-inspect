@@ -7,7 +7,8 @@ Needs torch and anomalib (the `train` and `dinomaly` groups). Every change keeps
   that no interpolation runs per image. The same resampling function runs as in the dynamic path.
 - `ScaledLinearAttention` divides the keys by the number of tokens. The output of linear attention is
   `(q @ (k^T v)) / (q . sum(k))`: the factor cancels, but the sums that overflowed fp16 in stage 2
-  (`work/dinomaly_nan_probe_cpu.json`: q.kv up to 89,101) shrink by that factor.
+  (an fp32 probe on the CPU, not kept in the repository: q.kv up to 89,101; docs/experiments.md,
+  stage 6) shrink by that factor.
 - `Fp32LinearAttention` runs the attention in fp32 with autocast switched off (the fallback of the
   fp16 gate in docs/experiments.md, stage 6).
 - `ServingGraph` is the inference path of `DinomalyModel.forward` plus the map resize of

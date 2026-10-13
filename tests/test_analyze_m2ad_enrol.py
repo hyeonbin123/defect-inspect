@@ -228,7 +228,7 @@ def test_the_detection_guard_and_the_other_verdicts():
     report = an.build_test_report({"p0": _test_run("e3", 0.5, pick_ref_defect=0.5)}, n_boot=50)
     v = report["methods"]["p0"]["verdicts"]
     assert v["H18"] == "지지" and v["d_reference_tpr"] == -1.0 and not v["guard_ok"] and not v["improved"]
-    # Half the unseen normals still flagged: the drop is 50 points at most, so H18 is rejected.
+    # Every unseen normal is still flagged, as under E0: the drop is 0, above -50 points, so H18 is rejected.
     report = an.build_test_report({"p0": _test_run("e1", 2.0)}, n_boot=50)
     assert report["methods"]["p0"]["verdicts"]["H18"] == "기각"
     # The pick was e0 itself: nothing to compare, rejected.
