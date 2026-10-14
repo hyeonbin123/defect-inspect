@@ -1,6 +1,6 @@
-"""Synthetic image perturbations on uint8 RGB arrays shaped [S, S, 3] or [N, S, S, 3].
+"""[S, S, 3] 또는 [N, S, S, 3] 모양의 uint8 RGB 배열에 거는 합성 이미지 교란.
 
-Every function returns a new uint8 array of the same shape and never modifies its input.
+모든 함수는 같은 모양의 새 uint8 배열을 돌려주고 입력은 절대 바꾸지 않는다.
 """
 
 # [파일 역할] 3단계(조건 변화)에서 쓰는 합성 교란 다섯 종류(밝기 배율, 감마, 가우시안 흐림, 평행 이동, JPEG
@@ -44,9 +44,9 @@ def _check_images(images: np.ndarray) -> np.ndarray:
 
 # 픽셀마다 같은 함수를 적용하는 교란(밝기, 감마)을 256칸 변환표 하나로 처리한다. 값 0~255마다 결과를 한 번만
 # 계산하고 배열 인덱싱(lut[images])으로 전체에 적용하므로 이미지 수와 무관하게 계산이 싸다.
-# np.rint는 0.5를 짝수 쪽으로 반올림한다(docstring의 round half to even).
+# np.rint는 0.5를 짝수 쪽으로 반올림한다(round half to even).
 def _lookup(images: np.ndarray, values: np.ndarray) -> np.ndarray:
-    """Apply a pointwise map given as 256 float values (rounded half to even, clipped to 0..255)."""
+    """256개 float 값으로 주어진 픽셀별 변환을 적용한다(0.5는 짝수 쪽으로 반올림, 0..255로 자름)."""
     lut = np.clip(np.rint(values), 0, 255).astype(np.uint8)
     return lut[_check_images(images)]
 
@@ -55,7 +55,7 @@ def _lookup(images: np.ndarray, values: np.ndarray) -> np.ndarray:
 # 낸다. 1보다 크면 밝아지고 255에서 잘린다.
 # README 결과: WideResNet PatchCore는 20~30% 어둡게 했을 때 AUROC는 그대로인데 오검출률이 15%, 41%로 뛰었다.
 def brightness(images: np.ndarray, factor: float) -> np.ndarray:
-    """Multiply pixel values by ``factor``, clip to 0..255 and round."""
+    """픽셀 값에 ``factor``를 곱하고 반올림한 뒤 0..255로 자른다."""
     factor = float(factor)
     # NaN·무한대·음수 배율은 의미 있는 교란이 아니므로 거절한다.
     if not (math.isfinite(factor) and factor >= 0):
@@ -66,7 +66,7 @@ def brightness(images: np.ndarray, factor: float) -> np.ndarray:
 # 감마 교란: 255 * (x / 255) ** g. 밝기 배율과 달리 어두운 쪽과 밝은 쪽을 다르게 바꿔 조명 곡선이 달라진
 # 상황을 흉내 낸다(강도 표 1.1, 1.25, 1.5로 모두 어둡게).
 def gamma(images: np.ndarray, g: float) -> np.ndarray:
-    """Gamma curve ``255 * (x / 255) ** g`` (g > 1 darkens, g < 1 brightens)."""
+    """감마 곡선 ``255 * (x / 255) ** g``(g > 1이면 어두워지고 g < 1이면 밝아진다)."""
     if not g > 0:
         raise ValueError(f"g must be positive, got {g}")
     return _lookup(images, 255.0 * (np.arange(256, dtype=np.float64) / 255.0) ** float(g))
@@ -76,7 +76,7 @@ def gamma(images: np.ndarray, g: float) -> np.ndarray:
 # 값(conditions.strength가 S÷256을 곱함)으로 받는다.
 # mode="nearest"로 가장자리 픽셀을 복제해 테두리가 검게 번지지 않게 한다.
 def gaussian_blur(images: np.ndarray, sigma: float) -> np.ndarray:
-    """Gaussian blur over the two spatial axes of each image and channel, edges replicated."""
+    """이미지마다, 채널마다 두 공간 축으로 가우시안 흐림을 준다. 가장자리는 복제한다."""
     arr = _check_images(images)
     sigma = float(sigma)
     if not (math.isfinite(sigma) and sigma >= 0):
@@ -89,7 +89,7 @@ def gaussian_blur(images: np.ndarray, sigma: float) -> np.ndarray:
     flat = arr.reshape((-1, *arr.shape[-3:]))
     out = np.empty_like(flat)
     for i, img in enumerate(flat):
-        # sigma 0 on the channel axis: channels are filtered independently.
+        # 채널 축의 sigma는 0: 채널끼리 섞지 않고 채널마다 따로 거른다.
         blurred = ndimage.gaussian_filter(img.astype(np.float64), sigma=(sigma, sigma, 0), mode="nearest")
         out[i] = np.clip(np.rint(blurred), 0, 255).astype(np.uint8)
     return out.reshape(arr.shape)
@@ -101,7 +101,7 @@ def gaussian_blur(images: np.ndarray, sigma: float) -> np.ndarray:
 # 인덱스가 가장자리 복제가 된다.
 # README 결과: DINOv2 특징을 쓰는 두 방법은 256px 기준 1~2px 어긋남에 크게 무너졌다.
 def shift(images: np.ndarray, dx: int, dy: int) -> np.ndarray:
-    """Translate by whole pixels (positive dx: right, positive dy: down), replicating the edges."""
+    """정수 픽셀만큼 평행 이동한다(dx가 양수면 오른쪽, dy가 양수면 아래). 빈 쪽은 가장자리를 복제한다."""
     arr = _check_images(images)
     height, width = arr.shape[-3], arr.shape[-2]
     rows = np.clip(np.arange(height) - int(dy), 0, height - 1)
@@ -114,7 +114,7 @@ def shift(images: np.ndarray, dx: int, dy: int) -> np.ndarray:
 # 이 저장소에서는 tests/test_perturb.py만 이 함수를 부른다(3-A는 픽셀 지표를 재지 않는다는 규칙,
 # docs/experiments.md).
 def shift_mask(masks: np.ndarray, dx: int, dy: int) -> np.ndarray:
-    """Translate [..., H, W] masks like ``shift``; the vacated area becomes 0."""
+    """[..., H, W] 마스크를 ``shift``처럼 옮긴다. 비게 된 영역은 0이 된다."""
     arr = np.asarray(masks)
     if arr.ndim < 2:
         raise ValueError(f"masks must be [..., H, W], got shape {arr.shape}")
@@ -147,7 +147,7 @@ def _jpeg_one(img: np.ndarray, quality: int) -> np.ndarray:
 # JPEG 압축 교란(강도 표 품질 90, 70, 50). 전송·저장 과정의 압축 손실을 흉내 낸다. 품질 외 설정은 PIL
 # 기본값이라 결과가 PIL 버전에 묶인다.
 def jpeg(images: np.ndarray, quality: int) -> np.ndarray:
-    """JPEG encode/decode round trip with PIL at the given quality (PIL defaults otherwise)."""
+    """주어진 품질로 PIL JPEG 인코딩·디코딩을 한 번 왕복한다(품질 외 설정은 PIL 기본값)."""
     arr = _check_images(images)
     quality = int(quality)
     if not 1 <= quality <= 100:
@@ -162,9 +162,9 @@ def jpeg(images: np.ndarray, quality: int) -> np.ndarray:
 # 이름으로 교란 함수를 고르는 진입점. conditions.apply_condition이 크기 환산을 마친 값(value)과 함께 부른다.
 # shift는 dx = dy = value로 오른쪽 아래 대각선으로 민다(강도 표의 '오른쪽 아래로').
 def apply(images: np.ndarray, kind: str, value: float) -> np.ndarray:
-    """Dispatch by name: brightness | gamma | blur | shift | jpeg.
+    """이름으로 교란 함수를 고른다: brightness | gamma | blur | shift | jpeg.
 
-    ``shift`` moves by (dx=int(value), dy=int(value)); ``jpeg`` uses quality int(value).
+    ``shift``는 (dx=int(value), dy=int(value))만큼 옮기고, ``jpeg``는 품질 int(value)를 쓴다.
     """
     if kind == "brightness":
         return brightness(images, float(value))

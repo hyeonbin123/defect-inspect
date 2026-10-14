@@ -1,10 +1,9 @@
-"""PatchCore inspectors on M2AD: one per (category, view), under synthetic and real illumination changes.
+"""M2AD의 PatchCore 검사기: (범주, 시점)마다 하나씩, 합성 교란과 실제 조명 변화에서 채점한다.
 
-Per inspector this writes `<out>/<category>_<view>.npz`: the scores of the test specimens under the
-reference illumination (S), the 15 synthetic conditions applied to it (P) and the nine other real
-illuminations (R), the cross-fitted threshold, and the scores and thresholds after recalibration with
-normal images under each new illumination. Tables are made by `defect_inspect.analyze_m2ad`.
-Rules: docs/experiments.md, stage 3-B.
+검사기마다 `<out>/<category>_<view>.npz`를 쓴다: 기준 조명(S), 거기에 건 합성 교란 15조건(P), 실제 다른
+조명 아홉 가지(R)에서의 테스트 시편 점수, 교차 적합 임계값, 그리고 새 조명마다 그 조명의 정상 이미지로
+재보정한 뒤의 점수와 임계값. 표는 `defect_inspect.analyze_m2ad`가 만든다.
+규칙: docs/experiments.md, 3-B단계.
 """
 
 # [파일 역할] 3-B 실행 스크립트. M2AD의 (범주, 시점)마다 PatchCore 검사기 하나(모두 6개)를 기준 조명 I01의
@@ -59,13 +58,12 @@ from .splits import SealedTestError
 ALPHA = 0.05
 METHODS = ("p0", "d-s")
 # M2AD에는 공식 검증 분할이 없으므로, 등록한 코드 점검은 Motor 시점 000 검사기 하나에서 조건 S와 I02만
-# 돌린다(experiments.md 3-B). 결과는 '기준 조명 오검출 0/20, I02 오검출 20/20'으로 기록돼 있다.
-# The registered code check: one inspector, the reference condition and one real illumination.
+# 돌린다(experiments.md 3-B): 검사기 하나, 기준 조건 하나, 실제 조명 하나. 결과는 '기준 조명 오검출 0/20,
+# I02 오검출 20/20'으로 기록돼 있다.
 CHECK_INSPECTOR = ("Motor", "000")
 CHECK_ILLUMINATIONS = ("02",)
-# 3-B는 이미지 점수만 쓰고 맵을 저장하지 않으므로, 맵 크기를 32로 줄여 계산을 아낀다. 이미지 점수는 맵 크기와
-# 무관하다(기존 영어 주석).
-# Score maps are not kept here, and image scores do not depend on the size the maps are resized to.
+# 3-B는 이미지 점수만 쓰고 점수 맵을 저장하지 않으므로, 맵 크기를 32로 줄여 계산을 아낀다. 이미지 점수는 맵을
+# 어떤 크기로 맞추든 달라지지 않는다.
 _MAP_SIZE = 32
 
 
@@ -77,7 +75,7 @@ def real_illuminations() -> list[str]:
 # 조건 이름 목록: S(기준 조명), P:<교란 이름> 15개, R:<조명> 9개 순서. 점검 실행(check)은 S와 R:02만. 이
 # 순서가 npz의 scores 행 순서다.
 def condition_list(check: bool = False) -> list[str]:
-    """`S`, then `P:<name>` for the 15 synthetic conditions, then `R:<LL>` for illuminations 02..10."""
+    """`S`, 이어서 합성 교란 15조건의 `P:<name>`, 이어서 조명 02..10의 `R:<LL>`."""
     if check:
         return ["S", *(f"R:{light}" for light in CHECK_ILLUMINATIONS)]
     synthetic = condition_names(include_clean=False)
@@ -86,7 +84,7 @@ def condition_list(check: bool = False) -> list[str]:
 
 # 재보정 결과의 키 목록: '<조명>:<n>'(예: 02:8, 02:30). 조명이 바깥 순서, 재보정 장수가 안쪽 순서다.
 def recal_key_list(recal_sizes: Sequence[int] = RECAL_SIZES) -> list[str]:
-    """`<LL>:<n>` for every new illumination and recalibration size, illuminations first."""
+    """새 조명마다, 재보정 장수마다 `<LL>:<n>`. 조명이 바깥 순서다."""
     return [f"{light}:{n}" for light in real_illuminations() for n in recal_sizes]
 
 
@@ -95,7 +93,7 @@ def recal_key_list(recal_sizes: Sequence[int] = RECAL_SIZES) -> list[str]:
 def inspector_rows(
     rows: Sequence[M2adRow], category: str, view: str, split: str, illumination: str
 ) -> list[M2adRow]:
-    """The images one inspector sees under one illumination: one per specimen, sorted by specimen name."""
+    """검사기 하나가 한 조명에서 보는 이미지: 시편마다 한 장, 시편 이름 순."""
     wanted = (category, view, split, illumination)
     picked = sorted(
         (r for r in rows if (r.category, r.view, r.split, r.illumination) == wanted), key=lambda r: r.specimen
@@ -120,10 +118,10 @@ def _same_specimens(picked: list[M2adRow], names: list[str], what: str) -> None:
 def crossfit(
     build: Callable, score: Callable, feats, images: np.ndarray, folds: np.ndarray
 ) -> tuple[object, np.ndarray, Threshold, dict[str, int]]:
-    """Bank of all images, their cross-fitted scores and the conformal threshold from those scores.
+    """모든 이미지로 만든 뱅크, 그 이미지들의 교차 적합 점수, 그 점수로 정한 conformal 임계값.
 
-    `feats` is [M, P, D] (torch), `images` uint8 [M, S, S, 3], `folds` int [M]. Every image is scored by a
-    bank built without its fold; images of one specimen share a fold, so they are held out together.
+    `feats`는 [M, P, D](torch), `images`는 uint8 [M, S, S, 3], `folds`는 int [M]이다. 이미지마다 자기 겹을
+    빼고 만든 뱅크로 채점한다. 한 시편의 이미지들은 같은 겹이라 함께 빠진다.
     """
     import torch
 
@@ -166,10 +164,10 @@ def run_inspector(
     check: bool = False,
     recal_sizes: Sequence[int] = RECAL_SIZES,
 ) -> dict:
-    """Build, calibrate, score and recalibrate the inspector of one (category, view); write its npz.
+    """(범주, 시점) 하나의 검사기를 만들고 보정·채점·재보정한 뒤 npz를 쓴다.
 
-    Test images are read only with `allow_test=True`, or by the registered check (`check=True` on
-    CHECK_INSPECTOR: conditions S and R:02, no recalibration).
+    테스트 이미지는 `allow_test=True`일 때, 또는 등록된 점검(CHECK_INSPECTOR에서 `check=True`: 조건 S와
+    R:02만, 재보정 없음)에서만 읽는다.
     """
     import torch
 
@@ -215,7 +213,6 @@ def run_inspector(
 
     # 1~2단계: 학습 시편 30개의 기준 조명 이미지 30장으로 뱅크를 만들고, 시편 이름 SHA-256 순 5겹 교차
     # 적합으로 임계값을 정한다(experiments.md 3-B '기준 조명', '임계값').
-    # 1-2. Reference bank and cross-fitted threshold from the train specimens under the reference light.
     train_ref = inspector_rows(rows, category, view, "train", REFERENCE)
     if not train_ref:
         raise ValueError(f"no train images for {category} {view} under illumination {REFERENCE}")
@@ -228,8 +225,8 @@ def run_inspector(
     ref_feats, grid = features(ref_images)
     bank, cal_score, thr, bank_rows = crossfit(build, score, ref_feats, ref_images, folds)
 
-    # 3단계: 테스트 시편의 기준 조명 이미지와 라벨을 읽는다. 테스트 이미지를 읽는 곳은 여기뿐이다.
-    # 3. Conditions on the test specimens (the only place where test images are read).
+    # 3단계: 테스트 시편에서 조건별 채점. 먼저 기준 조명 이미지와 라벨을 읽는다. 테스트 이미지를 읽는 곳은 이
+    # 3단계뿐이다.
     test_ref = inspector_rows(rows, category, view, "test", REFERENCE)
     if not test_ref:
         raise ValueError(f"no test images for {category} {view} under illumination {REFERENCE}")
@@ -272,9 +269,7 @@ def run_inspector(
         # 4단계(실제 조명 R에서만, 점검 실행은 제외): 새 조명 L의 학습 시편 앞 n개(SHA-256 순, n = 8, 30)
         # 이미지를 기준 조명 30장에 더해 뱅크를 다시 만들고, 더한 이미지까지 넣은 시편 단위 5겹 교차 적합으로
         # 임계값을 다시 정한 뒤, 조명 L의 테스트 이미지를 채점한다(experiments.md 3-B '재보정'). 새 이미지의
-        # 겹은 같은 시편의 기준 조명 이미지와 같다.
-        # 4. Recalibration under the new illumination `arg`: its train images join the bank and the
-        # cross-fitting. A specimen's reference and new images share a fold.
+        # 겹은 같은 시편의 기준 조명 이미지와 같다. 코드에서 새 조명 L은 `arg`다.
         new_rows = inspector_rows(rows, category, view, "train", arg)
         _same_specimens(new_rows, train_names, f"{category} {view} train, illumination {arg}")
         new_images = cache.images(new_rows)
@@ -351,23 +346,23 @@ def _make_extractor(cfg: PatchCoreConfig, device: str):
 # --allow-test와 --stage가 있어야 하고 장부에 한 줄 남긴다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--method", choices=METHODS, required=True, help="PatchCore config")
+    parser.add_argument("--method", choices=METHODS, required=True, help="PatchCore 구성")
     parser.add_argument(
         "--check",
         action="store_true",
-        help="registered code check: the Motor 000 inspector with S and R:02 only, into <out>-check",
+        help="등록한 코드 점검: Motor 000 검사기에서 S와 R:02만 돌려 <out>-check에 쓴다",
     )
     parser.add_argument("--categories", nargs="+", choices=CATEGORIES, default=list(CATEGORIES))
-    parser.add_argument("--out", type=Path, default=None, help="default: outputs/m2ad-<method>")
+    parser.add_argument("--out", type=Path, default=None, help="기본값: outputs/m2ad-<method>")
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--allow-test", action="store_true", help="read the M2AD test images (logged)")
+    parser.add_argument("--allow-test", action="store_true", help="M2AD 테스트 이미지를 읽는다(장부에 기록)")
     parser.add_argument(
-        "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
+        "--stage", default="", help="봉인 테스트 장부에 남길 단계 이름(--allow-test와 함께 필수)"
     )
     parser.add_argument("--note", default="")
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--jsons", type=Path, default=None, help="default: data/raw/m2ad/jsons.zip")
-    parser.add_argument("--cache", type=Path, default=None, help="cache directory (data/cache)")
+    parser.add_argument("--jsons", type=Path, default=None, help="기본값: data/raw/m2ad/jsons.zip")
+    parser.add_argument("--cache", type=Path, default=None, help="캐시 폴더(기본값: data/cache)")
     args = parser.parse_args(argv)
 
     # 인자 점검: 전체 측정은 M2AD 테스트 이미지를 읽으므로 --allow-test와 --stage가 필요하다. 점검 실행은 출력
@@ -382,7 +377,6 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(f"{out_dir} already holds a finished run; pass --overwrite to redo it")
 
     # 메타데이터·캐시·백본 준비처럼 테스트 이미지 없이 실패할 수 있는 일을 장부 기록 전에 끝낸다.
-    # Everything that can fail without touching a test image comes before the ledger line.
     rows = read_meta(args.jsons or paths.RAW / "m2ad" / "jsons.zip")
     cache = M2adCache(args.cache or paths.CACHE, cfg.img_size)
     extractor = _make_extractor(cfg, args.device)
@@ -398,10 +392,9 @@ def main(argv: list[str] | None = None) -> None:
         record_test_access(
             paths.TEST_LEDGER, stage=args.stage, config=f"m2ad-{args.method}", note=args.note, commit=commit
         )
-    # 옛 run.json(완성 표시)을 장부 기록 뒤에 지운다. 장부 기록이 실패하면 아무것도 읽지 않고 이전 실행 결과도
-    # 그대로 두기 위해서다(기존 영어 주석).
-    # With --overwrite: an interrupted rerun must not look like the finished run it replaces. Only now,
-    # after the ledger line: a rerun that could not be recorded reads nothing and leaves that run as it is.
+    # --overwrite로 다시 돌릴 때, 중간에 끊긴 재실행이 그것이 대신하는 완성된 실행처럼 보이면 안 되므로 옛
+    # run.json(완성 표시)을 지운다. 지우는 시점은 장부 기록 뒤다: 장부에 기록하지 못한 재실행은 아무것도 읽지
+    # 않고 이전 실행 결과를 그대로 둔다.
     (out_dir / "run.json").unlink(missing_ok=True)
 
     summaries = []
@@ -430,7 +423,7 @@ def main(argv: list[str] | None = None) -> None:
         "method": args.method,
         "config": asdict(cfg),
         "commit": commit,
-        # Coreset selection differs between devices at float rounding level.
+        # 코어셋 선택은 장치에 따라 부동소수 반올림 수준으로 달라진다.
         "device": args.device,
         "check": args.check,
         "alpha": ALPHA,

@@ -1,9 +1,8 @@
-"""One PatchCore setting (backbone + input size) at several coreset ratios, with cross-fitted scores.
+"""PatchCore 설정 하나(백본 + 입력 크기)를 여러 코어셋 비율로 채점하고 교차 적합 점수를 함께 낸다.
 
-Greedy k-center selection is nested: the bank for a smaller ratio is a prefix of the bank built for the
-largest ratio. So the expensive selection runs once per bank (the full bank and one bank per fold), and
-every ratio only re-scores. Each ratio gets its own folder in the `run_patchcore` layout, readable by
-`compare.load_patchcore`.
+탐욕적 k-center 선택은 앞에서부터 포함 관계다: 작은 비율의 뱅크는 가장 큰 비율로 만든 뱅크의 앞부분이다.
+그래서 비싼 선택은 뱅크마다(전체 뱅크 하나와 겹마다 하나) 한 번만 돌리고, 비율마다 채점만 다시 한다. 비율마다
+`run_patchcore`와 같은 구조의 폴더를 따로 만들어 `compare.load_patchcore`가 읽을 수 있게 한다.
 """
 
 # [파일 역할] 4단계 격자 실행 스크립트. PatchCore 설정 하나(백본 + 입력 크기)를 코어셋 비율 여러 개(기본 10%,
@@ -47,14 +46,14 @@ BACKBONES = ("wrn50", "dinov2_vits14", "dinov2_vitb14")
 # 비율 폴더 이름(예: r0.01). float의 repr을 쓰므로 같은 비율은 항상 같은 이름이 되고, _is_ratio_folder가 같은
 # 규칙으로 이름을 되짚어 확인한다.
 def ratio_name(ratio: float) -> str:
-    """Folder name of a ratio: `r0.1`, `r0.01`, `r0.001`."""
+    """비율의 폴더 이름: `r0.1`, `r0.01`, `r0.001`."""
     return f"r{float(ratio)!r}"
 
 
 # 전체 패치 수와 비율로 뱅크 행 수를 계산한다. patchcore.build_bank와 같은 반올림이어야 '10% 뱅크의 앞 1% 행 =
 # 1%로 직접 만든 뱅크'가 성립한다. export와 run_export_eval도 이 함수로 같은 길이를 잘라 쓴다.
 def ratio_rows(n_features: int, ratio: float) -> int:
-    """Bank rows for `ratio` of `n_features` patch features: the same rounding as `patchcore.build_bank`."""
+    """패치 특징 `n_features`개에서 `ratio`만큼 남길 뱅크 행 수(`patchcore.build_bank`와 같은 반올림)."""
     return n_features if ratio >= 1 else max(1, round(ratio * n_features))
 
 
@@ -78,7 +77,7 @@ def _remove_if_empty(folder: Path) -> None:
     try:
         folder.rmdir()
     except OSError:
-        pass  # something that is not a grid output is in there: keep the folder
+        pass  # 격자 출력이 아닌 것이 들어 있다: 폴더를 남겨 둔다
 
 
 # 출력 폴더에 이전 실행이 남긴 결과를 지운다. 이전(또는 중간에 끊긴) 실행의 다른 비율·범주 결과가 남아 있으면
@@ -86,12 +85,11 @@ def _remove_if_empty(folder: Path) -> None:
 # 지우고, 최상위 run.json을 먼저 지워 '완성' 표시부터 없앤다.
 # 호출 위치: main(--overwrite이거나 새 실행일 때, 장부 기록 전).
 def clear_outputs(out_dir: Path) -> None:
-    """Delete what earlier calls wrote to `out_dir`: run.json, the ratio folders' runs, the saved banks.
+    """이전 호출이 `out_dir`에 쓴 것을 지운다: run.json, 비율 폴더의 결과, 저장한 뱅크.
 
-    A call owns its output folder: results of other ratios or categories left by an earlier (or an
-    interrupted) call would otherwise still load as a finished run through `compare.load_patchcore`.
-    Only files with the names this module writes are deleted. The top-level run.json goes first, so the
-    folder stops counting as finished before anything else changes.
+    한 호출은 출력 폴더를 혼자 쓴다. 이전(또는 중간에 끊긴) 호출이 남긴 다른 비율·범주 결과가 있으면
+    `compare.load_patchcore`를 거쳐 완성된 실행처럼 읽히기 때문이다. 이 모듈이 쓰는 이름의 파일만 지운다.
+    최상위 run.json을 맨 먼저 지워, 다른 것이 바뀌기 전에 폴더가 '완성'으로 세어지지 않게 한다.
     """
     (out_dir / "run.json").unlink(missing_ok=True)
     for folder in sorted(p for p in out_dir.glob("r*") if p.is_dir() and _is_ratio_folder(p.name)):
@@ -123,7 +121,7 @@ def run_category(
     out_dir: Path,
     save_banks: bool = False,
 ) -> dict[float, dict]:
-    """Build the banks at `cfg.coreset_ratio` (the largest ratio) and score every ratio in `ratios`."""
+    """`cfg.coreset_ratio`(가장 큰 비율)로 뱅크들을 만들고 `ratios`의 비율마다 채점한다."""
     import torch
 
     from .patchcore import build_bank, collect_features, score_images
@@ -173,8 +171,8 @@ def run_category(
     folds = np.array([r.fold for r in pool], dtype=np.int64)
 
     # 코어셋 선택은 여기서만 한다: 전체 풀로 한 번, 겹마다 '그 겹을 뺀 풀'로 한 번. 각 뱅크가 고른 원래 패치
-    # 수 n을 같이 저장해 두어야, 나중에 비율별 행 수(ratio_rows(n, ratio))를 build_bank와 같게 계산할 수 있다.
-    # The selections: one for the full pool, one per fold without that fold. N = patches they chose from.
+    # 수 n(선택의 모집단 크기)을 같이 저장해 두어야, 나중에 비율별 행 수(ratio_rows(n, ratio))를 build_bank와
+    # 같게 계산할 수 있다.
     full_bank = build_bank(feats.reshape(-1, dim), cfg.coreset_ratio, seed=cfg.seed, device=device)
     n_full = len(pool) * per_image
     fold_banks: dict[int, tuple[torch.Tensor, int]] = {}
@@ -281,22 +279,24 @@ def _ratio_config(cfg: PatchCoreConfig, ratio: float) -> dict:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--backbone", choices=BACKBONES, required=True)
-    parser.add_argument("--size", type=int, required=True, help="input size (a multiple of 14 for DINOv2)")
+    parser.add_argument("--size", type=int, required=True, help="입력 크기(DINOv2는 14의 배수)")
     parser.add_argument("--protocol", choices=["dev", "test"], required=True)
     parser.add_argument("--ratios", nargs="+", type=float, default=[0.1, 0.01, 0.001])
     parser.add_argument("--categories", nargs="+", default=list(CATEGORIES))
     parser.add_argument(
-        "--out", type=Path, default=None, help="default: outputs/grid-<backbone>-<size>-<protocol>"
+        "--out", type=Path, default=None, help="기본값: outputs/grid-<backbone>-<size>-<protocol>"
     )
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--save-banks", action="store_true", help="keep the full and the minus-fold banks")
-    parser.add_argument("--allow-test", action="store_true", help="read the sealed test set (logged)")
     parser.add_argument(
-        "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
+        "--save-banks", action="store_true", help="전체 뱅크와 겹을 뺀 뱅크들을 banks/에 저장해 둔다"
+    )
+    parser.add_argument("--allow-test", action="store_true", help="봉인 테스트 세트를 읽는다(장부에 기록)")
+    parser.add_argument(
+        "--stage", default="", help="봉인 테스트 장부에 남길 단계 이름(--allow-test와 함께 필수)"
     )
     parser.add_argument("--note", default="")
     parser.add_argument(
-        "--overwrite", action="store_true", help="redo a finished run (its outputs are deleted first)"
+        "--overwrite", action="store_true", help="끝난 실행을 다시 한다(이전 출력은 먼저 지운다)"
     )
     args = parser.parse_args(argv)
 
@@ -319,14 +319,13 @@ def main(argv: list[str] | None = None) -> None:
 
     # 테스트 이미지를 건드리지 않고 실패할 수 있는 것(범주 중복, 매니페스트에 없는 범주, 캐시 없음, 백본
     # 생성)을 모두 장부 기록 전에 확인한다. 실패한 실행이 '봉인 테스트를 읽었다'는 기록만 남기는 일을 막는다.
-    # Everything that can fail without touching a test image comes before the ledger line.
     manifest = read_manifest(paths.VISA_MANIFEST)
     for category in args.categories:
         if args.categories.count(category) > 1:
             parser.error(f"--categories lists {category} twice")
         empty = [
             part
-            for part in PARTS  # manifest rows only: no image is read here
+            for part in PARTS  # 매니페스트 행만 본다: 여기서는 이미지를 읽지 않는다
             if not select(
                 manifest, protocol=args.protocol, part=part, category=category, allow_test=args.allow_test
             )

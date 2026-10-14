@@ -38,9 +38,9 @@ from defect_inspect.splits import ManifestRow  # noqa: E402
 # 같은 형식이다.
 SIZE = 64
 DIM = 12
-PATCHES = 64  # 8 x 8 patch features per image
-# 모든 테스트가 같이 쓰는 전역 읽기 기록. _world가 테스트마다 비운다.
-# Every read of the fake cache: (roles of the rows, their image names).
+PATCHES = 64
+# 모든 테스트가 같이 쓰는 전역 읽기 기록. 가짜 캐시를 읽을 때마다 (읽은 행의 역할들, 이미지 이름들)이 쌓이고,
+# _world가 테스트마다 비운다.
 EVENTS: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
 
 
@@ -115,7 +115,7 @@ def _manifest(categories=("toy", "two"), normals=30, fold_of=lambda i: i % 5):
 # 겹 크기가 서로 다르고(7, 7, 7, 6, 6) 매니페스트 순서가 겹 순서와 다른 매니페스트. 이미지 순서와 겹 번호를
 # 섞어 써도 교차 적합이 맞는지 보려는 것이다.
 def _uneven_manifest():
-    # 33 normals: folds of 7, 7, 7, 6 and 6 images, and the manifest order is not the fold order.
+    # 정상 33장: 겹 크기 7, 7, 7, 6, 6장이고 매니페스트 순서가 겹 순서와 다르다.
     return _manifest(normals=33, fold_of=lambda i: (i * 3) % 5)
 
 
@@ -186,7 +186,7 @@ def test_artifacts_eval_and_analysis_end_to_end(world, capsys):
     meta = json.loads((art / "toy" / "meta.json").read_text(encoding="utf-8"))
     assert meta["img_size"] == SIZE and meta["grid"] == [8, 8] and meta["dim"] == DIM
     assert meta["calibration"] == {"strategy": "crossfit", "n": 24, "guaranteed": True}
-    # The bank is the prefix for ratio 0.25 of the full bank saved at ratio 0.5.
+    # 뱅크는 비율 0.5로 저장한 전체 뱅크의 비율 0.25 앞부분이다.
     bank = np.load(art / "toy" / "bank.npy")
     full = np.load(grid_dir / "banks" / "toy_full.npy")
     assert bank.shape[0] == run_grid.ratio_rows(24 * 64, 0.25)
@@ -194,7 +194,7 @@ def test_artifacts_eval_and_analysis_end_to_end(world, capsys):
     with np.load(grid_dir / "r0.25" / "toy.npz") as z:
         assert meta["threshold"] == pytest.approx(
             float(np.sort(z["pool_score_oof"])[23])
-        )  # rank ceil(25*0.95)=24
+        )  # 순위 ceil(25*0.95)=24
 
     run_export_eval.main(
         ["--grid", str(grid_dir), "--ratio", "0.25", "--artifacts", str(art), "--threads", "1"]
@@ -204,7 +204,7 @@ def test_artifacts_eval_and_analysis_end_to_end(world, capsys):
     assert run["precisions"] == ["fp32", "int8"] and run["protocol"] == "dev" and run["ratio"] == 0.25
     with np.load(out / "fp32" / "toy.npz") as z:
         assert z["eval_labels"].tolist() == [0] * 6 + [1] * 6
-        # The grid ran with torch on the CPU in fp32: the onnxruntime path gives the same scores.
+        # 격자는 torch CPU fp32로 돌았으므로 onnxruntime 경로가 같은 점수를 낸다.
         np.testing.assert_allclose(z["eval_score_full"], z["torch_eval_score"], rtol=2e-3)
         np.testing.assert_allclose(z["pool_score_oof"], z["torch_pool_score_oof"], rtol=2e-3)
         assert set(z["pool_folds"].tolist()) == {1, 2, 3, 4}
@@ -218,16 +218,16 @@ def test_artifacts_eval_and_analysis_end_to_end(world, capsys):
     assert fp32["score_rel_diff_vs_torch"]["max"] < 2e-3
     assert fp32["torch_thresholds"]["fpr"] == report["rows"][0]["own_thresholds"]["fpr"]
     shift = report["int8_at_fp32_thresholds"]
-    assert shift["verdict"] in {"지지", "기각", "판정 불가"}  # the rule itself: tests/test_analyze_export.py
+    assert shift["verdict"] in {"지지", "기각", "판정 불가"}  # 규칙은 tests/test_analyze_export.py에서
     assert shift["d_fpr"] == pytest.approx(shift["int8_at_fp32_thresholds"]["fpr"] - shift["fp32"]["fpr"])
     assert "INT8 under fp32 thresholds" in analyze_export.format_report(report)
 
-    with pytest.raises(SystemExit):  # finished run
+    with pytest.raises(SystemExit):  # 끝난 실행
         run_export_eval.main(["--grid", str(grid_dir), "--ratio", "0.25", "--artifacts", str(art)])
     assert not (world / "reports" / "test_ledger.jsonl").exists()
     assert not _sealed_reads()
 
-    # The artifact of a category loads as an inspector and agrees with the evaluation run.
+    # 범주 아티팩트는 검사기로 적재되고 평가 실행과 같은 점수를 낸다.
     insp = Inspector.load(art / "toy", threads=1)
     manifest = _manifest()
     rows = [r for r in manifest if r.category == "toy" and r.role == "dev_defect"]
@@ -249,7 +249,7 @@ def test_artifacts_eval_and_analysis_end_to_end(world, capsys):
     assert timing["total_ms"] > 0 and timing["bank_rows"] == bank.shape[0] and timing["precision"] == "fp32"
     assert timing["threads"] == 1
 
-    # The latency CLI on the real artifact: inference and resize + inference are both in the entry.
+    # 실제 아티팩트로 돌린 지연 CLI: 추론 시간과 '리사이즈 + 추론' 합계가 모두 항목에 있다.
     latency = world / "reports" / "stage4" / "latency.json"
     bench.main(
         ["--artifacts", str(art), "--category", "toy", "--images", "5", "--key", "k", "--out", str(latency)]
@@ -267,7 +267,7 @@ def test_artifacts_eval_and_analysis_end_to_end(world, capsys):
 # 뱅크 앞부분 점수가 맞아야 하고, dev에서는 봉인 이미지를 읽지 않아야 한다.
 @pytest.mark.parametrize("protocol", ["dev", "test"])
 def test_crossfit_scores_against_an_independent_computation(uneven_world, protocol):
-    """Unequal folds in a manifest that is not in fold order: every image meets the bank without its fold."""
+    """겹 크기가 다르고 겹 순서가 아닌 매니페스트: 모든 이미지가 자기 겹을 뺀 뱅크로 채점된다."""
     world = uneven_world
     extra = ["--allow-test", "--stage", "4"] if protocol == "test" else []
     grid_dir = _grid(world, protocol, extra, ratios=("0.5", "0.25", "0.05"))
@@ -286,7 +286,7 @@ def test_crossfit_scores_against_an_independent_computation(uneven_world, protoc
     for c in ("toy", "two"):
         pool = [r for r in manifest if r.category == c and r.role == "pool_normal" and r.fold in folds_used]
         folds = np.array([r.fold for r in pool])
-        assert len({int((folds == f).sum()) for f in folds_used}) > 1  # the folds are unequal
+        assert len({int((folds == f).sum()) for f in folds_used}) > 1  # 겹 크기가 서로 다르다
         meta = json.loads((art / c / "meta.json").read_text(encoding="utf-8"))
         assert meta["calibration"]["n"] == len(pool) and meta["source"]["ratio"] == ratio
         with np.load(out / "fp32" / f"{c}.npz") as z:
@@ -307,7 +307,7 @@ def test_crossfit_scores_against_an_independent_computation(uneven_world, protoc
                     TinyPatches(), torch.from_numpy(bank), images, device="cpu"
                 ).image_scores
         np.testing.assert_allclose(got, expect, rtol=2e-3)
-        # The comparison has teeth: the bank of a neighbouring fold gives clearly different scores.
+        # 이 비교는 실제로 잡아낸다: 옆 겹의 뱅크로 채점하면 점수가 분명히 다르다.
         assert np.abs(wrong - expect).max() / np.abs(expect).max() > 0.02
 
         full = np.load(grid_dir / "banks" / f"{c}_full.npy")[: max(1, round(ratio * len(pool) * PATCHES))]
@@ -332,14 +332,14 @@ def test_test_protocol_needs_permission_and_is_logged(world, monkeypatch):
     art = world / "artifacts" / "tiny"
     EVENTS.clear()
     export.build_artifacts(grid_dir, 0.5, art, int8=False)
-    assert not EVENTS  # without INT8 calibration no image is read at all
+    assert not EVENTS  # INT8 보정이 없으면 이미지를 하나도 읽지 않는다
     base = ["--grid", str(grid_dir), "--ratio", "0.5", "--artifacts", str(art), "--precision", "fp32"]
     for extra in ([], ["--allow-test"], ["--stage", "4"]):
         with pytest.raises(SystemExit):
             run_export_eval.main([*base, *extra])
     assert len(_ledger_lines(world)) == 1 and not EVENTS
 
-    # The ledger line is written before the first sealed image is read.
+    # 장부 줄은 첫 봉인 이미지를 읽기 전에 쓰인다.
     real = run_export_eval.record_test_access
 
     def recorded(*args, **kwargs):
@@ -379,7 +379,7 @@ def _rewrite_npz(path, **replaced):
 # 아티팩트, 잘못된 임계값, 입력 크기가 다른 모델, 열 수 없는 모델, 격자가 채점한 이미지 목록이 지금
 # 매니페스트와 다름, 점수 파일 없음. 모두 되돌린 뒤에는 장부 줄이 정확히 하나 늘며 실행이 성공해야 한다.
 def test_inputs_that_do_not_fit_stop_the_run_before_the_ledger_and_the_sealed_images(world, capsys):
-    """One sealed measurement per stage: whatever can be checked without an image is checked first."""
+    """단계당 봉인 측정 한 번: 이미지 없이 확인할 수 있는 것은 모두 먼저 확인한다."""
     grid_dir = _grid(world, "test", ["--allow-test", "--stage", "4"])
     art = world / "artifacts" / "tiny"
     export.build_artifacts(grid_dir, 0.25, art, int8=False)
@@ -401,12 +401,12 @@ def test_inputs_that_do_not_fit_stop_the_run_before_the_ledger_and_the_sealed_im
         assert len(_ledger_lines(world)) == 1, "a ledger line was written"
         assert not (world / "outputs" / f"export-{artifacts.name}-test").exists()
 
-    # A ratio the grid run does not have: between two of its ratios, or above the largest.
+    # 격자 실행에 없는 비율: 두 비율 사이, 또는 가장 큰 비율 위.
     refused("not one of the grid run's ratios", ratio="0.3")
     refused("not one of the grid run's ratios", ratio="0.9")
-    # Artifacts built at another ratio of the same grid run.
+    # 같은 격자 실행의 다른 비율로 만든 아티팩트.
     refused("was built at ratio 0.5", artifacts=other)
-    # No INT8 model in the set.
+    # 세트에 INT8 모델이 없다.
     refused("has no model_int8.onnx", precision=("fp32", "int8"))
     refused("no categories ['nope']", categories=("toy", "nope"))
 
@@ -414,7 +414,7 @@ def test_inputs_that_do_not_fit_stop_the_run_before_the_ledger_and_the_sealed_im
     kept = bank.read_bytes()
     bank.unlink()
     refused("two_minus_fold_3.npy")
-    np.save(bank, np.load(grid_dir / "banks" / "two_full.npy")[:3])  # too few rows for the ratio
+    np.save(bank, np.load(grid_dir / "banks" / "two_full.npy")[:3])  # 비율에 비해 행이 모자란다
     refused("two_minus_fold_3.npy")
     bank.write_bytes(kept)
 
@@ -430,7 +430,7 @@ def test_inputs_that_do_not_fit_stop_the_run_before_the_ledger_and_the_sealed_im
     refused("threshold")
     meta_path.write_bytes(kept)
 
-    # The model does not produce what the artifact meta says (another input size).
+    # 모델이 아티팩트 meta가 말하는 것을 내지 않는다(입력 크기가 다르다).
     model = art / "model_fp32.onnx"
     kept_model = model.read_bytes()
     export.export_onnx(TinyPatches(), 32, model)
@@ -439,7 +439,7 @@ def test_inputs_that_do_not_fit_stop_the_run_before_the_ledger_and_the_sealed_im
     refused("not a loadable ONNX model")
     model.write_bytes(kept_model)
 
-    # The grid run scored other images than the manifest selects now.
+    # 격자 실행이 지금 매니페스트가 고르는 것과 다른 이미지를 채점했다.
     npz = grid_dir / "r0.25" / "two.npz"
     kept = npz.read_bytes()
     with np.load(npz) as z:
@@ -450,7 +450,7 @@ def test_inputs_that_do_not_fit_stop_the_run_before_the_ledger_and_the_sealed_im
     refused("two.npz")
     npz.write_bytes(kept)
 
-    # Everything restored: the run goes through, with exactly one more ledger line.
+    # 모두 되돌리면 실행이 끝까지 돌고, 장부 줄이 정확히 하나 는다.
     base = ["--grid", str(grid_dir), "--ratio", "0.25", "--artifacts", str(art), "--precision", "fp32"]
     run_export_eval.main([*base, "--allow-test", "--stage", "4"])
     assert len(_ledger_lines(world)) == 2 and _sealed_reads()
@@ -504,7 +504,7 @@ def test_a_model_that_cannot_be_quantized_still_gives_complete_fp32_artifacts(wo
     info = export.build_artifacts(grid_dir, 0.25, art, calibration_per_category=2)
     assert info["int8"]["available"] is False and "reason" in info["int8"]["reason"]
     assert "quantize_s" not in info and "calibration_images" not in info
-    # The INT8 model of the earlier export is gone: it does not belong to this set.
+    # 이전 내보내기의 INT8 모델은 이 세트의 것이 아니므로 지워졌다.
     assert (art / "model_fp32.onnx").exists() and not (art / "model_int8.onnx").exists()
     saved = json.loads((art / "artifacts.json").read_text(encoding="utf-8"))
     assert saved["int8"] == info["int8"] and [c["category"] for c in saved["categories"]] == ["toy", "two"]
@@ -516,14 +516,14 @@ def test_a_model_that_cannot_be_quantized_still_gives_complete_fp32_artifacts(wo
     base = ["--grid", str(grid_dir), "--ratio", "0.25", "--artifacts", str(art)]
     capsys.readouterr()
     with pytest.raises(SystemExit):
-        run_export_eval.main(base)  # default: fp32 and int8
+        run_export_eval.main(base)  # 기본값: fp32와 int8
     err = capsys.readouterr().err
     assert "has no model_int8.onnx" in err and "reason" in err and "--precision fp32" in err
     run_export_eval.main([*base, "--precision", "fp32"])
     report = analyze_export.build_report(analyze_export.load(world / "outputs" / "export-tiny-dev"))
     assert report["int8_scored"] is False and "int8_at_fp32_thresholds" not in report
 
-    # Without INT8 requested the set says so as well.
+    # INT8을 요청하지 않은 세트도 그 사실을 적는다.
     info = export.build_artifacts(grid_dir, 0.25, art, int8=False)
     assert info["int8"] == {"available": False, "reason": "not requested"}
 
@@ -558,7 +558,7 @@ def test_save_artifact_writes_what_build_artifacts_writes(world):
         one,
         onnx_fp32=art / "model_fp32.onnx",
         bank=np.load(built / "bank.npy"),
-        meta={k: v for k, v in meta.items() if k != "version"},  # save_artifact adds the version
+        meta={k: v for k, v in meta.items() if k != "version"},  # version은 save_artifact가 넣는다
     )
     assert sorted(p.name for p in one.iterdir()) == ["bank.npy", "meta.json", "model_fp32.onnx"]
     for name in ("bank.npy", "meta.json"):

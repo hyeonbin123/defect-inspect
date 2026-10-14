@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Run zap/automation.yaml with a ZAP release (cross-platform package, Java 17 or later) against a local service.
+# [파일 역할] OWASP ZAP 2.17.0 릴리스(공식 크로스플랫폼 패키지, Java 17 이상 필요, Docker 없이 Java로 직접
+# 실행)로 zap/automation.yaml을 돌려, 로컬에 띄운 검사 서비스를 DAST 스캔하는 실행 스크립트. 스캔 내용(OpenAPI
+# 경로, HAR 시드의 실제 업로드 요청, spider, passive·active scan)은 zap/automation.yaml에 있고, 이 스크립트는
+# 환경 변수를 맞추고 ZAP을 띄우기만 한다.
 #
-#   ZAP_DIR=<folder with zap-2.17.0.jar> ADMIN_TOKEN=<token> zap/run_zap.sh <name> [seed HAR]
+#   ZAP_DIR=<zap-2.17.0.jar가 있는 폴더> ADMIN_TOKEN=<토큰> zap/run_zap.sh <이름> [시드 HAR]
 #
-# The service must already be running on TARGET (default http://127.0.0.1:8093) with that admin token; see
-# stackhawk.yml for the offline app. The default seed is hawk/seed.har (category demo); an artifact set needs a
-# seed for one of its categories (hawk/make_seed_har.py --category). The reports <name>.json and <name>.md,
-# the ZAP log and a fresh ZAP home folder go to work/zap/<name>/. Output goes to files only, never to a pipe.
-# [파일 역할] OWASP ZAP 2.17.0(공식 크로스플랫폼 패키지, Docker 없이 Java로 직접 실행)으로 로컬에 띄운 검사
-# 서비스를 DAST 스캔하는 실행 스크립트. 스캔 내용(OpenAPI 경로, HAR 시드의 실제 업로드 요청, spider,
-# passive·active scan)은 zap/automation.yaml에 있고, 이 스크립트는 환경 변수를 맞추고 ZAP을 띄우기만 한다.
+# [사용 조건] 서비스가 그 관리자 토큰으로 TARGET(기본 http://127.0.0.1:8093)에서 이미 돌고 있어야 한다.
+# 오프라인 앱을 띄우는 방법은 stackhawk.yml을 본다. 기본 시드는 hawk/seed.har(범주 demo)이고, 아티팩트
+# 세트를 스캔하려면 그 세트의 범주 하나에 맞춘 시드가 필요하다(hawk/make_seed_har.py --category).
+# 보고서 <이름>.json과 <이름>.md, ZAP 로그, 새 ZAP 홈 폴더는 work/zap/<이름>/에 생긴다. 출력은 파일로만
+# 보내고 파이프로는 절대 넘기지 않는다.
 # [왜 필요한가] HawkScan 체험이 2026-10-05에 끝나 이후 재스캔은 ZAP으로 하고, 같은 도구의 기록끼리
 # 비교한다(docs/security.md). 관리자 토큰은 파일에 적지 않고 실행할 때 환경 변수로만 받는다.
 # [흐름] 인자·환경 변수 검사 → 출력 폴더(work/zap/<이름>/) 확인 → 대상 Host에만 관리자 토큰 헤더를 붙이도록
@@ -27,11 +28,11 @@ seed=${2:-$root/hawk/seed.har}
 : "${ZAP_DIR:?set ZAP_DIR to the folder that holds zap-<version>.jar}"
 : "${ADMIN_TOKEN:?set ADMIN_TOKEN to the token the service was started with}"
 
-# 경로를 Java가 읽는 절대 경로로 바꾼다. Git Bash에서는 cygpath -m으로 "D:/..." 형태가 된다. 처음 실행 때 시드
-# HAR 경로를 상대 경로로 넘겨 ZAP이 zap/ 폴더 기준으로 찾다가 가져오기 단계에서 멈춘 일이 있어 고친
-# 것이다(커밋 86c209e, docs/security.md).
-native() { # the absolute path in a form Java understands (the Windows form under Git Bash). ZAP resolves a
-  # relative path against the plan's folder (zap/), not the working directory.
+# 경로를 Java가 읽는 절대 경로로 바꾼다. Git Bash에서는 cygpath -m으로 "D:/..." 같은 Windows 형식이 된다.
+# ZAP은 상대 경로를 작업 폴더가 아니라 계획 파일의 폴더(zap/) 기준으로 풀기 때문에 절대 경로가 필요하다. 처음
+# 실행 때 시드 HAR 경로를 상대 경로로 넘겨 ZAP이 zap/ 폴더 기준으로 찾다가 가져오기 단계에서 멈춘 일이 있어
+# 고친 것이다(커밋 86c209e, docs/security.md).
+native() {
   local abs
   abs=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
   if command -v cygpath > /dev/null; then cygpath -m "$abs"; else printf '%s\n' "$abs"; fi
@@ -55,8 +56,7 @@ export TARGET=${TARGET:-http://127.0.0.1:8093}
 host=${TARGET#*://}
 # ZAP_AUTH_HEADER* 세 변수를 주면 ZAP이 그 호스트로 가는 모든 요청에 관리자 토큰 헤더를 붙인다. 그래서 스캔이
 # POST·DELETE /calibrate까지 닿는다. replacer 작업은 ${...}를 풀지 않아 토큰을 계획 파일 변수로 넣을 수
-# 없었다(automation.yaml 머리 주석). SITE를 대상 호스트로 한정해 다른 곳으로 토큰이 나가지 않게 한다.
-# ZAP adds this header to every request for the target host (see zap/automation.yaml).
+# 없었다(zap/automation.yaml 머리 주석). SITE를 대상 호스트로 한정해 다른 곳으로 토큰이 나가지 않게 한다.
 export ZAP_AUTH_HEADER=X-Admin-Token ZAP_AUTH_HEADER_VALUE=$ADMIN_TOKEN ZAP_AUTH_HEADER_SITE=${host%%[:/]*}
 # automation.yaml이 읽는 변수: 시드 HAR, 보고서 폴더와 파일 이름. 모두 절대 경로로 넘긴다.
 export SEED_HAR REPORT_DIR REPORT_NAME=$name

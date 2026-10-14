@@ -1,7 +1,7 @@
-"""M2AD (Motor and Bird, three views, ten illuminations): metadata, specimen folds and the resize cache.
+"""M2AD(Motor와 Bird, 시점 3개, 조명 10가지): 메타데이터, 시편 단위 겹 나누기, 리사이즈 캐시.
 
-Rules are registered in docs/experiments.md, stage 3-B. The cache build is the only code that reads M2AD
-images from the zips; it copies test images too, so `main` records it in the test ledger first.
+규칙은 docs/experiments.md 3-B단계에 등록했다. 캐시 만들기는 zip에서 M2AD 이미지를 읽는 유일한 코드다.
+테스트 이미지도 옮기므로 `main`이 먼저 테스트 장부에 기록한다.
 """
 
 # [파일 역할] M2AD 데이터(실제로 조명을 바꿔 찍은 이상 탐지 데이터)의 메타데이터 읽기, 라벨 규칙, 시편 단위 겹
@@ -63,20 +63,19 @@ META_MEMBER = "meta_unsupervised.json"
 class M2adRow:
     category: str
     split: str  # "train" | "test"
-    specimen: str  # object_name: one physical object
+    specimen: str  # object_name: 물리적 물체 하나
     view: str
     illumination: str
-    img_path: str  # member name inside <category>.zip
-    object_anomaly: int  # 1 when the specimen is defective
-    label: int  # 0 normal, 1 defect, -1 excluded
+    img_path: str  # <범주>.zip 안의 멤버 이름
+    object_anomaly: int  # 시편이 불량이면 1
+    label: int  # 0 정상, 1 결함, -1 평가에서 뺌
 
 
-# 등록한 라벨 규칙(experiments.md 3-B): 정상 시편의 이미지는 0, 불량 시편 가운데 그 이미지에서 결함이
-# 보이고(image_anomaly = 1) 판별 가능(detectable이 True)한 것만 1, 나머지(그 시점에서 결함이 안 보이거나 판별
-# 불가로 표시된 것)는 -1로 평가에서 뺀다.
-# 결함이 안 보이는 사진을 '결함'으로 세면 어떤 검사기도 잡을 수 없는 표본이 검출률을 깎으므로 뺀다.
+# 결함이 보인다는 것은 image_anomaly = 1, 판별 가능은 detectable이 True라는 뜻이다. 나머지는 그 시점에서
+# 결함이 안 보이거나 판별 불가로 표시된 것이다. 결함이 안 보이는 사진을 '결함'으로 세면 어떤 검사기도 잡을 수
+# 없는 표본이 검출률을 깎으므로 뺀다.
 def label_of(object_anomaly: int, image_anomaly: int, detectable: object) -> int:
-    """Registered label rule: 0 for a normal specimen, 1 for a visible and detectable defect, else -1."""
+    """등록한 라벨 규칙(experiments.md 3-B): 정상 시편은 0, 보이고 판별 가능한 결함은 1, 나머지는 -1."""
     if object_anomaly == 0:
         return 0
     if image_anomaly == 1 and detectable is True:
@@ -115,7 +114,7 @@ def _row(category: str, split: str, entry: dict) -> M2adRow:
 # 행 정렬 키: 범주·분할은 선언 순서, 그 안에서 시편·시점·조명 순. 캐시 배열의 행 순서가 이 순서로 고정돼 다시
 # 만들어도 같다.
 def _sort_key(row: M2adRow) -> tuple:
-    # Categories and splits in their declared order (Motor before Bird, train before test).
+    # 범주와 분할은 선언 순서(Motor 다음 Bird, train 다음 test).
     return (CATEGORIES.index(row.category), SPLITS.index(row.split), row.specimen, row.view, row.illumination)
 
 
@@ -142,13 +141,12 @@ def _check(rows: list[M2adRow]) -> None:
         raise ValueError(f"specimen in both splits or with a changing object_anomaly: {mixed[:3]}")
 
 
-# jsons.zip 안의 meta_unsupervised.json을 읽어 CATEGORIES × VIEWS의 모든 조명 행을 돌려준다(정렬·점검 후).
-# 실험에 쓰지 않는 시점은 여기서 걸러진다.
+# 점검까지 마친 행을 돌려준다. 실험에 쓰지 않는 시점은 여기서 걸러진다.
 # 호출 위치: main(캐시 생성), run_m2ad, run_m2ad_enrol.
 def read_meta(jsons_zip: Path) -> list[M2adRow]:
-    """Rows of CATEGORIES x VIEWS (all ten illuminations) from `meta_unsupervised.json` in `jsons_zip`.
+    """`jsons_zip` 안의 `meta_unsupervised.json`에서 CATEGORIES x VIEWS의 행(조명 10가지 모두)을 읽는다.
 
-    Sorted by (category, split, specimen, view, illumination), categories and splits in declared order.
+    (범주, 분할, 시편, 시점, 조명) 순으로 정렬하고, 범주와 분할은 선언 순서를 따른다.
     """
     with zipfile.ZipFile(jsons_zip) as z:
         members = [name for name in z.namelist() if name.rsplit("/", 1)[-1] == META_MEMBER]
@@ -168,49 +166,45 @@ def read_meta(jsons_zip: Path) -> list[M2adRow]:
     return rows
 
 
-# 중복 없는 시편 이름을 이름의 SHA-256 순으로 늘어놓는다. 이름에 숨은 순서(번호 등)와 무관한 결정적 순서를
-# 얻으려는 것으로, VisA 분할(splits.py)과 같은 방식이다.
+# 이름에 숨은 순서(번호 등)와 무관한 결정적 순서를 얻으려는 것으로, VisA 분할(splits.py)과 같은 방식이다.
 def _ranked(specimens: Sequence[str]) -> list[str]:
-    """Distinct specimen names in the order of the SHA-256 hex of the name."""
+    """중복 없는 시편 이름을 이름의 SHA-256 16진수 순으로 늘어놓는다."""
     names = set(specimens)
     if not all(isinstance(name, str) for name in names):
         raise TypeError("specimen names must be str")
     return sorted(names, key=path_key)
 
 
-# 시편 → 겹 번호(0~4): SHA-256 순위를 5로 나눈 나머지. 교차 적합 임계값을 시편 단위로 나눠, 한 시편의 여러
-# 시점·조명 이미지가 뱅크와 보정 점수에 동시에 들어가지 않게 한다(experiments.md 3-B '임계값').
+# 겹 번호는 0~4다. 교차 적합 임계값을 시편 단위로 나눠, 한 시편의 여러 시점·조명 이미지가 뱅크와 보정 점수에
+# 동시에 들어가지 않게 한다(experiments.md 3-B '임계값').
 def specimen_folds(specimens: Sequence[str]) -> dict[str, int]:
-    """specimen -> fold: rank in SHA-256 order modulo N_FOLDS (the scheme of `splits`)."""
+    """시편 -> 겹 번호: SHA-256 순위를 N_FOLDS로 나눈 나머지(`splits`와 같은 방식)."""
     return {name: rank % N_FOLDS for rank, name in enumerate(_ranked(specimens))}
 
 
-# 새 조명 재보정에 쓸 학습 시편: SHA-256 순서의 앞 n개. 앞에서 자르므로 n = 8의 시편은 n = 30에 모두
-# 포함된다(포함 관계).
+# 앞에서 자르므로 n = 8의 시편은 n = 30에 모두 포함된다(포함 관계).
 def recal_specimens(specimens: Sequence[str], n: int) -> list[str]:
-    """The first `n` specimens in SHA-256 order (nested across n)."""
+    """새 조명 재보정에 쓸 학습 시편: SHA-256 순서의 앞 `n`개(n끼리 포함 관계)."""
     ordered = _ranked(specimens)
     if not 0 <= n <= len(ordered):
         raise ValueError(f"n={n} is outside the {len(ordered)} specimens")
     return ordered[:n]
 
 
-# 7단계 조명 묶음: I01을 뺀 아홉 조명을 두 자리 이름("02"~"10")의 SHA-256 순으로 늘어놓고 앞 4개를 A, 나머지
-# 5개를 B로 한다. 결과는 A = 03, 07, 08, 09, B = 02, 04, 05, 06, 10(experiments.md 7단계 '조명 묶음'). 한
-# 묶음을 I01과 함께 등록하고 다른 묶음을 '못 본 조명'으로 잰 뒤 서로 바꾸므로 아홉 조명이 모두 한 번씩 못 본
-# 조명이 된다.
+# 결과는 A = 03, 07, 08, 09, B = 02, 04, 05, 06, 10(experiments.md 7단계 '조명 묶음'). 한 묶음을 I01과 함께
+# 등록하고 다른 묶음을 '못 본 조명'으로 잰 뒤 서로 바꾸므로 아홉 조명이 모두 한 번씩 못 본 조명이 된다.
 # 호출 위치: run_m2ad_enrol.
 def illumination_groups() -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Stage 7: the nine non-reference illuminations in SHA-256 order of their two-digit label, cut into
-    the first four (group A) and the other five (group B). Each group is returned in label order."""
+    """7단계 조명 묶음: 기준(I01)이 아닌 아홉 조명을 두 자리 이름("02"~"10")의 SHA-256 순으로 늘어놓아,
+    앞 4개를 묶음 A, 나머지 5개를 묶음 B로 자른다. 각 묶음은 이름 순으로 돌려준다."""
     ranked = sorted((light for light in ILLUMINATIONS if light != REFERENCE), key=path_key)
     return tuple(sorted(ranked[:4])), tuple(sorted(ranked[4:]))
 
 
-# 캐시를 만들 때 출력하는 장수 표: (범주, 분할)별 시편 수와 정상/결함/제외 장수, 그리고 test의 (범주, 시점) ×
-# 조명별 정상/결함/제외 장수. 라벨 규칙 적용 결과를 눈으로 확인하는 용도다.
+# 캐시를 만들 때 출력한다. (범주, 분할)별 칸에는 시편 수도 들어간다. 라벨 규칙 적용 결과를 눈으로 확인하는
+# 용도다.
 def count_table(rows: Sequence[M2adRow]) -> str:
-    """Image counts per (category, split, label) and, for the test split, per view and illumination."""
+    """(범주, 분할, 라벨)별 이미지 장수와, test 분할의 시점·조명별 정상/결함/제외 장수 표를 만든다."""
     lines = [f"{'category':<10}{'split':<7}{'specimens':>10}{'normal':>8}{'defect':>8}{'excluded':>9}"]
     for category in CATEGORIES:
         for split in SPLITS:
@@ -246,11 +240,10 @@ def index_path(out_dir: Path, size: int) -> Path:
     return Path(out_dir) / f"m2ad_{size}_index.csv"
 
 
-# 그 크기의 캐시가 이미 있고 색인이 지금 메타데이터 행 순서와 같으며 배열 모양도 맞으면 True. main이 이미
-# 완성된 캐시를 다시 만들지 않게(그리고 장부에 불필요한 줄을 남기지 않게) 쓴다. 배열 모양은 전체를 읽지 않고
-# 헤더만 본다(_npy_shape).
+# main이 이미 완성된 캐시를 다시 만들지 않게(그리고 장부에 불필요한 줄을 남기지 않게) 쓴다. 배열 모양은
+# 전체를 읽지 않고 헤더만 본다(_npy_shape).
 def cache_is_complete(out_dir: Path, size: int, rows: Sequence[M2adRow]) -> bool:
-    """True when the image array and its index exist for `size` and follow the order of `rows`."""
+    """`size`의 이미지 배열과 색인이 있고 `rows` 순서를 따르면(배열 모양도 맞으면) True."""
     if not (images_path(out_dir, size).exists() and index_path(out_dir, size).exists()):
         return False
     index = [r.img_path for r in rows]
@@ -259,10 +252,10 @@ def cache_is_complete(out_dir: Path, size: int, rows: Sequence[M2adRow]) -> bool
     return _cache._npy_shape(images_path(out_dir, size)) == (len(index), size, size, 3)
 
 
-# zip 하나에서 원하는 멤버 정보를 찾아, zip 안에 놓인 순서(header_offset)대로 돌려준다. 하나라도 없으면
-# FileNotFoundError. 파일 순서대로 읽으면 HDD에서 앞뒤로 찾아다니지 않고 순차로 읽게 된다.
+# 놓인 순서는 header_offset으로 정한다. 하나라도 없으면 FileNotFoundError. 파일 순서대로 읽으면 HDD에서
+# 앞뒤로 찾아다니지 않고 순차로 읽게 된다.
 def _members(zip_path: Path, wanted: dict[str, int]) -> list[zipfile.ZipInfo]:
-    """The wanted members of one zip in the order they lie in the file; all of them must be there."""
+    """zip 하나에서 원하는 멤버들을 파일 안에 놓인 순서대로 돌려준다. 모두 있어야 한다."""
     with zipfile.ZipFile(zip_path) as z:
         found = {info.filename: info for info in z.infolist() if info.filename in wanted}
     missing = sorted(set(wanted) - set(found))
@@ -271,14 +264,11 @@ def _members(zip_path: Path, wanted: dict[str, int]) -> list[zipfile.ZipInfo]:
     return sorted(found.values(), key=lambda info: info.header_offset)
 
 
-# 캐시 만들기 계획: 범주 zip마다 읽을 멤버(파일 순서)와 그 멤버가 캐시의 몇 번째 행으로 갈지. zip의 중앙
-# 디렉터리만 읽고 이미지는 읽지 않는다. 그래서 zip·멤버 누락이나 잘못된 행이 테스트 이미지를 읽기 전에
-# 드러나고, main은 이 점검을 장부 기록 전에 한다.
 def _plan(zip_dir: Path, rows: Sequence[M2adRow]) -> list[tuple[Path, list[zipfile.ZipInfo], dict[str, int]]]:
-    """What a build reads: per `<zip_dir>/<category>.zip` its wanted members in file order and their rows.
+    """캐시 만들기 계획: `<zip_dir>/<범주>.zip`마다 읽을 멤버(파일 순서)와 그 멤버가 갈 캐시 행 번호.
 
-    Central directories only, no image is read: a missing zip or member (FileNotFoundError) and unusable
-    rows (ValueError) show up here, so `main` calls this before it writes the ledger line.
+    zip의 중앙 디렉터리만 읽고 이미지는 읽지 않는다. 그래서 zip·멤버 누락(FileNotFoundError)과 쓸 수 없는
+    행(ValueError)이 테스트 이미지를 읽기 전에 여기서 드러나고, `main`은 장부 줄을 쓰기 전에 이것을 부른다.
     """
     index = [r.img_path for r in rows]
     if not index:
@@ -295,8 +285,8 @@ def _plan(zip_dir: Path, rows: Sequence[M2adRow]) -> list[tuple[Path, list[zipfi
     return plan
 
 
-# 계획대로 zip을 앞에서 뒤로 읽고, 디코딩·리사이즈는 스레드 풀에서 병렬로 하고, 배열 쓰기는 이 스레드에서만
-# 한다. 읽기는 순차(HDD에 유리), 계산은 병렬, 쓰기는 한 곳이라 쓰기 경합이 없다.
+# 디코딩과 리사이즈를 스레드 풀에서 병렬로 한다. 읽기는 순차(HDD에 유리), 계산은 병렬, 쓰기는 한 곳이라 쓰기
+# 경합이 없다.
 def _fill(
     plan: list[tuple[Path, list[zipfile.ZipInfo], dict[str, int]]],
     size: int,
@@ -304,11 +294,11 @@ def _fill(
     workers: int,
     progress: bool,
 ) -> None:
-    """Read each zip front to back, decode in a thread pool, write rows from this thread."""
+    """계획대로 zip을 앞에서 뒤로 읽고, 스레드 풀에서 디코딩하고, 행은 이 스레드에서만 쓴다."""
     total = sum(len(infos) for _, infos, _ in plan)
     # 대기 중인 작업 수를 작업자 수의 4배로 묶어, 읽어 둔 압축 바이트와 디코딩된 배열이 메모리에 무한정 쌓이지
-    # 않게 한다(기존 영어 주석).
-    max_pending = max(1, workers) * 4  # bounds the encoded bytes and decoded arrays held in memory
+    # 않게 한다.
+    max_pending = max(1, workers) * 4
     pending: deque = deque()
     done = 0
     started = time.perf_counter()
@@ -335,11 +325,8 @@ def _fill(
         drain(0)
 
 
-# M2AD 리사이즈 캐시를 만든다: uint8 [행 수, size, size, 3] 배열과 색인을 rows 순서로 쓴다. rows가 가리키는
-# 멤버만 읽고, 각 zip에서 놓인 순서대로 읽는다(HDD에서 순차).
-# 모든 파일을 ".part" 이름으로 쓰고 끝에 이름을 바꾼다(색인은 배열 다음). 중간에 끊겨도 옛 캐시나 반쯤 쓴
-# 파일이 '완성된 캐시'로 보이지 않게 하려는 것이다(cache._publish docstring). 장부 기록은 하지 않으며 main이
-# 먼저 한다.
+# ".part" 이름으로 쓰고 끝에 바꾸는 것은, 중간에 끊겨도 옛 캐시나 반쯤 쓴 파일이 '완성된 캐시'로 보이지 않게
+# 하려는 것이다(cache._publish docstring).
 def build_cache(
     zip_dir: Path,
     rows: Sequence[M2adRow],
@@ -349,14 +336,14 @@ def build_cache(
     workers: int = 8,
     progress: bool = False,
 ) -> None:
-    """Write `m2ad_{size}_images.npy` (uint8 [len(rows), size, size, 3]) and its index, in `rows` order.
+    """M2AD 캐시 `m2ad_{size}_images.npy`(uint8 [len(rows), size, size, 3])와 색인을 `rows` 순서로 쓴다.
 
-    Only the members named by `rows` are read, from `<zip_dir>/<category>.zip`, in the order they lie in
-    each zip (sequential on an HDD). It does not write the test ledger itself (`main` does, before it calls
-    this). Everything is written under ".part" names and renamed at the end, the index after the array.
+    `rows`가 가리키는 멤버만 `<zip_dir>/<범주>.zip`에서, 각 zip 안에 놓인 순서대로 읽는다(HDD에서 순차).
+    테스트 장부 기록은 여기서 하지 않는다(`main`이 이 함수를 부르기 전에 한다). 모든 파일을 ".part" 이름으로
+    쓰고 끝에 이름을 바꾸며, 색인은 배열 다음에 옮긴다.
     """
     out_dir = Path(out_dir)
-    # Central directories only: a missing zip or member stops the build before anything is decoded.
+    # 중앙 디렉터리만 본다: zip이나 멤버가 없으면 아무것도 디코딩하기 전에 빌드가 멈춘다.
     plan = _plan(zip_dir, rows)
     index = [r.img_path for r in rows]
 
@@ -383,10 +370,9 @@ def build_cache(
         raise
 
 
-# 완성된 M2AD 캐시를 읽는 클래스. 배열을 메모리 맵(mmap_mode="r")으로 열어 필요한 행만 디스크에서 읽는다. 봉인
-# 테스트 규칙은 이 클래스가 아니라 run_m2ad가 지킨다(docstring).
+# 배열을 메모리 맵(mmap_mode="r")으로 열어 필요한 행만 디스크에서 읽는다.
 class M2adCache:
-    """Read access to a finished M2AD cache. It does not enforce the test seal: `run_m2ad` does."""
+    """완성된 M2AD 캐시의 읽기 전용 접근자. 봉인 테스트를 막지는 않는다: 그것은 `run_m2ad`의 몫이다."""
 
     def __init__(self, out_dir: Path, size: int):
         out_dir = Path(out_dir)
@@ -405,19 +391,19 @@ class M2adCache:
     def __len__(self) -> int:
         return len(self._row)
 
-    # rows 순서대로 이미지 배열을 돌려준다. 행 번호를 오름차순으로 나눠 읽는 cache._take를 써서 HDD에서 순차에
-    # 가깝게 읽는다. 색인에 없는 이미지는 KeyError로 알린다.
+    # 행 번호를 오름차순으로 나눠 읽는 cache._take를 써서 HDD에서 순차에 가깝게 읽는다. 색인에 없는 이미지는
+    # KeyError로 알린다.
     def images(self, rows: Sequence[M2adRow]) -> np.ndarray:
-        """uint8 [len(rows), size, size, 3], in the order of `rows`."""
+        """uint8 [len(rows), size, size, 3]을 `rows` 순서대로 돌려준다."""
         try:
             index = np.fromiter((self._row[r.img_path] for r in rows), dtype=np.int64, count=len(rows))
         except KeyError as err:
             raise KeyError(f"image not in the cache index: {err.args[0]}") from None
         return _cache._take(self._images, index)
 
-    # 메모리 맵을 놓는다. Windows는 매핑된 파일을 교체할 수 없으므로 캐시를 다시 만들기 전에 닫아야 한다.
+    # 캐시를 다시 만들기 전에 닫아야 한다.
     def close(self) -> None:
-        """Drop the memory map (Windows cannot replace a file that is still mapped)."""
+        """메모리 맵을 놓는다(Windows는 아직 맵으로 열린 파일을 교체하지 못한다)."""
         self._images = None
 
 
@@ -426,13 +412,13 @@ class M2adCache:
 def main(argv: list[str] | None = None) -> int:
     from . import ledger, paths
 
-    parser = argparse.ArgumentParser(description="Build the resized M2AD cache from the zips.")
-    parser.add_argument("--size", type=int, default=256, help="side of the square images")
-    parser.add_argument("--workers", type=int, default=8, help="decoder threads")
-    parser.add_argument("--force", action="store_true", help="rebuild even if the cache is complete")
-    parser.add_argument("--zips", type=Path, default=None, help="folder with <category>.zip (data/raw/m2ad)")
-    parser.add_argument("--jsons", type=Path, default=None, help="jsons.zip (default: in the zip folder)")
-    parser.add_argument("--out", type=Path, default=None, help="cache directory (data/cache)")
+    parser = argparse.ArgumentParser(description="M2AD zip에서 리사이즈 캐시를 만든다.")
+    parser.add_argument("--size", type=int, default=256, help="정사각형 이미지의 한 변(px)")
+    parser.add_argument("--workers", type=int, default=8, help="디코딩 스레드 수")
+    parser.add_argument("--force", action="store_true", help="캐시가 이미 완성됐어도 다시 만든다")
+    parser.add_argument("--zips", type=Path, default=None, help="<범주>.zip이 있는 폴더(data/raw/m2ad)")
+    parser.add_argument("--jsons", type=Path, default=None, help="jsons.zip(기본값: zip 폴더 안)")
+    parser.add_argument("--out", type=Path, default=None, help="캐시 폴더(data/cache)")
     args = parser.parse_args(argv)
     zip_dir = args.zips or paths.RAW / "m2ad"
     out_dir = args.out or paths.CACHE
@@ -444,14 +430,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         # 이미지를 읽지 않고도 실패할 수 있는 점검(zip·멤버 누락, 옛 파일 교체 가능 여부)을 장부 기록 전에
         # 모두 해서, 실패한 빌드가 장부에 줄을 남기지 않게 한다.
-        # Everything that can fail without reading an image comes before the ledger line: a build that
-        # finds a zip or a member missing, or cannot replace the old files, leaves no entry.
         _plan(zip_dir, rows)
         _cache._check_replaceable([(images_path(out_dir, args.size), index_path(out_dir, args.size))])
         # 캐시는 test 이미지도 배열로 옮기므로 봉인 규칙의 예외(점수·지표를 내지 않음)로 돌리되, 읽기 전에
         # 장부에 stage "cache"로 남긴다(experiments.md 공통 규칙 '봉인 테스트', 규칙 변경 1과 같은 처리).
         if any(r.split == "test" for r in rows):
-            # Test images are about to be decoded: every read is recorded before it happens.
+            # 이제 테스트 이미지를 디코딩한다: 모든 읽기는 일어나기 전에 기록한다.
             ledger.record_test_access(
                 paths.TEST_LEDGER,
                 stage="cache",

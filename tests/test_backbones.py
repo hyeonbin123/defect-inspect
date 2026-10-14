@@ -46,7 +46,7 @@ def test_to_tensor_normalises_and_reorders():
     assert x.dtype == torch.float32
     expected = (images.astype(np.float64) / 255.0 - np.array(IMAGENET_MEAN)) / np.array(IMAGENET_STD)
     np.testing.assert_allclose(x.numpy(), expected.transpose(0, 3, 1, 2), atol=1e-6)
-    # The input array is left untouched.
+    # 입력 배열은 바뀌지 않는다.
     assert images.dtype == np.uint8
 
 
@@ -100,7 +100,7 @@ def test_wrn_is_frozen_and_stops_at_layer3(wrn):
     assert not wrn.training and not wrn.bn1.training and not wrn.layer3[0].bn1.training
     assert all(not p.requires_grad for p in wrn.parameters())
     assert not hasattr(wrn, "layer4") and not hasattr(wrn, "fc")
-    # State dict keys keep the torchvision names, so the pretrained weights map one to one.
+    # state_dict 키가 torchvision 이름 그대로라 사전학습 가중치가 일대일로 들어간다.
     keys = set(wrn.state_dict())
     assert "conv1.weight" in keys and "layer3.5.conv3.weight" in keys
     assert not any(k.startswith(("layer4", "fc")) for k in keys)
@@ -113,7 +113,7 @@ def test_wrn_is_frozen_and_stops_at_layer3(wrn):
 # monkeypatch: torchvision의 load_state_dict_from_url을 무작위 가중치 state_dict를 돌려주는 가짜로 바꿔
 # 네트워크 없이 호출 인자와 적재 결과만 확인한다.
 def test_wrn_pretrained_loads_v1_weights_into_the_data_directory(monkeypatch):
-    # No network: the torchvision download helper is replaced by one that hands back known weights.
+    # 네트워크 없음: torchvision 다운로드 도우미를 이미 아는 가중치를 돌려주는 것으로 바꾼다.
     from torchvision.models import Wide_ResNet50_2_Weights, wide_resnet50_2
     from torchvision.models import _api as tv_api
 
@@ -138,7 +138,7 @@ def test_wrn_pretrained_loads_v1_weights_into_the_data_directory(monkeypatch):
     assert torch.equal(model.layer2[0].bn1.running_var, reference.layer2[0].bn1.running_var)
     assert not model.training and all(not p.requires_grad for p in model.parameters())
 
-    # An explicit TORCH_HOME is respected (torch's own default directory).
+    # TORCH_HOME을 명시하면 그것을 따른다(torch 자신의 기본 폴더).
     monkeypatch.setenv("TORCH_HOME", "somewhere")
     assert backbones._checkpoint_dir() is None
 
@@ -167,7 +167,7 @@ def test_wrn_features_are_pooled_layer2_then_upsampled_layer3(wrn):
     up3 = F.interpolate(pooled3, size=(8, 8), mode="bilinear", align_corners=False)
     torch.testing.assert_close(out[..., :512], pooled2.permute(0, 2, 3, 1))
     torch.testing.assert_close(out[..., 512:], up3.permute(0, 2, 3, 1))
-    # 3x3 average with zero padding: a corner value is the sum of its 2x2 neighbourhood over 9.
+    # 0 패딩의 3x3 평균: 모서리 값은 2x2 이웃의 합을 9로 나눈 것이다.
     corner = captured["l2"][0, :, :2, :2].sum(dim=(1, 2)) / 9.0
     torch.testing.assert_close(out[0, 0, 0, :512], corner, rtol=1e-4, atol=1e-6)
 
@@ -180,7 +180,7 @@ def test_wrn_is_deterministic_in_eval_mode(wrn):
         a, b = wrn(x), wrn(x)
         single = wrn(x[:1])
     torch.testing.assert_close(a, b, rtol=0, atol=0)
-    # Eval-mode BatchNorm: an image's features do not depend on the rest of the batch.
+    # eval 모드 BatchNorm: 한 이미지의 특징은 배치의 다른 이미지에 좌우되지 않는다.
     torch.testing.assert_close(a[:1], single, rtol=1e-4, atol=1e-5)
 
 
@@ -203,11 +203,11 @@ def test_dinov2_patches_are_normalised_tokens():
         tokens = model.model.forward_features(x)
     assert out.shape == (2, 2, 2, 384)
     torch.testing.assert_close(out.norm(dim=-1), torch.ones(2, 2, 2), atol=1e-5, rtol=0)
-    # One class token and four register tokens are dropped; the rest are the patches in raster order.
+    # class 토큰 1개와 register 토큰 4개를 버리고, 나머지는 래스터 순서의 패치다.
     assert tokens.shape == (2, 5 + 4, 384)
     expected = F.normalize(tokens[:, 5:], dim=-1).reshape(2, 2, 2, 384)
     torch.testing.assert_close(out, expected)
-    # The model is built for this input size: a 2x2 position embedding, not timm's default 37x37.
+    # 모델은 이 입력 크기에 맞춰 만들어진다: timm 기본 37x37이 아니라 2x2 위치 임베딩.
     assert model.img_size == 28
     assert tuple(model.model.patch_embed.img_size) == (28, 28)
     assert model.model.pos_embed.shape == (1, 4, 384)
@@ -224,7 +224,7 @@ def test_dinov2_arguments_reach_timm(monkeypatch):
 
     def fake_create(arch, *args, **kwargs):
         calls.append((arch, args, dict(kwargs)))
-        # No network: build the same model with random weights.
+        # 네트워크 없음: 같은 모델을 무작위 가중치로 만든다.
         return real_create(arch, *args, **{**kwargs, "pretrained": False})
 
     monkeypatch.setattr(timm, "create_model", fake_create)
@@ -236,7 +236,7 @@ def test_dinov2_arguments_reach_timm(monkeypatch):
 
     make_extractor("dinov2_vits14", img_size=28, pretrained=False)
     assert calls[1][0] == "vit_small_patch14_reg4_dinov2" and calls[1][2]["pretrained"] is False
-    # The class default is pretrained weights at 448 px.
+    # 클래스 기본값은 448px 사전학습 가중치다.
     DinoV2Patches()
     assert calls[2][0] == "vit_small_patch14_reg4_dinov2"
     assert calls[2][2]["pretrained"] is True and calls[2][2]["img_size"] == 448
@@ -262,7 +262,7 @@ def test_make_extractor_passes_pretrained_to_the_wide_resnet(monkeypatch):
     loaded = make_extractor("wrn50", img_size=256, pretrained=True)
     assert urls == [Wide_ResNet50_2_Weights.IMAGENET1K_V1.url]
     assert torch.equal(loaded.conv1.weight, reference.conv1.weight)
-    # Pretrained weights are the default.
+    # 기본값은 사전학습 가중치다.
     make_extractor("wrn50", img_size=256)
     assert len(urls) == 2
 
@@ -296,7 +296,7 @@ def test_make_extractor_names():
 # 중심화 테스트용 가짜 추출기. 고정된 2×2×2 특징 격자에 '입력 평균'만큼의 이미지별 오프셋을 더한다. 이미지
 # 전체에 고르게 걸린 밝기 이동을 흉내 낸 것이다.
 class _Shift(torch.nn.Module):
-    """Stand-in extractor: a fixed grid of features plus a per-image offset taken from the input."""
+    """대역 추출기: 고정된 특징 격자에 입력에서 얻은 이미지별 오프셋을 더한다."""
 
     name = "shift"
     dim = 2
@@ -320,12 +320,12 @@ def test_centred_patches_remove_each_images_mean_feature():
     with torch.no_grad():
         out = centred(x)
     assert out.shape == (2, 2, 2, 2) and out.dtype == torch.float32
-    # The per-image offset is gone: both images give the same centred grid, with zero mean per channel.
+    # 이미지별 오프셋이 사라졌다: 두 이미지가 같은 중심화 격자를 내고, 채널별 평균은 0이다.
     assert torch.allclose(out[0], out[1])
     assert torch.allclose(out.mean(dim=(1, 2)), torch.zeros(2, 2))
     base = torch.arange(8, dtype=torch.float32).view(2, 2, 2)
     assert torch.allclose(out[0], base - base.mean(dim=(0, 1), keepdim=True))
-    # Frozen like every extractor: no trainable parameter, and train() keeps eval mode.
+    # 다른 추출기처럼 고정돼 있다: 학습되는 파라미터가 없고, train()을 불러도 eval 모드다.
     assert not centred.train().training
 
 

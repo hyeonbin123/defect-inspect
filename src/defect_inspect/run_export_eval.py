@@ -1,8 +1,8 @@
-"""Score the evaluation set and the cross-fitted pool with the exported CPU pipeline.
+"""내보낸 CPU 파이프라인으로 평가 세트와 교차 적합 풀을 다시 채점한다.
 
-The torch pipeline (GPU fp16) produced the banks and the thresholds of a `run_grid --save-banks` run. This
-run repeats the scoring with onnxruntime on the CPU (fp32 and INT8 models) against the same banks, so
-that the drift of scores, thresholds and false alarm rates caused by the export can be measured.
+`run_grid --save-banks` 실행의 뱅크와 임계값은 torch 파이프라인(GPU fp16)이 만들었다. 이 실행은 같은
+뱅크로 채점만 onnxruntime CPU(fp32, INT8 모델)에서 다시 해서, 내보내기 때문에 점수·임계값·오검출률이
+얼마나 달라지는지 잴 수 있게 한다.
 """
 
 # [파일 역할] 4단계 CPU 재채점 스크립트. run_grid --save-banks 실행이 GPU torch 파이프라인(fp16)으로 만든
@@ -34,9 +34,8 @@ from .ledger import git_commit, record_test_access
 from .run_grid import ratio_name, ratio_rows
 from .splits import ManifestRow, pool_folds, read_manifest, select
 
-# 아티팩트 meta와 격자 실행 config에서 반드시 같아야 하는 값(백본, 입력 크기, 재가중 k, 맵 σ). 다르면 두
-# 파이프라인의 점수 차이가 내보내기 탓인지 설정 탓인지 가를 수 없다.
-# Artifact meta values that must equal the grid run's: they decide the scores of both pipelines.
+# 아티팩트 meta와 격자 실행 config에서 반드시 같아야 하는 값(백본, 입력 크기, 재가중 k, 맵 σ). 이 값들이 두
+# 파이프라인의 점수를 정하므로, 다르면 점수 차이가 내보내기 탓인지 설정 탓인지 가를 수 없다.
 _CONFIG_KEYS = ("backbone", "img_size", "reweight_k", "sigma")
 
 
@@ -52,7 +51,7 @@ def _read_json(path: Path):
 # .npy 헤더만 읽어 배열 모양을 알아낸다. 큰 뱅크 파일을 실제로 읽지 않고 행 수·차원을 점검하기 위해서다(형식
 # 버전 1.0과 2.0 헤더를 구분).
 def _npy_shape(path: Path) -> tuple[int, ...]:
-    """Shape of a .npy file from its header; the data is not read."""
+    """.npy 파일의 모양을 헤더에서 읽는다. 데이터는 읽지 않는다."""
     try:
         with open(path, "rb") as f:
             version = np.lib.format.read_magic(f)
@@ -76,7 +75,7 @@ def _bank_names(protocol: str) -> list[str]:
 def _rows(
     manifest: list[ManifestRow], protocol: str, category: str, allow_test: bool
 ) -> tuple[list[ManifestRow], list[ManifestRow], list[ManifestRow]]:
-    """(pool normals, evaluation normals, evaluation defects) of a category, in manifest order."""
+    """한 범주의 (풀 정상, 평가 정상, 평가 결함) 행. 매니페스트 순서를 따른다."""
     pool = select(manifest, protocol=protocol, part="pool_normal", category=category)
     eval_normal = select(
         manifest, protocol=protocol, part="eval_normal", category=category, allow_test=allow_test
@@ -90,7 +89,7 @@ def _rows(
 # 격자 실행이 저장한 torch 점수(평가, 교차 적합 풀)를 읽으면서, 그 점수가 지금 매니페스트가 고르는 바로 그
 # 이미지들(같은 순서, 같은 개수)의 것인지 확인한다. 이미지가 어긋나면 비교 자체가 무의미하므로 멈춘다.
 def _check_same_images(npz_path: Path, category: str, pool: list[ManifestRow], eval_rows: list[ManifestRow]):
-    """The grid run's torch scores (evaluation, cross-fitted pool), checked to be of these images."""
+    """격자 실행의 torch 점수(평가, 교차 적합 풀). 이 이미지들의 점수인지 확인한 뒤 돌려준다."""
     try:
         with np.load(npz_path) as z:
             eval_images, pool_images = z["eval_images"].tolist(), z["pool_images"].tolist()
@@ -108,8 +107,7 @@ def _check_same_images(npz_path: Path, category: str, pool: list[ManifestRow], e
 # 있는지, 요청한 정밀도의 모델 파일이 있는지, 아티팩트가 같은 설정·비율·절차로 만들어졌는지, 뱅크 파일 모양이
 # 비율에 충분한지, 저장된 torch 점수의 이미지 목록이 맞는지.
 # test 절차는 이 점검을 장부 기록 전에 해서, 입력 문제로 실패한 실행이 봉인 테스트 기록만 남기지 않게
-# 한다(docstring). 커밋 84a26c4 메시지의 'run_export_eval checks ratio, categories and files before the ledger
-# line'에 해당한다.
+# 한다(docstring). 커밋 84a26c4에서 장부 줄을 쓰기 전에 비율·범주·파일을 점검하도록 바꾼 부분이다.
 def check_inputs(
     grid_dir: Path,
     grid: dict,
@@ -120,11 +118,11 @@ def check_inputs(
     manifest: list[ManifestRow],
     allow_test: bool,
 ) -> dict[str, dict]:
-    """Check everything a run needs, without reading an image; returns the artifact meta per category.
+    """실행에 필요한 모든 것을 이미지를 읽지 않고 점검하고, 범주별 아티팩트 meta를 돌려준다.
 
-    Raises `ValueError` naming the first problem: a ratio the grid run does not have, missing models,
-    banks or score files, artifacts that were built from another setting or ratio, image lists that
-    differ from the grid run's. A test-protocol run calls this before it writes the ledger line.
+    처음 발견한 문제를 담아 `ValueError`를 낸다: 격자 실행에 없는 비율, 없는 모델·뱅크·점수 파일, 다른
+    설정이나 비율로 만든 아티팩트, 격자 실행과 다른 이미지 목록. test 절차 실행은 장부 줄을 쓰기 전에 이
+    함수를 부른다.
     """
     # 격자 실행에 이 비율과 범주들이 있는지 먼저 확인한다(비율은 폴더 이름 규칙으로 비교).
     protocol = grid["protocol"]
@@ -222,13 +220,12 @@ def run_category(
     cache: ImageCache,
     allow_test: bool,
 ) -> dict[str, np.ndarray]:
-    """Evaluation scores under the full bank prefix and cross-fitted pool scores, all from `session`."""
+    """전체 뱅크 앞부분으로 낸 평가 점수와 교차 적합 풀 점수. 모두 `session`으로 채점한다."""
     # run_grid와 같은 행 선택이라 평가·풀 이미지가 같은 순서로 나온다. folds는 풀 이미지의 겹 번호다.
     pool, eval_normal, eval_defect = _rows(manifest, protocol, category, allow_test)
     eval_rows = eval_normal + eval_defect
     folds = np.array([r.fold for r in pool], dtype=np.int64)
-    # 이미지를 읽기 전에 비교 대상 torch 점수가 같은 이미지의 것인지 먼저 확인한다.
-    # Before any image is read: the torch scores this run is compared with must be of the same images.
+    # 이미지를 하나라도 읽기 전에, 이 실행과 비교할 torch 점수가 같은 이미지의 것인지 먼저 확인한다.
     torch_eval, torch_oof = _check_same_images(
         grid_dir / ratio_name(ratio) / f"{category}.npz", category, pool, eval_rows
     )
@@ -239,7 +236,7 @@ def run_category(
     def inspector_for(bank_name: str) -> Inspector:
         bank = np.load(grid_dir / "banks" / f"{category}_{bank_name}.npy")
         rows = ratio_rows(sources[bank_name], ratio)
-        if bank.shape[0] < rows:  # a ratio above the grid's largest would silently use the whole bank
+        if bank.shape[0] < rows:  # 격자의 최대 비율보다 큰 비율이면 뱅크 전체를 조용히 쓰게 된다
             raise ValueError(
                 f"{category}_{bank_name}.npy has {bank.shape[0]} rows, ratio {ratio:g} needs {rows}"
             )
@@ -247,7 +244,7 @@ def run_category(
 
     # 전체 뱅크 검사기를 이미지를 읽기 전에 만들어 뱅크 문제가 먼저 드러나게 한다. 평가 점수를 낸 뒤에는 바로
     # 지워 메모리를 아낀다.
-    full = inspector_for("full")  # built before the first image is read
+    full = inspector_for("full")  # 첫 이미지를 읽기 전에 만든다
     eval_scores = full.scores(cache.images(eval_rows))
     del full
     # 교차 적합: 겹마다 그 겹을 뺀 뱅크로 만든 검사기로 그 겹 이미지를 채점한다. 모든 풀 이미지가 채워졌는지
@@ -280,18 +277,18 @@ def run_category(
 # 한다. --threads로 onnxruntime 스레드 수를 고정할 수 있다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--grid", type=Path, required=True, help="a run_grid --save-banks run directory")
+    parser.add_argument("--grid", type=Path, required=True, help="run_grid --save-banks 실행 폴더")
     parser.add_argument("--ratio", type=float, required=True)
-    parser.add_argument("--artifacts", type=Path, required=True, help="artifact set built by export.py")
+    parser.add_argument("--artifacts", type=Path, required=True, help="export.py가 만든 아티팩트 묶음 폴더")
     parser.add_argument("--precision", nargs="+", default=["fp32", "int8"], choices=sorted(PRECISIONS))
     parser.add_argument("--categories", nargs="+", default=None)
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument(
-        "--out", type=Path, default=None, help="default: outputs/export-<artifact set>-<protocol>"
+        "--out", type=Path, default=None, help="기본값: outputs/export-<아티팩트 묶음 이름>-<protocol>"
     )
-    parser.add_argument("--allow-test", action="store_true", help="read the sealed test set (logged)")
+    parser.add_argument("--allow-test", action="store_true", help="봉인 테스트 세트를 읽는다(장부에 기록)")
     parser.add_argument(
-        "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
+        "--stage", default="", help="봉인 테스트 장부에 남길 단계 이름(--allow-test와 함께 필수)"
     )
     parser.add_argument("--note", default="")
     parser.add_argument("--overwrite", action="store_true")
@@ -318,10 +315,8 @@ def main(argv: list[str] | None = None) -> None:
     if (out_dir / "run.json").exists() and not args.overwrite:
         parser.error(f"{out_dir} already holds a finished run; pass --overwrite to redo it")
 
-    # 테스트 이미지를 건드리지 않고 실패할 수 있는 모든 점검(입력 파일, 모델 적재, 모델 입출력과 meta의 일치,
-    # 캐시 존재)을 장부 기록 전에 끝낸다.
-    # Everything that can fail without touching a test image comes before the ledger line: the ratio,
-    # the files of the grid run and of the artifact set, the image lists, the models and the cache.
+    # 테스트 이미지를 건드리지 않고 실패할 수 있는 모든 점검을 장부 줄을 쓰기 전에 끝낸다: 비율, 격자 실행과
+    # 아티팩트 묶음의 파일, 이미지 목록, 모델 적재와 모델 입출력·meta의 일치, 캐시 존재.
     manifest = read_manifest(paths.VISA_MANIFEST)
     sessions = {}
     try:
@@ -339,7 +334,7 @@ def main(argv: list[str] | None = None) -> None:
                 sessions[precision] = ort.InferenceSession(
                     str(model), sess_options=options, providers=["CPUExecutionProvider"]
                 )
-            except Exception as err:  # onnxruntime has its own exception types for files it cannot load
+            except Exception as err:  # onnxruntime은 읽지 못하는 파일에 자체 예외 타입을 쓴다
                 raise ValueError(f"{model} is not a loadable ONNX model: {err}") from err
             for category in categories:
                 try:

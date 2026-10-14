@@ -1,21 +1,20 @@
-"""Inspection service: upload a product image, get the anomaly score, the verdict and a heatmap.
+"""검사 서비스: 제품 사진을 올리면 이상 점수, 판정, 히트맵을 돌려준다.
 
-Runs on the CPU with onnxruntime only (no torch). Inspectors are loaded from an artifact set (one sub-folder
-per category): a reconstruction model built by `defect_inspect.dinomaly_serving export` (Dinomaly, the
-served model since stage 6: one ONNX model scores every category, each folder holds its threshold) or a
-PatchCore set built by `defect_inspect.export` (a memory bank per category). `create_offline_app` serves a
-tiny synthetic inspector without any model file, for tests and security scans.
+torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶음(범주마다 하위 폴더 하나)에서 읽는다:
+`defect_inspect.dinomaly_serving export`가 만든 재구성 모델(Dinomaly, 6단계부터의 서빙 모델: ONNX 모델 하나가
+모든 범주를 채점하고 폴더마다 임계값을 둔다) 또는 `defect_inspect.export`가 만든 PatchCore 묶음(범주마다
+메모리 뱅크). `create_offline_app`은 모델 파일 없이 아주 작은 합성 검사기를 서빙한다(테스트와 보안 스캔용).
 
-Uploads: PNG, JPEG, BMP, TIFF or WebP with 8 bits per channel and no transparency. The stored pixels are
-scored as they are (no EXIF rotation), like the resize cache the models and memory banks were built from.
+업로드: 채널당 8비트이고 투명도가 없는 PNG, JPEG, BMP, TIFF, WebP. 저장된 화소를 그대로 채점한다(EXIF 회전
+없음). 모델과 메모리 뱅크를 만든 리사이즈 캐시도 그렇게 만들었다.
 
-Settings (environment variables, or the keyword arguments of `create_app`):
-- `DEFECT_INSPECT_ALLOWED_HOSTS`: comma-separated Host names the service answers to (`*.example.com` and
-  `*` are wildcards). Default: localhost, 127.0.0.1 and [::1].
-- `DEFECT_INSPECT_ADMIN_TOKEN`: enables `/calibrate`; callers send it as the `X-Admin-Token` header.
-  Without it the thresholds of the artifact set cannot be changed over HTTP.
-- `DEFECT_INSPECT_WORKERS` / `DEFECT_INSPECT_QUEUE`: images decoded and scored at once (default 2) and
-  requests allowed to wait for a worker (default 16); beyond that the answer is a 503 with `Retry-After`.
+설정(환경 변수 또는 `create_app`의 키워드 인자):
+- `DEFECT_INSPECT_ALLOWED_HOSTS`: 서비스가 응답할 Host 이름을 쉼표로 나열한다(`*.example.com`과 `*`는
+  와일드카드). 기본값: localhost, 127.0.0.1, [::1].
+- `DEFECT_INSPECT_ADMIN_TOKEN`: `/calibrate`를 켠다. 호출하는 쪽은 이 값을 `X-Admin-Token` 헤더로 보낸다.
+  없으면 HTTP로 아티팩트 묶음의 임계값을 바꿀 수 없다.
+- `DEFECT_INSPECT_WORKERS` / `DEFECT_INSPECT_QUEUE`: 동시에 디코딩·채점하는 이미지 수(기본 2)와 작업자를
+  기다릴 수 있는 요청 수(기본 16). 그보다 많으면 `Retry-After`를 붙인 503으로 답한다.
 """
 
 # [파일 역할] FastAPI 검사 서비스. 사진 한 장과 범주를 받아 이상 점수·임계값·양품/불량 판정·히트맵을
@@ -82,15 +81,12 @@ logger = logging.getLogger(__name__)
 # 요청 한계값.
 # - MAX_UPLOAD_BYTES: 파일 하나 20MB(README). MAX_REQUEST_BYTES: 여러 장을 올리는 /calibrate 본문 전체 256MB
 # - MULTIPART_SLACK_BYTES: /inspect 본문 한계 = 파일 20MB + multipart 틀과 텍스트 필드 여유 64KB
-# - MAX_IMAGE_PIXELS: 2,500만 화소. 디코딩한 그림이 리사이즈 전까지 화소당 4바이트를 차지하므로 메모리 상한을
-#   두는 것이다
+# - MAX_IMAGE_PIXELS: 2,500만 화소(2,400만 화소 센서의 사진이 들어간다). 디코딩한 그림이 모델 입력 크기로
+#   리사이즈되기 전까지 화소당 4바이트를 차지하므로 메모리 상한을 두는 것이다
 # - MAX_CALIBRATION_FILES: /calibrate 한 번에 최대 200장
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-# Whole request body of a calibration call (it carries many images).
 MAX_REQUEST_BYTES = 256 * 1024 * 1024
-# Room for the multipart framing and the text fields around the single image of an inspection call.
 MULTIPART_SLACK_BYTES = 64 * 1024
-# 24 MP sensors fit. A decoded picture takes 4 bytes per pixel until it is resized to the model input.
 MAX_IMAGE_PIXELS = 25_000_000
 MAX_CALIBRATION_FILES = 200
 # 디코딩을 허용하는 형식 다섯 가지(README의 받는 형식). Pillow가 지원하는 다른 형식의 디코더를 열지 않으므로
@@ -98,7 +94,6 @@ MAX_CALIBRATION_FILES = 200
 # DEEP_MODES: 16비트·실수 모드. RGB로 바꾸면 255에서 잘려 이미지 전체가 흰색처럼 채점되므로 조용히 자르지 않고
 # 거절한다(README).
 IMAGE_FORMATS = ("PNG", "JPEG", "BMP", "TIFF", "WEBP")
-# Pillow clips these to 255 when converting to RGB, which would score every such image as all white.
 DEEP_MODES = frozenset({"I", "F", "I;16", "I;16L", "I;16B", "I;16N"})
 # 기본으로 응답하는 Host 이름(로컬만). 다른 이름으로 열려면 DEFECT_INSPECT_ALLOWED_HOSTS에 적고, 그 값이 기본
 # 목록을 대신한다. Host 허용 목록은 일반적으로 DNS 리바인딩처럼 엉뚱한 이름으로 들어온 요청을 막는 장치다.
@@ -131,27 +126,26 @@ SECURITY_HEADERS = {
 # _MISSING: meta에 키가 아예 없었다는 표시(None과 구별해 DELETE /calibrate가 원래 상태로 정확히 되돌리게).
 # MODEL_FILES: 아티팩트 종류별 정밀도 → 모델 파일 이름. AnyInspector: 두 검사기 클래스 중 하나.
 _MISSING = object()
-# Model file of each precision, by artifact kind (the `kind` of a category folder's meta.json).
+# MODEL_FILES의 키는 아티팩트 종류(범주 폴더 meta.json의 `kind`)다.
 MODEL_FILES = {PATCHCORE: PRECISIONS, RECONSTRUCTION: RECONSTRUCTION_PRECISIONS}
 AnyInspector = Inspector | ReconstructionInspector
 
 
 # 아티팩트 폴더에서 범주 검사기를 모두 읽는다. 범주 폴더의 meta.json kind로 클래스를 고르고, 같은 모델 파일을
 # 쓰는 범주는 ONNX Runtime 세션 하나를 같이 쓴다(dms-280-car는 12개 범주가 세션 하나). 세션 run은 스레드
-# 안전하고, 범주마다 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘기 때문이다(docstring). 문제가 있으면
+# 안전하고, 범주마다 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘기 때문이다. 문제가 있으면
 # 폴더 이름을 담은 ValueError로 서비스 시작을 멈춘다.
 # 호출 위치: create_app, tests/test_service.py.
 def load_inspectors(
     artifacts: Path, *, precision: str = "fp32", threads: int | None = None
 ) -> dict[str, AnyInspector]:
-    """Every category folder of an artifact set that holds a `meta.json`.
+    """아티팩트 묶음에서 `meta.json`이 있는 모든 범주 폴더의 검사기.
 
-    The folder's `kind` picks the class: `ReconstructionInspector` (no bank) or the PatchCore `Inspector`.
-    Each inspector is what that class's `load` builds for its folder (tests compare the two), except that
-    categories using the same model file (an artifact set keeps one next to the category folders) share one
-    ONNX Runtime session: `session.run` is thread-safe, and a session per category would multiply the
-    memory and the start-up time by the number of categories. Anything wrong with an artifact is a
-    `ValueError` that names its folder.
+    폴더의 `kind`가 클래스를 고른다: `ReconstructionInspector`(뱅크 없음) 또는 PatchCore `Inspector`. 각
+    검사기는 그 클래스의 `load`가 그 폴더로 만드는 것과 같다(테스트가 둘을 비교한다). 다만 같은 모델 파일을
+    쓰는 범주들(아티팩트 묶음은 범주 폴더 옆에 모델 파일 하나를 둔다)은 ONNX Runtime 세션 하나를 같이 쓴다:
+    `session.run`은 스레드 안전하고, 범주마다 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘기 때문이다.
+    아티팩트에 문제가 있으면 그 폴더 이름을 담은 `ValueError`를 낸다.
     """
     import onnxruntime as ort
 
@@ -199,7 +193,7 @@ def load_inspectors(
                 inspector = ReconstructionInspector(sessions[key], meta)
             else:
                 inspector = Inspector(sessions[key], bank, meta)
-        except Exception as err:  # unreadable files, a model onnxruntime rejects, a meta/bank/model mismatch
+        except Exception as err:  # 읽을 수 없는 파일, onnxruntime이 거부한 모델, meta·뱅크·모델 불일치
             raise ValueError(f"{folder} ({model.name}): {err}") from err
         inspector.precision = precision
         inspector.threads = None if threads is None else int(threads)
@@ -215,10 +209,10 @@ def load_inspectors(
 # EXIF 회전은 적용하지 않는다. 모델과 뱅크를 만든 리사이즈 캐시도 저장된 화소 그대로였기 때문이다(모듈
 # docstring).
 def _decode(data: bytes, size: int | None = None) -> Image.Image:
-    """Bytes of an upload -> 8-bit RGB picture, or a 400 for anything that is not a reasonable image.
+    """업로드 바이트 -> 8비트 RGB 그림. 적절한 이미지가 아니면 400을 낸다.
 
-    With `size` the picture is resized to the model input right away, by the same call as
-    `inspector.preprocess`, so the scores do not change and the full-size decode is not kept.
+    `size`를 주면 `inspector.preprocess`와 같은 호출로 바로 모델 입력 크기로 줄인다. 그래서 점수는 그대로이고
+    원본 크기로 디코딩한 그림을 계속 들고 있지 않는다.
     """
     try:
         image = Image.open(io.BytesIO(data), formats=IMAGE_FORMATS)
@@ -233,7 +227,6 @@ def _decode(data: bytes, size: int | None = None) -> Image.Image:
         # 투명도가 있는 이미지는 알파가 모두 255(완전 불투명)일 때만 받는다. 투명한 영역 아래 화소는 화면에 안
         # 보이지만 채점되므로, 사람이 본 것과 모델이 본 것이 달라지는 것을 막는다.
         if image.has_transparency_data:
-            # Pixels under a transparent area are invisible in a viewer but would be scored.
             image = image.convert("RGBA")
             if image.getchannel("A").getextrema()[0] < 255:
                 raise HTTPException(status_code=400, detail="images with transparency are not supported")
@@ -246,14 +239,14 @@ def _decode(data: bytes, size: int | None = None) -> Image.Image:
     except (HTTPException, MemoryError):
         raise
     except Exception:
-        # Pillow's decoders raise more than OSError on damaged files (SyntaxError, RuntimeError, ...).
+        # Pillow 디코더는 손상된 파일에 OSError 말고도 여러 예외(SyntaxError, RuntimeError 등)를 낸다.
         raise HTTPException(status_code=400, detail="the upload is not a readable image") from None
 
 
 # 업로드 하나를 한계 + 1바이트까지만 읽어, 한계를 넘으면 전부 읽지 않고 413을 낸다. 빈 파일은 400. 파일 읽기는
 # 막히는(blocking) 작업이라 디코딩과 함께 작업 스레드에서 부른다.
 def _read_limited(upload: UploadFile) -> bytes:
-    """The bytes of one uploaded file. Blocking: call it in a worker, next to the decode."""
+    """업로드한 파일 하나의 바이트. 막히는 호출이므로 디코딩과 함께 작업 스레드에서 부른다."""
     data = upload.file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"upload larger than {MAX_UPLOAD_BYTES} bytes")
@@ -273,7 +266,7 @@ def _png_base64(image: Image.Image, **options) -> str:
 # "임계값에 얼마나 가까운가"를 보이게 한다. 임계값이 0 이하이면(합성 범주 등) 맵 최댓값으로 나눈다. +0.5는
 # 반올림이다.
 def heatmap_png(heatmap: np.ndarray, threshold: float) -> str:
-    """Base64 PNG (8-bit grey, 256x256): 0 at score 0, white at 1.5 x the threshold and above."""
+    """base64 PNG(8비트 회색조, 256x256): 점수 0은 검정, 임계값의 1.5배 이상은 흰색."""
     scale = 1.5 * threshold if threshold > 0 else float(heatmap.max()) or 1.0
     grey = np.clip(heatmap / scale, 0.0, 1.0)
     return _png_base64(Image.fromarray((grey * 255.0 + 0.5).astype(np.uint8)))
@@ -284,7 +277,7 @@ def heatmap_png(heatmap: np.ndarray, threshold: float) -> str:
 # 문자열로 바꿔 Fraction으로 계산해 부동소수 오차로 1장 차이가 나지 않게 하고, 마지막에 conformal_rank로
 # 확인한다.
 def _min_calibration_images(alpha: float) -> int:
-    """Smallest n whose conformal rank fits into n scores, i.e. `ceil(1 / alpha) - 1`."""
+    """conformal 순위가 점수 n개 안에 들어오는 가장 작은 n, 곧 `ceil(1 / alpha) - 1`."""
     n = max(1, math.ceil(1 / Fraction(format(alpha, ".12g"))) - 1)
     while conformal_rank(n, alpha) > n:
         n += 1
@@ -294,7 +287,7 @@ def _min_calibration_images(alpha: float) -> int:
 # Host 헤더(포트 무시)가 허용 목록과 맞는지 본다. IPv6 "[::1]:8093"은 대괄호까지를 이름으로 본다.
 # "*.example.com"은 하위 도메인 와일드카드, "*"는 모두 허용이다.
 def _host_allowed(value: str, allowed: Sequence[str]) -> bool:
-    """Whether a Host header (the port is ignored) matches one of the allowed names."""
+    """Host 헤더(포트는 무시)가 허용한 이름 가운데 하나와 맞는지."""
     host = value.strip().lower()
     host = host.partition("]")[0] + "]" if host.startswith("[") else host.partition(":")[0]
     for pattern in allowed:
@@ -308,20 +301,20 @@ def _host_allowed(value: str, allowed: Sequence[str]) -> bool:
 # 브라우저가 아닌 클라이언트(curl 등)로 보고 통과시킨다. 서비스가 쿠키를 쓰지 않아도 CSRF식 쓰기 요청을 막는
 # 장치다(docs/security.md의 Anti-CSRF 오탐 사유).
 def _cross_site(headers: Headers) -> bool:
-    """A request that a page of another origin made the browser send (Fetch metadata, else Origin)."""
+    """다른 출처의 페이지가 브라우저를 시켜 보낸 요청인지(Fetch 메타데이터로, 없으면 Origin으로)."""
     site = headers.get("sec-fetch-site")
     if site is not None:
         return site.strip().lower() not in ("same-origin", "none")
     origin = headers.get("origin")
     if origin is None:
-        return False  # not a browser
+        return False  # 브라우저가 아니다
     return urlsplit(origin).netloc.lower() != headers.get("host", "").strip().lower()
 
 
 # 관리자 요청이 거절될 이유를 돌려준다(없으면 None). 토큰을 설정하지 않으면 /calibrate는 꺼져 있다. 비교는
 # hmac.compare_digest(상수 시간 비교)로 해서 응답 시간 차이로 토큰을 한 글자씩 알아내는 공격을 막는다.
 def _admin_problem(headers: Headers, token: str | None) -> str | None:
-    """Why a request may not change thresholds, or None when it carries the admin token."""
+    """요청이 임계값을 바꿀 수 없는 이유. 관리자 토큰을 가졌으면 None."""
     if not token:
         return "calibration is disabled: start the service with DEFECT_INSPECT_ADMIN_TOKEN"
     given = headers.get(ADMIN_HEADER, "")
@@ -347,11 +340,11 @@ def _refusal(status: int, detail: str) -> JSONResponse:
 # 동안에도 바이트 수를 세어 chunked 요청까지 한계를 지킨다. 나가는 모든 응답(이 클래스가 쓰는 500 포함)에 보안
 # 헤더를 붙인다.
 class _Guard:
-    """Pure ASGI wrapper around the whole app.
+    """앱 전체를 감싸는 순수 ASGI 감싸개.
 
-    Before anything is read from the body: the Host check, the cross-site check and the admin token.
-    While the body arrives: a byte limit that also holds for chunked requests. On the way out: the security
-    headers on every response, including the JSON 500 this class writes for an unhandled error.
+    본문을 하나라도 읽기 전에: Host 검사, 다른 출처 검사, 관리자 토큰. 본문이 들어오는 동안: chunked
+    요청에도 지켜지는 바이트 한계. 나가는 길에: 모든 응답에 보안 헤더(처리되지 않은 오류에 이 클래스가 쓰는
+    JSON 500 포함).
     """
 
     def __init__(self, app, *, allowed_hosts: Sequence[str], admin_token: str | None):
@@ -363,8 +356,8 @@ class _Guard:
     # 토큰(403, 하위 경로 포함) → 선언된 본문 크기(413). 하나라도 걸리면 그 응답을 돌려준다.
     def _refuse(self, scope, headers: Headers) -> JSONResponse | None:
         path = scope["path"]
-        # The body of a refused request never reaches the app: the server reads it off the socket and
-        # drops it, so the client still gets to see the answer.
+        # 거절한 요청의 본문은 앱에 닿지 않는다: 서버가 소켓에서 읽어 버리므로 클라이언트는 그래도 응답을
+        # 받아 볼 수 있다.
         if not _host_allowed(headers.get("host", ""), self.allowed_hosts):
             return _refusal(400, "host not allowed")
         if scope["method"] not in SAFE_METHODS and _cross_site(headers):
@@ -405,9 +398,9 @@ class _Guard:
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
                 if received > limit:
-                    # More than announced, or a chunked body with no end in sight: answer and hang up
-                    # ("Connection: close" makes the server drop the connection instead of reading on).
-                    # FastAPI passes an HTTPException raised while it parses the body through as it is.
+                    # 선언보다 많거나, 끝이 보이지 않는 chunked 본문: 응답하고 연결을 끊는다("Connection:
+                    # close"면 서버가 계속 읽지 않고 연결을 닫는다). 본문을 파싱하는 동안 난 HTTPException은
+                    # FastAPI가 그대로 통과시킨다.
                     raise HTTPException(
                         status_code=413, detail="request body too large", headers={"Connection": "close"}
                     )
@@ -433,11 +426,11 @@ class _Guard:
 # 않고, 디코딩한 큰 이미지가 메모리에 쌓이지 않는다(docstring). DAST 결과에서 모델이 실제로 도는 서비스도
 # 대기열이 넘친 503을 내지 않았다(docs/security.md).
 class _Gate:
-    """At most `workers` jobs compute at once and at most `queue` more requests wait; the rest get a 503.
+    """동시에 계산하는 작업은 최대 `workers`개, 더 기다리는 요청은 최대 `queue`개. 나머지는 503을 받는다.
 
-    The jobs run on threads of their own. The bound keeps decoded images from piling up in memory, a
-    waiting request does not hold a thread of the shared pool (static files need those), and the big
-    image buffers stay in the memory arenas of these few threads instead of spreading over forty.
+    작업은 전용 스레드에서 돈다. 이 한도 덕에 디코딩한 이미지가 메모리에 쌓이지 않고, 기다리는 요청이 공용
+    스레드 풀(정적 파일 응답에 필요)의 스레드를 붙잡지 않으며, 큰 이미지 버퍼가 마흔 개 스레드에 흩어지지 않고
+    이 몇 개 스레드의 메모리 아레나에 머문다.
     """
 
     def __init__(self, workers: int, queue: int):
@@ -489,7 +482,7 @@ def create_app(
     workers: int | None = None,
     queue: int | None = None,
 ) -> FastAPI:
-    """The service. Arguments left out come from the `DEFECT_INSPECT_*` environment variables."""
+    """서비스 앱. 주지 않은 인자는 `DEFECT_INSPECT_*` 환경 변수에서 가져온다."""
     if inspectors is None:
         artifacts = artifacts or os.environ.get("DEFECT_INSPECT_ARTIFACTS")
         if not artifacts:
@@ -511,19 +504,15 @@ def create_app(
 
     # Swagger·ReDoc 문서 화면은 CDN 스크립트가 필요해 CSP와 맞지 않으므로 끈다. /openapi.json 명세는 남아 있어
     # DAST가 경로를 가져오는 데 쓴다(docs/security.md).
-    # The interactive docs need scripts from a CDN, which the content security policy forbids.
     app = FastAPI(title="defect-inspect", version=str(ARTIFACT_VERSION), docs_url=None, redoc_url=None)
     app.add_middleware(_Guard, allowed_hosts=allowed_hosts, admin_token=admin_token)
     app.state.inspectors = inspectors
     # 범주별 잠금은 임계값 상태(임계값, α, 보정 기록)를 읽고 바꿀 때만 잡는다. 채점은 잠금 밖에서 하므로 보정
     # 중에도 검사가 막히지 않고, 누구도 반쯤 바뀐 상태를 보지 않는다.
-    # Scoring runs outside these locks. They only cover reading and replacing a category's threshold
-    # state (threshold, alpha, calibration), so that nobody sees half of a calibration.
     locks = {name: threading.Lock() for name in inspectors}
     app.state.locks = locks
     # 시작할 때의 임계값·α·보정 기록을 보관해 DELETE /calibrate가 정확히 그 상태로 되돌리게 한다. 재보정한
     # 값은 메모리에만 있고 다시 띄우면 아티팩트 값으로 돌아간다(README).
-    # What the artifact set came with, for DELETE /calibrate.
     originals = {
         name: (i.threshold, i.meta.get("alpha", _MISSING), i.meta.get("calibration", _MISSING))
         for name, i in inspectors.items()
@@ -534,7 +523,7 @@ def create_app(
     # 응답으로 내부 구조나 보낸 값이 그대로 되비치지 않게 한다.
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:
-        # Where and what, without echoing the input or Python type names.
+        # 어디서 무엇이 틀렸는지만 알리고, 입력값이나 파이썬 타입 이름은 되비치지 않는다.
         detail = [
             {
                 "loc": list(error.get("loc", ())),
@@ -545,11 +534,9 @@ def create_app(
         ]
         return JSONResponse({"detail": detail}, status_code=422)
 
-    # 라우트 수준의 관리자 검사. _Guard가 이미 같은 규칙으로 막지만, 둘의 경로 판단이 어긋나는 경우에 대비한
-    # 이중 장치다.
+    # 라우트 수준의 관리자 검사. _Guard가 이미 본문을 읽기 전에 같은 규칙으로 막지만, 둘의 경로 판단이
+    # 어긋나는 경우에 대비해 라우트에도 같은 규칙을 두는 이중 장치다.
     def require_admin(request: Request) -> None:
-        # The guard already refused such a request before its body was read; this is the same rule at
-        # the route, in case the two ever disagree about a path.
         problem = _admin_problem(request.headers, admin_token)
         if problem:
             raise HTTPException(status_code=403, detail=problem)
@@ -563,7 +550,7 @@ def create_app(
 
     # 범주의 임계값 상태 사본(응답용). 호출하는 쪽이 범주 잠금을 잡고 있어야 한다.
     def threshold_state(inspector: AnyInspector) -> dict:
-        """Call with the category's lock held."""
+        """범주 잠금을 잡은 채로 부른다."""
         calibration = inspector.meta.get("calibration")
         return {
             "threshold": inspector.threshold,
@@ -589,8 +576,7 @@ def create_app(
             "calibration": state["calibration"],
         }
 
-    # /healthz는 compose의 상태 점검이 부른다. 비동기 함수라 검사 작업 스레드를 기다리지 않는다.
-    # Async handlers: a health check must not queue behind inspections for a thread.
+    # /healthz는 compose의 상태 점검이 부른다. 비동기 함수라 검사 작업 뒤에 줄 서서 스레드를 기다리지 않는다.
     @app.head("/healthz", include_in_schema=False)
     @app.get("/healthz")
     async def healthz() -> dict:
@@ -609,7 +595,7 @@ def create_app(
         heatmap: Annotated[bool, Query()] = True,
         preview: Annotated[bool, Query()] = False,
     ) -> JSONResponse:
-        """Score one image. `preview=true` adds `input_png`: the picture exactly as the model saw it."""
+        """이미지 한 장을 채점한다. `preview=true`면 `input_png`(모델이 본 그대로의 그림)를 더한다."""
         inspector = get(category)
 
         # 작업 스레드에서 도는 부분: 읽기 → 디코딩·리사이즈 → 채점 → 판정. 임계값은 잠금 아래에서 한 번만
@@ -619,7 +605,7 @@ def create_app(
             picture = _decode(_read_limited(image), inspector.size)
             result = inspector.inspect(picture, heatmap=heatmap)
             with locks[category]:
-                threshold = inspector.threshold  # read once: the verdict and the map scale agree
+                threshold = inspector.threshold  # 한 번만 읽는다: 판정과 맵 눈금이 같은 값을 쓴다
             body = {
                 "category": category,
                 "score": result.score,
@@ -651,11 +637,11 @@ def create_app(
         alpha: Annotated[float, Form(gt=0.0, le=0.5)] = 0.05,
         allow_unguaranteed: Annotated[bool, Form()] = False,
     ) -> dict:
-        """Set the category's threshold from normal images of the current condition (kept in memory).
+        """현재 촬영 조건의 정상 사진으로 범주의 임계값을 정한다(메모리에만 보관).
 
-        Only the threshold changes: the model (and a PatchCore memory bank) stays as loaded. Needs the admin
-        token. Too few images for the conformal rank at `alpha` are refused unless `allow_unguaranteed` is
-        set (the threshold is then the largest score).
+        임계값만 바뀐다: 모델(과 PatchCore 메모리 뱅크)은 읽어 들인 그대로다. 관리자 토큰이 필요하다.
+        `alpha`의 conformal 순위에 비해 사진이 너무 적으면 `allow_unguaranteed`를 주지 않는 한 거절한다(주면
+        임계값은 가장 큰 점수가 된다).
         """
         inspector = get(category)
         if len(images) > MAX_CALIBRATION_FILES:
@@ -675,15 +661,14 @@ def create_app(
 
         # 자리 하나를 얻은 뒤 사진을 한 장씩 작업 스레드에 보낸다. 디코딩한 그림을 모아 두지 않아 메모리가
         # 장수에 비례해 늘지 않고, 장과 장 사이에 다른 검사 요청도 작업자를 얻을 수 있다.
-        # One image at a time: decoded pictures are not kept, and inspections get a worker in between.
         scores = []
         with gate.admitted():
             for upload in images:
                 scores.append(await gate.run(score, upload))
 
         # 점수로 conformal 임계값을 정한 뒤, 잠금 아래에서 임계값·α·보정 기록(holdout, 장수, 보장 여부)을 한
-        # 번에 바꾸고 이전 임계값과 함께 돌려준다.
-        # The same rule and bookkeeping as `Inspector.calibrate`, applied to the scores found above.
+        # 번에 바꾸고 이전 임계값과 함께 돌려준다. 위에서 구한 점수에 `Inspector.calibrate`와 같은 규칙과 기록
+        # 방식을 적용한 것이다.
         found = conformal_threshold(np.array(scores, dtype=np.float32), alpha)
         with locks[category]:
             previous = inspector.threshold
@@ -700,7 +685,7 @@ def create_app(
     # 돌아간다. 원래 없던 키는 _MISSING 표시로 알아보고 지운다.
     @app.delete(ADMIN_PATH, dependencies=[Depends(require_admin)])
     async def reset_calibration(category: Annotated[str, Query(min_length=1, max_length=64)]) -> dict:
-        """Back to the threshold, alpha and calibration record the artifact set was loaded with."""
+        """아티팩트 묶음을 읽어 들였을 때의 임계값, alpha, 보정 기록으로 되돌린다."""
         inspector = get(category)
         threshold, alpha, calibration = originals[category]
         with locks[category]:
@@ -726,7 +711,7 @@ def create_app(
 # 모델 파일 없이 도는 가짜 ONNX 세션: 입력을 8×8 칸으로 나눠 칸마다 평균 색을 "패치 특징"(3차원)으로 낸다.
 # PatchCore Inspector가 기대하는 run(names, feeds) 모양만 맞춘다.
 class _GridMeanSession:
-    """Offline stand-in for an ONNX model: the mean colour of each cell of a 8x8 grid."""
+    """ONNX 모델을 대신하는 오프라인용 가짜: 8x8 격자의 칸마다 평균 색."""
 
     grid = 8
 
@@ -742,7 +727,7 @@ class _GridMeanSession:
 # 임계값을 잡는다. 회색 잡음과 다른 사진(실제 사진 등)은 높은 점수가 나와 불량으로 판정된다. 시드를 고정해 늘
 # 같은 검사기가 된다.
 def offline_inspector(size: int = 64, seed: int = 0) -> Inspector:
-    """A synthetic inspector: normal images are grey noise, anything else scores high."""
+    """합성 검사기: 정상 이미지는 회색 잡음이고, 그 밖의 것은 점수가 높게 나온다."""
     from .inspector import preprocess
 
     rng = np.random.default_rng(seed)
@@ -772,5 +757,5 @@ def offline_inspector(size: int = 64, seed: int = 0) -> Inspector:
 # 모델 파일 없이 띄우는 같은 서비스(범주 demo 하나). 테스트, 데모 확인, DAST 스캔(docs/security.md의 오프라인
 # 서비스)에 쓴다. 보호 장치는 create_app과 같다.
 def create_offline_app(**settings) -> FastAPI:
-    """The same service with one synthetic category `demo` and no model file."""
+    """모델 파일 없이 합성 범주 `demo` 하나로 띄우는 같은 서비스."""
     return create_app(inspectors={"demo": offline_inspector()}, **settings)

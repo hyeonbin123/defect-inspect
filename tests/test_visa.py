@@ -127,7 +127,7 @@ def split_tar(tmp_path, *lines: str):
 # 끝 쉼표가 없어 마스크 칸 자체가 없는 정상 행(4열)은 None이 아니라 빈 마스크로 읽는다. csv.DictReader는 빠진
 # 칸을 None으로 주므로 이를 따로 처리한다.
 def test_normal_row_without_the_trailing_comma_has_an_empty_mask(tmp_path):
-    path = split_tar(tmp_path, "candle,train,normal,candle/Data/Images/Normal/0001.JPG")  # 4 columns
+    path = split_tar(tmp_path, "candle,train,normal,candle/Data/Images/Normal/0001.JPG")  # 4열
     rows = visa.read_split_csv(path)
     assert rows == [visa.VisaRow("candle", "train", "normal", "candle/Data/Images/Normal/0001.JPG", "")]
     assert rows[0].mask == "" and rows[0].mask is not None
@@ -138,8 +138,8 @@ def test_normal_row_without_the_trailing_comma_has_an_empty_mask(tmp_path):
 @pytest.mark.parametrize(
     "line",
     [
-        "candle,train,anomaly,candle/Data/Images/Anomaly/000.JPG,",  # anomaly without a mask
-        "candle,train,anomaly,candle/Data/Images/Anomaly/000.JPG",  # same, 4 columns
+        "candle,train,anomaly,candle/Data/Images/Anomaly/000.JPG,",  # 마스크 없는 이상 행
+        "candle,train,anomaly,candle/Data/Images/Anomaly/000.JPG",  # 같은 경우, 4열
         "candle,train,normal,candle/Data/Images/Normal/0001.JPG,candle/Data/Masks/Anomaly/000.png",
     ],
 )
@@ -153,7 +153,7 @@ def test_mask_must_agree_with_the_label(tmp_path, line):
 @pytest.mark.parametrize(
     "line",
     [
-        "candle,train,defect,candle/Data/Images/Anomaly/000.JPG,",  # unknown label, no mask
+        "candle,train,defect,candle/Data/Images/Anomaly/000.JPG,",  # 모르는 라벨, 마스크 없음
         "candle,train,defect,candle/Data/Images/Anomaly/000.JPG,candle/Data/Masks/Anomaly/000.png",
         "candle,train,Normal,candle/Data/Images/Normal/0001.JPG,",
         "candle,train,,candle/Data/Images/Normal/0001.JPG,",
@@ -168,8 +168,8 @@ def test_unknown_labels_are_rejected(tmp_path, line):
 @pytest.mark.parametrize(
     "line",
     [
-        "candle,train,normal",  # image column missing
-        "candle,train,normal,candle/Data/Images/Normal/0001.JPG,,extra",  # one column too many
+        "candle,train,normal",  # 이미지 열 없음
+        "candle,train,normal,candle/Data/Images/Normal/0001.JPG,,extra",  # 열이 하나 더 많음
     ],
 )
 def test_rows_with_the_wrong_number_of_columns_are_rejected(tmp_path, line):

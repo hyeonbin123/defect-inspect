@@ -60,10 +60,10 @@ def test_last_bit_noise_passes_the_own_threshold_check_but_can_flip_the_stored_o
     thr = conformal_threshold(ref[normal], 0.05)
     at_threshold = normal[np.argmin(np.abs(ref[normal] - thr.value))]
     arm = ref.copy()
-    arm[at_threshold] = np.nextafter(arm[at_threshold], np.float32(np.inf))  # one ulp up
+    arm[at_threshold] = np.nextafter(arm[at_threshold], np.float32(np.inf))  # 1 ulp 올림
     cat = runtime_compare.category_parity(ref, arm, labels, thr.value)
-    assert cat["fold0_flags_same"]  # the arm's own threshold moves with the image
-    assert cat["verdict_flips_stored"] == 1  # R0's threshold value now sits one ulp below it
+    assert cat["fold0_flags_same"]  # 팔 자신의 임계값이 그 이미지와 함께 움직인다
+    assert cat["verdict_flips_stored"] == 1  # R0의 임계값은 이제 그 점수보다 1 ulp 아래
     assert runtime_compare.parity_gate({"a": cat}, map_abs=1e-7)["pass"]
 
 
@@ -83,7 +83,7 @@ def test_each_check_can_fail_on_its_own():
     gate = runtime_compare.parity_gate({"a": same}, map_abs=2e-3)
     assert not gate["checks"]["b_map_abs"]["pass"] and not gate["pass"]
 
-    # Swap a normal and a defect score: tiny AUROC change, large relative differences.
+    # 정상 하나와 결함 하나의 점수를 맞바꾼다: AUROC 변화는 작지만 상대 차이는 크다.
     arm = ref.copy()
     normal_top = np.flatnonzero(labels == 0)[np.argmax(ref[labels == 0])]
     defect_low = np.flatnonzero(labels == 1)[np.argmin(ref[labels == 1])]
@@ -91,12 +91,12 @@ def test_each_check_can_fail_on_its_own():
     gate = runtime_compare.parity_gate({"a": runtime_compare.category_parity(ref, arm, labels, stored)}, 0.0)
     assert not gate["checks"]["c_macro_auroc_pp"]["pass"]
 
-    # A fold-0 normal moves across the threshold: (d) fails although (a) to (c) would pass.
+    # 겹 0 정상 하나가 임계값을 넘나든다: (가)~(다)는 통과할 상황에서도 (라)는 실패한다.
     normal = np.flatnonzero(labels == 0)
     thr = conformal_threshold(ref[normal], 0.05).value
     order = normal[np.argsort(ref[normal])]
-    below = order[np.searchsorted(ref[order], thr) - 1]  # the largest normal not above the threshold
-    above = order[np.searchsorted(ref[order], thr, side="right")]  # the smallest normal above it
+    below = order[np.searchsorted(ref[order], thr) - 1]  # 임계값을 넘지 않는 가장 큰 정상
+    above = order[np.searchsorted(ref[order], thr, side="right")]  # 임계값을 넘는 가장 작은 정상
     arm = ref.copy()
     arm[below], arm[above] = ref[above], ref[below]
     cat = runtime_compare.category_parity(ref, arm, labels, stored)
@@ -145,12 +145,12 @@ def test_h22_needs_parity_the_record_match_and_ten_percent():
 # 수 없으면 한가하지 않은 것으로 본다. wait_idle은 1분씩 재다가 한가해지면 멈추고, 최대 횟수가 지나면 한가하지
 # 않음과 기록을 돌려준다.
 # 마지막 부분은 각 기록의 끝 시각(end)을 그 1분을 잰 뒤에 읽는지 확인한다. 2026-10-04 검토에서 측정 시각 기록
-# 순서를 고친 것(소스 주석 '2026-10-04 fix')의 회귀를 막는다.
+# 순서를 고친 것(runtime_compare.wait_idle의 2026-10-04 수정)의 회귀를 막는다.
 def test_idle_rule_and_wait():
     assert runtime_compare.is_idle({"cpu_pct": 9.9, "gpu_pct": 9.9})
     assert not runtime_compare.is_idle({"cpu_pct": 10.0, "gpu_pct": 0.0})
     assert not runtime_compare.is_idle({"cpu_pct": 2.0, "gpu_pct": 35.0})
-    assert runtime_compare.is_idle({"cpu_pct": 2.0, "gpu_pct": None})  # no GPU to read
+    assert runtime_compare.is_idle({"cpu_pct": 2.0, "gpu_pct": None})  # 읽을 GPU가 없음
     assert not runtime_compare.is_idle({"cpu_pct": None, "gpu_pct": 0.0})
 
     minutes = iter([{"cpu_pct": 40.0, "gpu_pct": 0.0}, {"cpu_pct": 5.0, "gpu_pct": 1.0}])
@@ -159,7 +159,7 @@ def test_idle_rule_and_wait():
     idle, log = runtime_compare.wait_idle(2, minute=lambda: {"cpu_pct": 50.0, "gpu_pct": 0.0}, clock=str)
     assert not idle and len(log) == 2
 
-    # `end` is read after the minute was measured.
+    # `end`는 그 1분을 잰 뒤에 읽는다.
     events = []
 
     def minute():
@@ -210,7 +210,7 @@ SIZE = 8
 # 세 팔이 모두 읽을 수 있는 아주 작은 ONNX 모델을 만든다. 입력 image [1, 3, S, S], 출력 score [1]와 map [1, S,
 # S]로, ReconstructionInspector가 확인하는 입출력 이름·모양에 맞춘다. onnx 패키지가 없으면 테스트를 건너뛴다.
 def _tiny_model(path):
-    """image [1, 3, S, S] -> map = channel mean [1, S, S], score = map maximum [1] (opset 13)."""
+    """image [1, 3, S, S] -> map = 채널 평균 [1, S, S], score = 맵 최댓값 [1] (opset 13)."""
     onnx = pytest.importorskip("onnx")
     from onnx import TensorProto, helper
 

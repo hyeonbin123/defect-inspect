@@ -1,9 +1,9 @@
-"""Export a patch-feature extractor to ONNX, quantize it to INT8, and build inspector artifacts.
+"""패치 특징 추출기를 ONNX로 내보내고 INT8로 양자화해, 검사기 아티팩트를 만든다.
 
-The ONNX model has input `image` float32 [1, 3, S, S] (ImageNet-normalised) and output `features`
-float32 [1, H, W, D]: exactly what the torch extractors in `backbones.py` return. An artifact set is a
-folder with the model file(s) shared by all categories and one sub-folder per category holding its memory
-bank and `meta.json` (threshold, grid, scoring options).
+ONNX 모델의 입력은 `image` float32 [1, 3, S, S](ImageNet 정규화), 출력은 `features` float32
+[1, H, W, D]로, `backbones.py`의 torch 추출기가 돌려주는 것과 정확히 같다. 아티팩트 세트는 모든 범주가 함께
+쓰는 모델 파일과, 범주마다 메모리 뱅크와 `meta.json`(임계값, 격자, 채점 옵션)을 담은 하위 폴더로 이루어진
+폴더다.
 """
 
 # [파일 역할] 4단계(지연 예산과 내보내기)의 PatchCore 서빙 아티팩트를 만든다. 패치 특징 추출기를 ONNX로
@@ -41,10 +41,10 @@ from .ledger import git_commit
 from .run_grid import ratio_name, ratio_rows
 
 
-# 내보내기와 대조는 CPU fp32 eval 모드 모델로 해야 하므로, 이미 그 상태면 그대로 쓰고 아니면 깊은 복사본을
-# 만들어 옮긴다. 호출한 쪽의 모델(예: GPU fp16)을 몰래 옮기거나 바꾸지 않기 위해서다.
+# 내보내기와 대조는 CPU fp32 eval 모드 모델로 해야 한다. 깊은 복사본을 만드는 것은 호출한 쪽의 모델(예: GPU
+# fp16)을 몰래 옮기거나 바꾸지 않기 위해서다.
 def _cpu_fp32(extractor):
-    """`extractor` on the CPU in fp32 and eval mode: a copy unless it already is (the caller's stays put)."""
+    """CPU·fp32·eval 모드의 `extractor`. 이미 그 상태가 아니면 복사본을 돌려준다(호출한 쪽 모델은 그대로)."""
     import torch
 
     tensors = [*extractor.parameters(), *extractor.buffers()]
@@ -54,20 +54,16 @@ def _cpu_fp32(extractor):
     return extractor if ready else copy.deepcopy(extractor).to("cpu").float().eval()
 
 
-# 추출기를 배치 1, 고정 입력 크기 S의 ONNX로 내보낸다. 입력 이름 image, 출력 이름 features로 고정해 서빙
-# 코드가 이름으로 부른다.
-# 왜 dynamo=False(TorchScript 기반 내보내기)인가: WideResNet과 timm DINOv2 추출기를 모두 처리하기
-# 때문이다(docstring). 내보낸 뒤 onnx.checker로 구조를 점검하고, seed 0 무작위 이미지 한 장으로 torch 출력과
-# onnxruntime 출력의 최대 절대 차이가 1e-3을 넘으면 실패로 본다.
+# 입력 이름 image, 출력 이름 features로 고정해 서빙 코드가 이름으로 부른다. 내보낸 뒤 onnx.checker로 구조를
+# 점검한다. 무작위 이미지는 seed 0이다.
 # 호출 위치: build_artifacts, tests/test_export.py.
 def export_onnx(extractor, img_size: int, path: Path, *, opset: int = 18) -> Path:
-    """Export `extractor` (eval mode, fp32, CPU) for a fixed batch of one image and check it against torch.
+    """`extractor`(eval 모드, fp32, CPU)를 이미지 한 장의 고정 배치로 ONNX로 내보내고 torch와 대조한다.
 
-    Uses the TorchScript-based exporter (`dynamo=False`): it handles both the WideResNet and the timm
-    DINOv2 extractor. The WideResNet graph goes through onnxruntime's static quantization without
-    changes; the DINOv2 graph does not (see `quantize_static_int8`).
-    Raises if the onnxruntime output differs from torch by more than 1e-3 (max abs) on one random image.
-    The caller's module is not moved or converted: a copy is exported when it is not on the CPU in fp32.
+    TorchScript 기반 내보내기(`dynamo=False`)를 쓴다: WideResNet과 timm DINOv2 추출기를 모두 처리한다.
+    WideResNet 그래프는 onnxruntime 정적 양자화를 그대로 통과하지만 DINOv2 그래프는 통과하지 못한다
+    (`quantize_static_int8` 참고). 무작위 이미지 한 장에서 onnxruntime 출력이 torch와 1e-3(최대 절대 차이)보다
+    크게 다르면 예외를 낸다. 호출한 쪽의 모듈은 옮기거나 바꾸지 않는다: CPU fp32가 아니면 복사본을 내보낸다.
     """
     import onnx
     import torch
@@ -108,11 +104,11 @@ def _session(path: Path, threads: int | None = None):
     return ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
 
 
-# 같은 uint8 이미지들에 대해 torch fp32 특징과 onnxruntime 특징의 차이(최대 절대, 평균 절대, 최대값 대비
-# 상대)를 잰다. 전처리는 서비스와 같은 inspector.preprocess를 써서 실제 서빙 입력과 같은 값으로 대조한다.
+# 차이는 최대 절대, 평균 절대, 최대값 대비 상대 세 가지다. 전처리는 서비스와 같은 inspector.preprocess를 써서
+# 실제 서빙 입력과 같은 값으로 대조한다.
 # 호출 위치: export_onnx(내보낸 직후 검증), tests/test_export.py.
 def check_parity(extractor, onnx_path: Path, images: np.ndarray) -> dict:
-    """Difference between torch fp32 features and onnxruntime features on uint8 images [N, S, S, 3]."""
+    """uint8 이미지 [N, S, S, 3]에서 torch fp32 특징과 onnxruntime 특징의 차이를 잰다."""
     import torch
 
     session = _session(onnx_path)
@@ -131,11 +127,10 @@ def check_parity(extractor, onnx_path: Path, images: np.ndarray) -> dict:
     return {"max_abs": max_abs, "mean_abs": sum_abs / max(count, 1), "rel": max_abs / max(scale, 1e-12)}
 
 
-# onnxruntime 정적 양자화의 보정 데이터 공급자(CalibrationDataReader 인터페이스). get_next가 호출될 때마다
-# 이미지 한 장을 서비스와 같은 전처리로 바꿔 주고, 다 쓰면 None을 돌려준다. 보정 입력 분포가 실제 서빙 입력과
-# 같아야 활성값 범위(MinMax)가 맞게 잡힌다.
+# CalibrationDataReader 인터페이스를 따른다. get_next가 호출될 때마다 이미지 한 장을 바꿔 주고, 다 쓰면 None을
+# 돌려준다. 보정 입력 분포가 실제 서빙 입력과 같아야 활성값 범위(MinMax)가 맞게 잡힌다.
 class _Reader:
-    """Calibration images for onnxruntime's static quantization, preprocessed like the service does."""
+    """onnxruntime 정적 양자화의 보정 이미지 공급자. 서비스와 같은 전처리를 거친다."""
 
     def __init__(self, images: np.ndarray):
         self._images = iter(images)
@@ -145,23 +140,21 @@ class _Reader:
         return None if image is None else {"image": preprocess(image, image.shape[0])}
 
 
-# INT8 정적 양자화: QDQ 형식, MinMax 보정, 활성값 uint8, 가중치 int8(채널별). 4단계 규칙(experiments.md 'test
-# 절차': INT8은 QDQ, MinMax, 범주마다 dev 풀 정상 8장씩 96장으로 보정)을 그대로 옮긴 설정이다.
-# DINOv2 내보내기는 onnxruntime 전처리(기호 형상 추론)가 클래스·레지스터 토큰의 Expand 노드에서 멈춘다. 그
-# 단계를 건너뛰면 양자화는 끝나지만 특징이 FP32와 상관 0.07로 사실상 무관해지므로, 대체 경로 없이
-# NotImplementedError로 알리고 모델을 남기지 않는다(규칙 변경 5).
+# 4단계 규칙(experiments.md 'test 절차': INT8은 QDQ, MinMax, 범주마다 dev 풀 정상 8장씩 96장으로 보정)을
+# 그대로 옮긴 설정이고, 가중치는 채널별로 양자화한다. DINOv2에서 대체 경로를 두지 않은 것은 규칙 변경 5의
+# 기록이다.
 # 결과(README): WideResNet INT8은 점수가 중앙값 24% 달라져 FP32 임계값을 그대로 쓰면 정상의 68%를 불량으로
 # 판정했다(H14 지지).
 def quantize_static_int8(
     fp32_path: Path, int8_path: Path, calibration_images: np.ndarray, *, per_channel: bool = True
 ) -> Path:
-    """Static INT8 quantization (QDQ, MinMax calibration, activations uint8, weights int8).
+    """INT8 정적 양자화(QDQ 형식, MinMax 보정, 활성값 uint8, 가중치 int8).
 
-    Works for the WideResNet export. Raises `NotImplementedError` with the reason when onnxruntime's
-    pre-processing cannot handle the graph, and writes no model then. That is the case for the DINOv2
-    export (onnxruntime 1.30): symbolic shape inference stops at the Expand node of the class and register
-    tokens. There is no fallback, because skipping that step only lets the quantization finish: the
-    features of the pretrained ViT-S/14 at 252 px then correlate 0.07 with the fp32 ones.
+    WideResNet 내보내기에서 동작한다. onnxruntime 전처리가 그래프를 처리하지 못하면 이유를 담은
+    `NotImplementedError`를 내고 모델을 쓰지 않는다. DINOv2 내보내기(onnxruntime 1.30)가 그 경우다: 기호 형상
+    추론이 클래스·레지스터 토큰의 Expand 노드에서 멈춘다. 대체 경로는 두지 않는다. 그 단계를 건너뛰면
+    양자화가 끝나기만 할 뿐, 사전학습 ViT-S/14(252px)의 특징이 fp32 특징과 상관 0.07로 사실상 무관해지기
+    때문이다.
     """
     from onnxruntime.quantization import CalibrationMethod, QuantFormat, QuantType, quantize_static
     from onnxruntime.quantization.shape_inference import quant_pre_process
@@ -179,10 +172,10 @@ def quantize_static_int8(
         # 디스크·메모리 문제는 그래프 탓이 아니므로 그대로 올려 보낸다. 'INT8 없이 계속'으로 처리하면 기계
         # 문제를 숨기게 된다.
         except (OSError, MemoryError):
-            raise  # the machine, not the graph: not a reason to go on without INT8
+            raise
         # onnxruntime 형상 추론은 내부에서 어떤 예외든 낼 수 있어 넓게 잡고, 이유를 담은 NotImplementedError로
         # 바꿔 호출한 쪽(build_artifacts)이 'INT8 불가'로 기록하게 한다.
-        except Exception as err:  # onnxruntime's shape inference fails with whatever its internals raise
+        except Exception as err:
             raise NotImplementedError(
                 f"static INT8 quantization is not available for {fp32_path.name}: onnxruntime's "
                 f"pre-processing failed ({type(err).__name__}: {err})"
@@ -202,12 +195,8 @@ def quantize_static_int8(
     return int8_path
 
 
-# run_grid --save-banks 실행 하나에서 한 코어셋 비율의 아티팩트 세트를 만든다. 입력: 격자 실행 폴더, 비율,
-# 출력 폴더, 목표 오검출률 alpha(기본 5%), INT8 여부, 범주당 INT8 보정 장수(기본 8). 출력: artifacts.json에
-# 쓰는 요약 dict.
-# 임계값은 그 실행의 교차 적합 점수(torch 파이프라인)로 정한 conformal 임계값이다. 교차 적합은 1단계에서 목표
-# 5%에 실제 4.0%로 목표를 넘지 않는 보수적인 방식으로 확인됐다(README). INT8이 안 되면(DINOv2) FP32
-# 아티팩트만으로도 완전하고, artifacts.json의 int8에 이유가 남는다.
+# 입력: 목표 오검출률 alpha(기본 5%), 범주당 INT8 보정 장수(기본 8). 출력: artifacts.json에 쓰는 요약 dict.
+# 교차 적합은 1단계에서 목표 5%에 실제 4.0%로 목표를 넘지 않는 보수적인 방식으로 확인됐다(README).
 def build_artifacts(
     grid_dir: Path,
     ratio: float,
@@ -217,12 +206,12 @@ def build_artifacts(
     int8: bool = True,
     calibration_per_category: int = 8,
 ) -> dict:
-    """Artifacts for every category of a `run_grid --save-banks` run at one coreset ratio.
+    """`run_grid --save-banks` 실행 하나에서 한 코어셋 비율로 모든 범주의 아티팩트를 만든다.
 
-    The threshold of each category is the conformal threshold of the run's cross-fitted scores (torch
-    pipeline). INT8 calibration uses the first pool normals of every category in the run. When the model
-    cannot be quantized (`NotImplementedError`, e.g. DINOv2) the fp32 artifacts are still complete: the
-    set then has no `model_int8.onnx` and `artifacts.json` says why under `int8`.
+    범주마다 임계값은 그 실행의 교차 적합 점수(torch 파이프라인)로 정한 conformal 임계값이다. INT8 보정에는
+    실행의 범주마다 풀 정상 앞쪽 이미지를 쓴다. 모델을 양자화할 수 없으면(`NotImplementedError`, 예:
+    DINOv2) fp32 아티팩트만으로도 완전하다: 그때 세트에는 `model_int8.onnx`가 없고, `artifacts.json`의
+    `int8`에 이유가 남는다.
     """
     # torch가 필요한 백본, 캐시, 매니페스트 도구는 이 함수가 실제로 돌 때만 import한다.
     from .backbones import make_extractor
@@ -254,7 +243,6 @@ def build_artifacts(
     int8_path = out_dir / PRECISIONS["int8"]
     # INT8 모델은 FP32 모델에서 만들어지므로, 이전 내보내기가 같은 폴더에 남긴 int8 파일은 새 FP32 모델과 짝이
     # 맞지 않는다. 먼저 지우고, 양자화가 성공했을 때만 다시 생긴다.
-    # A quantized model left by an earlier export into this folder does not belong to the new fp32 model.
     int8_path.unlink(missing_ok=True)
     if int8:
         # INT8 보정 이미지: 격자 실행의 범주마다 dev 절차 학습 풀 정상(pool_normal)에서 선택 순서의 앞
@@ -330,11 +318,9 @@ def build_artifacts(
 # DINOv2처럼 양자화가 안 되는 설정에 쓴다(README: DINOv2는 export --no-int8).
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--grid", type=Path, required=True, help="a run_grid --save-banks run directory")
+    parser.add_argument("--grid", type=Path, required=True, help="run_grid --save-banks 실행 폴더")
     parser.add_argument("--ratio", type=float, required=True)
-    parser.add_argument(
-        "--out", type=Path, required=True, help="artifact set directory, e.g. artifacts/<name>"
-    )
+    parser.add_argument("--out", type=Path, required=True, help="아티팩트 세트 폴더, 예: artifacts/<이름>")
     parser.add_argument("--no-int8", action="store_true")
     parser.add_argument("--calibration-per-category", type=int, default=8)
     args = parser.parse_args(argv)

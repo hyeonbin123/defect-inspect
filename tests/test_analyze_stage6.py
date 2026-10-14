@@ -24,7 +24,7 @@ CATS = ("alpha", "beta")
 # 지연 리포트(reports/stage6/latency.json) 모양의 dict를 만든다. 인자 이름 s252처럼 크기를 받아
 # 'dms-252-untrained' 항목의 리사이즈 포함 CPU FP32 지연으로 넣는다.
 def _latency(**ms):
-    """Latency file entries `dms-<size>-untrained` with the given registered CPU latency."""
+    """주어진 등록 CPU 지연을 담은 지연 파일 항목 `dms-<size>-untrained`."""
     return {
         f"dms-{size}-untrained": {"cpu_fp32": {"total_with_resize_ms": value}}
         for size, value in ((int(k[1:]), v) for k, v in ms.items())
@@ -85,7 +85,7 @@ def test_choose_takes_the_best_dev_auroc_within_budget_and_the_smaller_input_on_
     assert pick["name"] == "dms-280" and pick["candidates"] == ["dms-252", "dms-280", "dms-280-car"]
     rows[2]["macro_image_auroc"] = 0.951
     assert a6.choose(rows)["name"] == "dms-280-car"
-    rows[0]["name"], rows[0]["macro_image_auroc"] = "dms-294", 0.951  # same AUROC, larger input
+    rows[0]["name"], rows[0]["macro_image_auroc"] = "dms-294", 0.951  # AUROC는 같고 입력이 더 크다
     assert a6.choose(rows)["name"] == "dms-280-car"
     assert a6.choose([{"name": "dms-308", "cpu_ms": 230.0, "macro_image_auroc": 0.99}]) is None
 
@@ -104,7 +104,7 @@ def test_h16_and_h17_rules():
     assert a6.h16(good, None, 0.9679)["failed"] == ["a_cpu_ms"]
     rng = np.random.default_rng(0)
     assert a6.h17(0.05, 0.05 + rng.normal(0, 0.005, 2000))["verdict"] == "지지"
-    assert a6.h17(0.005, 0.005 + rng.normal(0, 0.001, 2000))["verdict"] == "판정 불가"  # above 0, too small
+    assert a6.h17(0.005, 0.005 + rng.normal(0, 0.001, 2000))["verdict"] == "판정 불가"  # 0보다 크지만 작다
     assert a6.h17(0.01, 0.01 + rng.normal(0, 0.02, 2000))["verdict"] == "판정 불가"
     assert a6.h17(-0.03, -0.03 + rng.normal(0, 0.005, 2000))["verdict"] == "기각"
 
@@ -116,7 +116,7 @@ def test_h16_and_h17_rules():
 def _write_run(
     out, name, *, protocol, shift=0.0, seed=0, with_pixels=False, condition="clean", cal=True, pc=False
 ):
-    """A run in the common format (or the stage 4 CPU format with `pc`): normals ~N(0,1), defects ~N(2,1)."""
+    """공통 형식(`pc`면 4단계 CPU 형식)의 실행: 정상 ~N(0,1), 결함 ~N(2,1)."""
     out.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
     for c in CATS:
@@ -191,11 +191,11 @@ def test_sealed_report_judges_h16_and_h17(tmp_path):
     assert report["name"] == "dms-280" and report["H17"]["verdict"] == "지지"
     assert report["onnx_fp32"]["macro_image_auroc"] > report["serving_patchcore_auroc"]
     assert report["score_rel_diff_onnx_vs_torch"]["max"] == 0.0
-    # The registered torch metrics include the mean pixel AUROC next to the per-category values.
+    # 등록한 torch 지표에는 범주별 값 옆에 평균 픽셀 AUROC도 들어 있다.
     per_cat = [v["pixel_auroc"] for v in report["torch_per_category"].values()]
     assert report["torch"]["macro_pixel_auroc"] == pytest.approx(np.mean(per_cat))
     assert report["torch"]["macro_pixel_auroc"] == pytest.approx(0.9)
-    # The same scores and calibration normals: the torch thresholds give the ONNX pipeline's own rates.
+    # 점수와 보정 정상이 같다: torch 임계값으로 ONNX 파이프라인 자신의 비율이 그대로 나온다.
     own = report["onnx_fp32"]["fixed_threshold"]
     assert report["onnx_at_torch_thresholds"]["fpr"] == pytest.approx(own["fpr"])
     h16 = report["H16"]
@@ -216,7 +216,7 @@ def test_supplement_report_uses_the_clean_normals_for_thresholds(tmp_path):
     shifted = _write_run(
         tmp_path / "shift", "dms-280", protocol="dev", seed=4, cal=False, condition="shift-1"
     )
-    # Move every normal score up: more normals cross the clean thresholds.
+    # 정상 점수를 모두 올린다: 교란 없는 임계값을 넘는 정상이 늘어난다.
     for c in CATS:
         with np.load(shifted / f"{c}.npz") as z:
             arrays = {k: z[k] for k in z.files}

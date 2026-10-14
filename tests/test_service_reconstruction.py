@@ -1,4 +1,4 @@
-"""The service with a reconstruction (Dinomaly) artifact set: the model scores by itself, there is no bank."""
+"""복원 방식(Dinomaly) 아티팩트 세트를 쓰는 서비스: 모델이 스스로 점수를 내고, 뱅크가 없다."""
 
 # [파일 역할] 검사 서비스가 복원 방식(Dinomaly) 아티팩트를 읽고 서빙하는 경로를 검증한다. 6단계 모델
 # dms-280-car로 서비스를 바꾼 뒤(2026-10-04, docs/experiments.md 서비스 모델 교체 점검) 새로 생긴 경로라서
@@ -43,8 +43,7 @@ MAP = 256
 # assert로 확인하고, 채널 평균 밝기를 256으로 늘린 맵과 그 최댓값을 점수로 돌려준다. 밝은 결함 칸이 그대로
 # 높은 점수가 된다.
 class ReconSession:
-    """Stand-in for the exported Dinomaly graph: the map is the brightness blown up to 256, the score its
-    maximum."""
+    """내보낸 Dinomaly 그래프의 대역: 맵은 밝기를 256으로 키운 것이고, 점수는 그 최댓값이다."""
 
     def run(self, names, feeds):
         assert names == ["score", "map"]
@@ -128,7 +127,7 @@ def test_inspect_uses_the_models_own_score_and_map():
     bad = _inspect(client, _defect(50)).json()
     assert bad["is_defect"] is True and bad["score"] > bad["threshold"] == inspector.threshold
     heat = np.asarray(Image.open(io.BytesIO(base64.b64decode(bad["heatmap_png"]))))
-    # The map of the model itself, scaled like the PatchCore one: white at 1.5 x the threshold.
+    # 모델 자신의 맵을 PatchCore 맵과 같은 척도로 그린다: 임계값의 1.5배에서 흰색.
     assert heat.shape == (MAP, MAP) and heat[90, 90] == 255 and heat[200:, 200:].max() < 255
     preview = _inspect(client, _defect(50), preview="true").json()
     seen = np.asarray(Image.open(io.BytesIO(base64.b64decode(preview["input_png"]))))
@@ -148,13 +147,13 @@ def test_calibrate_only_moves_the_threshold_and_reset_restores_it():
     response = client.post("/calibrate", files=files, data={"category": "toy"}, headers=ADMIN)
     assert response.status_code == 200
     body = response.json()
-    # The same rule as the inspector's own calibration, on the scores of the decoded uploads.
+    # 검사기 자체의 보정과 같은 규칙을 디코딩한 업로드의 점수에 적용한다.
     scores = np.array([inspector.inspect(im).score for im in bright[:25]], dtype=np.float32)
     assert body["threshold"] == conformal_threshold(scores, 0.05).value
     assert body["previous_threshold"] == before["threshold"]
     assert body["calibration"] == {"strategy": "holdout", "n": 25, "guaranteed": True}
     assert sum(_inspect(client, im).json()["is_defect"] for im in bright[25:]) <= 1
-    assert inspector.session.__class__ is ReconSession  # nothing but the threshold was replaced
+    assert inspector.session.__class__ is ReconSession  # 임계값 말고는 아무것도 바뀌지 않았다
 
     assert client.delete("/calibrate", params={"category": "toy"}).status_code == 403
     reset = client.delete("/calibrate", params={"category": "toy"}, headers=ADMIN).json()
@@ -198,14 +197,14 @@ def test_load_inspectors_reads_a_reconstruction_set(tmp_path, monkeypatch):
     created = _fake_ort(monkeypatch)
     _write_set(tmp_path)
     (tmp_path / "pcb2" / "model_fp32.onnx").write_bytes(b"own")
-    (tmp_path / "notes").mkdir()  # no meta.json: not a category
+    (tmp_path / "notes").mkdir()  # meta.json 없음: 범주가 아니다
 
     found = service.load_inspectors(tmp_path, threads=2)
     assert sorted(found) == ["candle", "pcb1", "pcb2"]
     assert all(isinstance(i, ReconstructionInspector) for i in found.values())
     assert found["candle"].session is found["pcb1"].session is not found["pcb2"].session
     assert created == [(tmp_path.name, "model_fp32.onnx", 2), ("pcb2", "model_fp32.onnx", 2)]
-    # Each inspector is what `ReconstructionInspector.load` builds for its folder, attribute by attribute.
+    # 각 검사기는 `ReconstructionInspector.load`가 그 폴더로 만드는 것과 속성 하나하나까지 같다.
     for name, inspector in found.items():
         alone = ReconstructionInspector.load(tmp_path / name, threads=2)
         mine, theirs = vars(inspector), vars(alone)
@@ -217,7 +216,7 @@ def test_load_inspectors_reads_a_reconstruction_set(tmp_path, monkeypatch):
                 assert value == theirs[key], key
         assert (inspector.precision, inspector.threads, inspector.threshold) == ("fp32", 2, alone.threshold)
 
-    # The model file of a precision depends on the kind of the set.
+    # 정밀도마다 쓰는 모델 파일은 세트의 종류(kind)에 따라 다르다.
     with pytest.raises(ValueError, match="model_int8_dynamic.onnx is missing"):
         service.load_inspectors(tmp_path, precision="int8-dynamic")
     with pytest.raises(ValueError, match=r"candle.*\['fp32', 'int8-dynamic'\] for a reconstruction artifact"):
@@ -265,7 +264,7 @@ def test_a_reconstruction_set_needs_no_bank_and_a_patchcore_set_still_does(tmp_p
 # 서빙 인터페이스(입력 image, 출력 score·map)를 가진 실제 ONNX 모델을 만들어 저장한다. onnx.checker로 형식을
 # 검사하고, onnx가 없으면 건너뛴다.
 def _toy_onnx(path: Path) -> None:
-    """A real ONNX model with the serving interface: map = channel mean [1, S, S], score = its max [1]."""
+    """서빙 인터페이스를 가진 실제 ONNX 모델: map = 채널 평균 [1, S, S], score = 그 최댓값 [1]."""
     onnx = pytest.importorskip("onnx")
     from onnx import TensorProto, helper
 

@@ -1,4 +1,4 @@
-"""Fixed method configurations. Values are pre-registered in docs/experiments.md."""
+"""고정된 방법 구성 표. 값은 docs/experiments.md에 미리 등록한 것이다."""
 
 # [파일 역할] PatchCore 계열 검사기의 구성(백본, 입력 크기, 코어셋 비율 등)을 이름 하나(p0, d-s, ...)로 고정해
 # 두는 표다.
@@ -31,7 +31,7 @@ class PatchCoreConfig:
     sigma: float = 4.0
     batch_size: int = 32
     seed: int = 0
-    # Stage 7 (E1): subtract each image's mean patch feature from its patch features, bank and query alike.
+    # 7단계(E1): 이미지마다 패치 특징에서 그 이미지의 패치 평균 특징을 뺀다. 뱅크와 질의 모두 같다.
     centre: bool = False
 
 
@@ -39,12 +39,12 @@ class PatchCoreConfig:
 # 때만"으로 등록했고 실제로는 돌리지 않았다(docs/experiments.md 2단계 실행 기록). p0-c, d-s-c는 7단계
 # E1(이미지별 특징 중심화)로, 원래 구성에서 centre만 켠 것이다.
 CONFIGS: dict[str, PatchCoreConfig] = {
-    # Stage 1 baseline: literature defaults, no defect labels.
+    # 1단계 기준선: 문헌 기본값, 결함 라벨 0장.
     "p0": PatchCoreConfig(name="p0", backbone="wrn50", img_size=256, coreset_ratio=0.1),
-    # Stage 2: the same PatchCore on DINOv2 patch tokens (32x32 grid at 448 px).
+    # 2단계: 같은 PatchCore를 DINOv2 패치 토큰 위에서(448px에서 32x32 격자).
     "d-s": PatchCoreConfig(name="d-s", backbone="dinov2_vits14", img_size=448, coreset_ratio=0.1),
     "d-b": PatchCoreConfig(name="d-b", backbone="dinov2_vitb14", img_size=448, coreset_ratio=0.1),
-    # Stage 7 (E1): p0 and d-s with per-image feature centring, nothing else changed.
+    # 7단계(E1): p0과 d-s에 이미지별 특징 중심화만 켰고 나머지는 같다.
     "p0-c": PatchCoreConfig(name="p0-c", backbone="wrn50", img_size=256, coreset_ratio=0.1, centre=True),
     "d-s-c": PatchCoreConfig(
         name="d-s-c", backbone="dinov2_vits14", img_size=448, coreset_ratio=0.1, centre=True
@@ -64,10 +64,9 @@ def get_config(name: str) -> PatchCoreConfig:
 # 기록된 구성(dict)이 cfg와 같은지 본다. run_perturb가 교란 채점의 원본 실행(뱅크를 저장한 run_patchcore
 # 실행)이 지금 요청한 구성으로 만들어졌는지 확인하는 데 쓴다. 예를 들어 p0 뱅크로 p0-c를 채점하는 실수를
 # 막는다.
-# 7단계 전에 만든 run.json에는 centre 필드가 없다. 그때는 중심화가 없었으므로 기본값 False를 먼저 깔고 기록된
-# 값으로 덮어써, 옛 기록도 같은 구성으로 인정한다.
+# 그래서 기본값 False를 먼저 깔고 기록된 값으로 덮어써, 옛 기록도 같은 구성으로 인정한다.
 def same_config(recorded: dict, cfg: PatchCoreConfig) -> bool:
-    """Whether a run's recorded config is `cfg`. Runs made before stage 7 have no `centre` (it was off)."""
+    """실행에 기록된 구성이 `cfg`인지 본다. 7단계 전 실행에는 `centre`가 없다(그때는 꺼져 있었다)."""
     # 기록이 없거나 형식이 다르면(dict가 아니면) 같은 구성으로 보지 않는다.
     if not isinstance(recorded, dict):
         return False

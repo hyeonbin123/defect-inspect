@@ -19,7 +19,7 @@ from defect_inspect import download as dl
 # .invalid 최상위 도메인은 예약돼 절대 해석되지 않으므로, 실수로 실제 요청이 나가도 외부로 연결되지 않는다.
 # CONTENT는 0~255 바이트를 40번 되풀이한 10,240바이트로, 자른 위치가 내용으로 구별된다.
 URL = "https://example.invalid/file.bin"
-CONTENT = bytes(range(256)) * 40  # 10,240 bytes
+CONTENT = bytes(range(256)) * 40
 SHA = hashlib.sha256(CONTENT).hexdigest()
 
 
@@ -37,7 +37,7 @@ class FakeResponse(io.BytesIO):
 # 요청과 다른 위치부터 보내기(start_shift)를 흉내 낸다. ranges에 요청마다 받은 Range 헤더(없으면 None)가
 # 쌓인다.
 class FakeServer:
-    """Stands in for urlopen: serves CONTENT, honouring Range unless told to ignore it."""
+    """urlopen 대신 CONTENT를 내주는 가짜 서버. 무시하라는 옵션이 없으면 Range를 따른다."""
 
     def __init__(
         self,
@@ -49,8 +49,8 @@ class FakeServer:
     ):
         self.content = content
         self.honour_range = honour_range
-        self.total_in_416 = total_in_416  # False: a 416 answer carries no Content-Range
-        self.start_shift = start_shift  # non-zero: a 206 answer starts somewhere else than asked
+        self.total_in_416 = total_in_416  # False: 416 응답에 Content-Range를 싣지 않는다
+        self.start_shift = start_shift  # 0이 아니면 206 응답이 요청과 다른 위치부터 시작한다
         self.ranges: list[str | None] = []
 
     def __call__(self, request):
@@ -130,7 +130,7 @@ def test_resume_sends_range_and_appends(tmp_path):
 def test_server_ignoring_range_restarts_from_zero(tmp_path):
     dest = tmp_path / "file.bin"
     part = tmp_path / "file.bin.part"
-    part.write_bytes(b"x" * 3000)  # not even a prefix of the content
+    part.write_bytes(b"x" * 3000)  # 원래 내용의 앞부분조차 아니다
     server = FakeServer(honour_range=False)
     dl.download(URL, dest, expected_sha256=SHA, opener=server)
     assert server.ranges == ["bytes=3000-"]
@@ -168,7 +168,7 @@ def test_oversized_part_file_is_discarded(tmp_path):
 @pytest.mark.parametrize("sha", [None, SHA], ids=["no-hash", "hash"])
 @pytest.mark.parametrize("kind", ["oversized", "complete", "garbage"])
 def test_416_without_a_total_discards_the_part_and_restarts(tmp_path, sha, kind):
-    # Without Content-Range nothing says that the part file is the whole file: it may be longer.
+    # Content-Range가 없으면 part 파일이 파일 전체라는 근거가 없다. 실제 파일보다 길 수도 있다.
     part_content = {"oversized": CONTENT + b"junk", "complete": CONTENT, "garbage": b"x" * 14000}[kind]
     dest = tmp_path / "file.bin"
     part = tmp_path / "file.bin.part"
@@ -221,7 +221,7 @@ def test_stalled_connection_keeps_the_part_file_for_resuming(tmp_path):
     class Stalling(FakeResponse):
         def read(self, size=-1):
             if self.tell() >= 4096:
-                raise TimeoutError("timed out")  # what a socket timeout raises in the middle of a body
+                raise TimeoutError("timed out")  # 본문 중간에 소켓 시간 초과가 나면 이 예외가 올라온다
             return super().read(min(size, 4096))
 
     def stalling(request):
@@ -256,7 +256,7 @@ def test_corrupt_part_file_fails_the_hash_check(tmp_path):
     with pytest.raises(ValueError, match="sha256 mismatch"):
         dl.download(URL, dest, expected_sha256=SHA, opener=FakeServer())
     assert not dest.exists() and not part.exists()
-    # The next call starts clean and succeeds.
+    # 다음 호출은 빈 상태에서 새로 받아 성공한다.
     dl.download(URL, dest, expected_sha256=SHA, opener=FakeServer())
     assert dest.read_bytes() == CONTENT
 

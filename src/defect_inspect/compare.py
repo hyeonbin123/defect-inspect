@@ -1,8 +1,8 @@
-"""Stage 2 comparison: unsupervised methods against each other and against the supervised head.
+"""2단계 비교: 비지도 방법끼리, 그리고 비지도 방법과 지도 학습 헤드를 비교한다.
 
-Every method is loaded into one shape (per category: evaluation labels, image scores, scores of held-out
-normals for the threshold, pixel metrics), then compared with the same stratified bootstrap draws so that
-differences are paired. Hypotheses H5-H8 are judged exactly as registered in docs/experiments.md.
+모든 방법을 한 모양(범주마다 평가 라벨, 이미지 점수, 임계값용으로 빼 둔 정상의 점수, 픽셀 지표)으로 읽은
+뒤, 같은 층화 부트스트랩 추출로 비교해 차이가 짝지어지게 한다. 가설 H5~H8은 docs/experiments.md에 등록한
+그대로 판정한다.
 """
 
 # [파일 역할] 2단계 비교 분석이다(`python -m defect_inspect.compare`). 비지도 방법(P0, D-S, DM)끼리, 그리고
@@ -49,7 +49,7 @@ MIN_UNSEEN_POOLED = 30
 @dataclass
 class MethodRun:
     name: str
-    calibration: str  # how cal_score was obtained: "crossfit", "holdout" or "none"
+    calibration: str  # cal_score를 얻은 방식: "crossfit", "holdout", "none"
     cats: dict[str, dict[str, np.ndarray]] = field(default_factory=dict)
 
 
@@ -58,10 +58,10 @@ def _load_npz(path: Path) -> dict[str, np.ndarray]:
         return {k: z[k] for k in z.files}
 
 
-# run_patchcore 실행을 읽는다. 평가 점수는 전체 뱅크 점수(eval_score_full), 보정 점수는 교차 적합
-# 점수(pool_score_oof)로 이름을 맞춘다. 2단계 규칙상 PatchCore 계열의 임계값은 교차 적합으로 정한다.
+# 평가 점수는 전체 뱅크 점수(eval_score_full), 보정 점수는 교차 적합 점수(pool_score_oof)로 이름을 맞춘다.
+# 2단계 규칙상 PatchCore 계열의 임계값은 교차 적합으로 정한다.
 def load_patchcore(run_dir: Path, name: str | None = None) -> MethodRun:
-    """A `run_patchcore` run: the full-bank model with its cross-fitted calibration scores."""
+    """`run_patchcore` 실행을 읽는다: 전체 뱅크 모델과 그 교차 적합 보정 점수."""
     with open(run_dir / "run.json", encoding="utf-8") as f:
         meta = json.load(f)
     run = MethodRun(name or meta["config"]["name"], "crossfit")
@@ -73,11 +73,10 @@ def load_patchcore(run_dir: Path, name: str | None = None) -> MethodRun:
     return run
 
 
-# 2단계 공통 형식(eval_*, cal_score 키를 가진 npz)의 실행을 읽는다. Dinomaly, 지도 학습의 (k, 시드) 폴더 하나,
-# ONNX 채점 결과가 이 형식이다. 기본은 홀드아웃이고, 모든 범주의 cal_score가 비어 있으면(dev 채점 등) 고정
-# 임계값을 계산하지 않도록 none으로 둔다.
+# 공통 형식은 eval_*, cal_score 키를 가진 npz이고, ONNX 채점 결과도 이 형식이다. 기본은 홀드아웃이고, 모든
+# 범주의 cal_score가 비어 있으면(dev 채점 등) 고정 임계값을 계산하지 않도록 none으로 둔다.
 def load_common(run_dir: Path, name: str, categories: list[str] | None = None) -> MethodRun:
-    """A run in the common stage 2 format (Dinomaly, one supervised (k, seed) folder)."""
+    """2단계 공통 형식의 실행(Dinomaly, 지도 학습의 (k, 시드) 폴더 하나)을 읽는다."""
     files = sorted(p for p in run_dir.glob("*.npz"))
     names = categories or [p.stem for p in files]
     run = MethodRun(name, "holdout")
@@ -94,10 +93,10 @@ def _neg_pos(cat: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     return cat["eval_score"][labels == 0], cat["eval_score"][labels == 1]
 
 
-# 짝지은 비교의 전제 확인: 모든 실행이 같은 범주를 같은 순서로, 범주마다 같은 평가 이미지를 같은 순서로
-# 채점했는지 본다. 다르면 같은 부트스트랩 인덱스가 다른 이미지를 가리키게 되므로 바로 오류를 낸다.
+# 짝지은 비교의 전제 확인이다. 범주 순서도 같아야 한다. 다르면 같은 부트스트랩 인덱스가 다른 이미지를
+# 가리키게 되므로 바로 오류를 낸다.
 def check_same_images(runs: list[MethodRun]) -> list[str]:
-    """All runs must score the same evaluation images in the same order; returns the category list."""
+    """모든 실행이 같은 평가 이미지를 같은 순서로 채점했는지 확인하고, 범주 목록을 돌려준다."""
     names = list(runs[0].cats)
     for run in runs[1:]:
         if list(run.cats) != names:
@@ -108,11 +107,11 @@ def check_same_images(runs: list[MethodRun]) -> list[str]:
     return names
 
 
-# 모든 통계가 함께 쓰는 층화 부트스트랩 추출 한 벌. 기준 실행의 범주별 정상 수·결함 수로
-# stats.stratified_indices를 한 번 불러, 범주 i의 정상 인덱스 draws[2i]와 결함 인덱스 draws[2i+1]([n_boot,
-# 크기])을 만든다. 같은 크기와 시드면 항상 같은 인덱스라, 어느 방법에 적용해도 같은 이미지 묶음을 뽑는다.
+# 기준 실행의 범주별 정상 수·결함 수로 stats.stratified_indices를 한 번 불러, 범주 i의 정상 인덱스 draws[2i]와
+# 결함 인덱스 draws[2i+1]([n_boot, 크기])을 만든다. 같은 크기와 시드면 항상 같은 인덱스라, 어느 방법에
+# 적용해도 같은 이미지 묶음을 뽑는다.
 class Bootstrap:
-    """One set of stratified draws (normals and defects of each category) shared by every statistic."""
+    """모든 통계가 함께 쓰는 층화 부트스트랩 추출 한 벌(범주마다 정상과 결함)."""
 
     def __init__(self, reference: MethodRun, n_boot: int | None = None, seed: int = SEED):
         n_boot = n_boot or N_BOOT
@@ -127,14 +126,12 @@ class Bootstrap:
     def indices(self, i: int) -> tuple[np.ndarray, np.ndarray]:
         return self.draws[2 * i], self.draws[2 * i + 1]
 
-    # 재표집마다 12개 범주 이미지 AUROC의 단순 평균(대표값)을 구해 [n_boot] 표본을 돌려준다. keep_pos를 주면
-    # 그 범주에서 남길 결함만 쓴다(H7의 보지 못한 유형). 남길 결함이 없는 범주는 건너뛰고, 어떤 재표집에서
-    # 남길 결함이 하나도 뽑히지 않으면 그 재표집에서만 그 범주를 뺀다.
+    # 대표값은 12개 범주 이미지 AUROC의 단순 평균이다. keep_pos는 H7(보지 못한 유형)에 쓴다.
     def macro_auroc(self, run: MethodRun, keep_pos: dict[str, np.ndarray] | None = None) -> np.ndarray:
-        """Bootstrap samples of the mean over categories of the image AUROC.
+        """범주 평균 이미지 AUROC의 부트스트랩 표본 [n_boot]을 돌려준다.
 
-        `keep_pos[c]` (bool over the category's defects) restricts the defects; categories it leaves out
-        entirely are skipped, and a resample that draws none of the kept defects skips that category.
+        `keep_pos[c]`(그 범주 결함에 대한 bool)를 주면 남길 결함만 쓴다. keep_pos에 아예 없는 범주는
+        건너뛰고, 어떤 재표집에서 남길 결함이 하나도 뽑히지 않으면 그 재표집에서만 그 범주를 뺀다.
         """
         total = np.zeros(self.n_boot)
         count = np.zeros(self.n_boot)
@@ -182,11 +179,11 @@ class Bootstrap:
             out += aupro_bootstrap(hist, counts) / len(self.names)
         return out
 
-    # 고정 임계값의 합산 오검출률과 검출률. 범주마다 cal_score로 conformal 임계값(목표 alpha)을 정하고, 점수 >
-    # 임계값을 불량으로 보아 12개 범주의 오검출·검출 수를 더해 비율을 낸다(공통 규칙: 합산). 구간은 같은
-    # 부트스트랩 인덱스로 센 수에서 낸다. 보장 조건을 채운 범주 수도 적는다. 보정 점수가 없는 실행이면 None.
+    # 임계값은 목표 alpha의 conformal 임계값이고, 점수 > 임계값을 불량으로 보아 12개 범주의 오검출·검출 수를
+    # 더해 비율을 낸다(공통 규칙: 합산). 구간은 같은 부트스트랩 인덱스로 센 수에서 낸다. 보장 조건을 채운 범주
+    # 수도 적는다. 보정 점수가 없는 실행이면 None.
     def pooled_rates(self, run: MethodRun, alpha: float) -> dict | None:
-        """Pooled false positive and detection rates of per-category thresholds fixed from `cal_score`."""
+        """`cal_score`로 범주마다 고정한 임계값의 합산 오검출률과 검출률을 낸다."""
         if run.calibration == "none":
             return None
         fp = tp = n_neg = n_pos = 0
@@ -272,24 +269,23 @@ def summarize(run: MethodRun, boot: Bootstrap) -> dict:
     }
 
 
-# 짝지은 차이와 등록된 세 갈래 문구. 구간이 0을 포함하면 "판정 불가", 포함하지 않고 크기가 최소 효과 이상이면
+# 구간이 0을 포함하면 "판정 불가", 포함하지 않고 크기가 최소 효과 이상이면
 # "차이 있음", 최소 효과보다 작으면 "차이 작음"이다(공통 규칙). 문구는 stats.verdict가 정한다. 예전에는 같은
 # 규칙을 여기서 따로 구현해 점 추정이 NaN일 때 '판정 불가'가 아니라 '차이 작음'이 나올 수 있었다(기록된
 # 리포트에는 NaN 점 추정이 없어 바뀐 판정은 없다).
 def difference(point: float, samples: np.ndarray, min_effect: float = MIN_EFFECT_AUROC) -> dict:
-    """Paired difference with its interval and the registered three-way wording (`stats.verdict`)."""
+    """짝지은 차이와 그 구간, 등록된 세 갈래 판정 문구(`stats.verdict`)를 돌려준다."""
     lo, hi = _ci(samples)
     return {"diff": float(point), "ci": [lo, hi], "verdict": verdict(samples, float(point), min_effect)}
 
 
-# H7용: 지도 학습 실행(k, 시드)마다, 학습에 쓴 결함 k장의 유형과 하나도 겹치지 않는 테스트 결함을 표시한다.
-# 유형은 "a|b"처럼 '|'로 이어진 문자열이다(이미지 하나에 유형이 여럿일 수 있음, VisA image_anno.csv). 그런
-# 결함이 3장 미만인 범주는 빼고, 남은 결함의 총수도 돌려준다.
+# H7용이다. 유형은 "a|b"처럼 '|'로 이어진 문자열이다(이미지 하나에 유형이 여럿일 수 있음, VisA
+# image_anno.csv).
 def unseen_masks(sup: MethodRun) -> tuple[dict[str, np.ndarray], int]:
-    """Per category: which test defects share no defect type with the run's training defects.
+    """범주마다, 지도 학습 실행(k, 시드)의 학습 결함과 유형이 하나도 겹치지 않는 테스트 결함을 표시한다.
 
-    Categories with fewer than MIN_UNSEEN_PER_CATEGORY such defects are left out. Also returns the number
-    of unseen defects kept over all categories.
+    그런 결함이 MIN_UNSEEN_PER_CATEGORY(3장) 미만인 범주는 뺀다. 모든 범주에서 남긴 보지 못한 결함의
+    총수도 돌려준다.
     """
     masks, total = {}, 0
     for c, cat in sup.cats.items():
@@ -304,13 +300,13 @@ def unseen_masks(sup: MethodRun) -> tuple[dict[str, np.ndarray], int]:
     return masks, total
 
 
-# k마다 지도 학습(시드 3개 평균) − 기준 비지도 방법의 차이. 시드 평균은 점 추정값과 부트스트랩 표본 모두에서
-# 낸다(같은 추출이라 표본끼리 평균해도 짝이 유지된다). labels_with_validation은 학습 k장 + 검증 20장(dev
+# 지도 학습은 시드 3개 평균이다. 시드 평균은 점 추정값과 부트스트랩 표본 모두에서 낸다(같은 추출이라
+# 표본끼리 평균해도 짝이 유지된다). labels_with_validation은 학습 k장 + 검증 20장(dev
 # 결함)으로 라벨 비용을 적는다(공통 규칙 "라벨 회계").
 def supervised_vs_reference(
     sup_runs: dict[tuple[int, int], MethodRun], reference: MethodRun, boot: Bootstrap
 ) -> dict[int, dict]:
-    """Per k: supervised (mean over seeds) minus the reference method, on all defects and on unseen types."""
+    """k마다 지도 학습(시드 평균) − 기준 방법의 차이를, 모든 결함과 보지 못한 유형에서 각각 낸다."""
     ref_point = macro_auroc(reference)
     ref_boot = boot.macro_auroc(reference)
     out = {}
@@ -331,10 +327,9 @@ def supervised_vs_reference(
             "all_defects": difference(float(np.mean(points)) - ref_point, boots - ref_boot),
         }
 
-        # 보지 못한 유형의 부분집합은 시드마다(학습 결함이 달라) 다르므로, 시드마다 그 부분집합에서 지도
-        # 학습과 기준 방법을 함께 채점하고 차이를 시드 평균한다. 합계가 30장 이상일 때만 판정한다(k = 20은
-        # 8장, 40은 0장이라 판정하지 않았다).
-        # Unseen defect types: the subset depends on the run, the reference is scored on the same subset.
+        # 보지 못한 유형의 부분집합은 실행(시드)마다 학습 결함이 달라 다르므로, 시드마다 그 부분집합에서 지도
+        # 학습과 기준 방법을 같은 부분집합으로 함께 채점하고 차이를 시드 평균한다. 합계가 30장 이상일 때만
+        # 판정한다(k = 20은 8장, 40은 0장이라 판정하지 않았다).
         sup_pts, ref_pts, sup_b, ref_b, kept, cats_used = [], [], [], [], [], []
         for s in seeds:
             masks, total = unseen_masks(sup_runs[k, s])
@@ -371,9 +366,9 @@ def supervised_vs_reference(
 # - H7: 판정할 수 있는 모든 k에서 상한 ≤ 0이면 지지, 하한 > 0인 k가 있으면 기각.
 # - H8: D-S와 DM이 각각 P0보다 높은지("차이 있음"이고 양수면 지지).
 def hypotheses(sup: dict[int, dict], pairs: dict[str, dict]) -> dict[str, str]:
-    """H5-H8 as registered. `pairs` holds the unsupervised differences against P0 by method name."""
+    """등록한 그대로 H5~H8을 판정한다. `pairs`는 방법 이름별 비지도 방법의 P0 대비 차이다."""
 
-    def lower(row: dict) -> str:  # supervised below the reference
+    def lower(row: dict) -> str:  # 지도 학습이 기준 방법보다 낮다
         d = row["all_defects"]
         if d["ci"][1] < 0 and abs(d["diff"]) >= MIN_EFFECT_AUROC:
             return "지지"
@@ -520,13 +515,13 @@ def format_report(report: dict) -> str:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--protocol", choices=["dev", "test"], required=True)
-    parser.add_argument("--patchcore", nargs="*", default=["p0", "d-s"], help="PatchCore config names")
-    parser.add_argument("--dinomaly", action="store_true", help="include outputs/dm-<protocol>")
-    parser.add_argument("--supervised", action="store_true", help="include outputs/sup-<protocol>")
+    parser.add_argument("--patchcore", nargs="*", default=["p0", "d-s"], help="PatchCore 구성 이름들")
+    parser.add_argument("--dinomaly", action="store_true", help="outputs/dm-<절차>를 포함한다")
+    parser.add_argument("--supervised", action="store_true", help="outputs/sup-<절차>를 포함한다")
     parser.add_argument("--ks", nargs="*", type=int, default=[5, 10, 20, 40])
     parser.add_argument("--seeds", nargs="*", type=int, default=[0, 1, 2])
     parser.add_argument(
-        "--reference", default=None, help="reference unsupervised method (dev default: best macro AUROC)"
+        "--reference", default=None, help="기준 비지도 방법(dev 기본값: 평균 AUROC가 가장 높은 것)"
     )
     parser.add_argument("--no-write", action="store_true")
     args = parser.parse_args(argv)

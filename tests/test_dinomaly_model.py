@@ -33,16 +33,18 @@ from defect_inspect.dinomaly_model import (  # noqa: E402
 )
 
 # 56px = 14px 패치 4×4 격자. CPU에서 빨리 돌도록 아주 작은 입력을 쓴다.
-SIZE = 56  # a 4x4 patch grid: small enough for CPU tests
+SIZE = 56
 
 
-# 사전학습 가중치를 내려받지 않게 timm.create_model을 pretrained=False로 바꾸는 fixture.
-# 또 anomalib는 모델을 만들 때 timm의 resample_abs_pos_embed를 antialias를 끈 함수로 바꿔 두는데, mp.setattr로
+# anomalib는 모델을 만들 때 timm의 resample_abs_pos_embed를 antialias를 끈 함수로 바꿔 두는데, mp.setattr로
 # 지금 값을 등록해 두면 context가 끝날 때 원래 함수로 되돌아간다. 이 파일이 다른 테스트 파일(예:
 # DinoV2Patches를 쓰는 test_backbones)에 전역 변경을 남기지 않게 하려는 것이다.
 @pytest.fixture(scope="module")
 def no_download():
-    """`timm.create_model` without pretrained weights; anomalib's pos-embed patch is undone afterwards."""
+    """사전학습 가중치를 내려받지 않게 `timm.create_model`을 pretrained=False로 바꾸는 fixture.
+
+    끝나면 anomalib가 바꿔 둔 위치 임베딩 보간 함수(resample_abs_pos_embed)도 원래대로 되돌린다.
+    """
     import timm
     import timm.models.vision_transformer as vit
 
@@ -77,11 +79,11 @@ def _attention(seed=0, dim=384, heads=6):
     torch.manual_seed(seed)
     layer = LinearAttention(dim, num_heads=heads, qkv_bias=True)
     with torch.no_grad():
-        layer.qkv.weight.mul_(4.0)  # larger activations than a fresh layer, like a trained decoder
+        layer.qkv.weight.mul_(4.0)
     return layer.eval()
 
 
-# ---------------------------------------------------------------- attention
+# ---------------------------------------------------------------- 어텐션
 
 
 # 확인: ScaledLinearAttention이 원래 LinearAttention과 같은 출력을 낸다(fp64는 1e-12, fp32는 1e-5 상대 오차).
@@ -96,7 +98,7 @@ def test_scaled_attention_gives_the_output_of_the_original(dtype, rtol):
     layer.__class__ = ScaledLinearAttention
     out, kv = layer(x)
     torch.testing.assert_close(out, ref_out, rtol=rtol, atol=rtol * float(ref_out.abs().max()))
-    # The key-value product it hands back (unused by the decoder block) is scaled by 1 / tokens.
+    # 돌려주는 키-값 곱 kv(디코더 블록은 쓰지 않음)는 1/토큰 수로 작아진다.
     torch.testing.assert_close(kv * 405, ref_kv, rtol=rtol, atol=rtol * float(ref_kv.abs().max()))
 
 
@@ -113,7 +115,7 @@ def test_scaled_attention_keeps_the_fp16_sums_in_range():
     reference, _ = layer(x)
     half = copy.deepcopy(layer).half()
     out, kv = half(x.half())
-    # The unscaled sums leave the fp16 range: the plain layer cannot give a finite result.
+    # 토큰 수로 나누지 않은 합은 fp16 범위를 벗어나므로 원래 층은 유한한 결과를 낼 수 없다.
     assert float(kv.float().abs().max()) == float("inf") or not bool(torch.isfinite(out).all())
     half.__class__ = ScaledLinearAttention
     out, kv = half(x.half())
@@ -133,9 +135,9 @@ def test_fp32_attention_ignores_autocast():
         low, _ = layer(x)
         layer.__class__ = Fp32LinearAttention
         out, kv = layer(x.bfloat16())
-    assert low.dtype == torch.bfloat16  # the plain layer follows autocast
+    assert low.dtype == torch.bfloat16  # 원래 층은 autocast를 따른다
     assert out.dtype == torch.float32 and kv.dtype == torch.float32
-    # The input was rounded to bf16 on the way in; nothing after that is.
+    # 입력은 들어올 때 bf16으로 한 번 반올림됐고, 그 뒤의 계산은 반올림되지 않는다.
     expected, _ = LinearAttention.forward(layer, x.bfloat16().float())
     assert torch.equal(out, expected)
     assert float((out - reference).abs().max()) < 0.05 * float(reference.abs().max())
@@ -164,7 +166,7 @@ def test_set_attention_switches_every_decoder_block_and_keeps_the_parameters(no_
         attention_mode(model)
 
 
-# ---------------------------------------------------------------- the fixed encoder
+# ---------------------------------------------------------------- 고정 인코더
 
 
 # 확인: fix_encoder(img_size=56, blocks=10) 뒤에도 인코더 특징, 이미지 점수, 이상 맵이 고정 전과 비트 단위로
@@ -188,7 +190,7 @@ def test_fix_encoder_keeps_the_outputs_and_refuses_other_sizes(no_download):
     with torch.no_grad():
         after = model(x)
         features_after = model.encoder(x)
-    # Blocks 10 and 11 are never read, and the embedding is resampled by the same function: same bits.
+    # 블록 10·11은 읽지 않고 임베딩은 같은 함수로 보간하므로 비트 단위로 같다.
     assert list(features_after) == list(features_before)
     assert all(torch.equal(features_after[k], features_before[k]) for k in features_before)
     assert torch.equal(after.pred_score, before.pred_score)
@@ -208,7 +210,7 @@ def test_fix_encoder_rejects_bad_arguments(no_download):
     assert len(model.encoder.feature_extractor.blocks) == 12
 
 
-# ---------------------------------------------------------------- the exported graph
+# ---------------------------------------------------------------- 내보내는 그래프
 
 
 # 확인: ONNX로 내보내는 ServingGraph의 (점수, 256×256 맵)이 모델 forward의 pred_score, anomaly_map을 256으로
@@ -221,7 +223,7 @@ def test_fix_encoder_rejects_bad_arguments(no_download):
 def test_serving_graph_is_the_inference_path_of_the_model(no_download, recentering):
     options = {"img_size": SIZE, "encoder_blocks": 10, "context_recentering": recentering}
     model = _small(**options)
-    with torch.no_grad():  # a decoder that is not at its initial weights
+    with torch.no_grad():  # 초기 가중치에서 벗어난 디코더를 만든다
         for p in model.decoder.parameters():
             p.add_(torch.randn(p.shape, generator=torch.Generator().manual_seed(4)) * 0.02)
     x = to_tensor(_images(3, seed=5), "cpu", torch.float32)
@@ -232,7 +234,7 @@ def test_serving_graph_is_the_inference_path_of_the_model(no_download, recenteri
     torch.testing.assert_close(score, out.pred_score, rtol=1e-6, atol=0)
     expected = F.interpolate(out.anomaly_map, size=(256, 256), mode="bilinear", align_corners=False)[:, 0]
     assert torch.equal(amap, expected)
-    # The same as what run_dinomaly.predict scores and stores (its maps are rounded to fp16).
+    # run_dinomaly.predict가 채점·저장하는 값과도 같다(저장하는 맵은 fp16으로 반올림된다).
     result = run_dinomaly.predict(model, _images(3, seed=5), batch_size=2, device="cpu", amp=False)
     np.testing.assert_allclose(result.image_scores, score.numpy(), rtol=1e-6)
     np.testing.assert_array_equal(result.maps, amap.numpy().astype(np.float16))

@@ -1,11 +1,11 @@
-"""Single-image latency of the inspection path: onnxruntime on the CPU, and the torch pipeline on the GPU.
+"""검사 경로의 한 장당 지연을 잰다: CPU의 onnxruntime 경로와 GPU의 torch 파이프라인.
 
-The CPU latency that the serving budget is judged on is resize + inference: `resize_ms` (a camera-sized
-photo down to the input size) plus the median of the inference path. Every `cpu_<precision>` entry of the
-latency file carries that sum as `total_with_resize_ms` (`analyze_grid` adds the same two numbers).
+서빙 예산의 판정 기준인 CPU 지연은 리사이즈 + 추론이다: `resize_ms`(카메라 크기 사진을 입력 크기로 줄이는
+시간)에 추론 경로의 중앙값을 더한다. 지연 파일의 모든 `cpu_<정밀도>` 항목은 그 합을 `total_with_resize_ms`로
+가진다(`analyze_grid`도 같은 두 값을 더한다).
 
-A reconstruction (Dinomaly) artifact has no bank: its inference path is the normalisation and one ONNX
-call that returns the score and the map (`time_reconstruction`).
+복원 방식(Dinomaly) 아티팩트에는 뱅크가 없다. 추론 경로는 정규화와, 점수와 맵을 함께 돌려주는 ONNX 호출
+한 번이다(`time_reconstruction`).
 """
 
 # [파일 역할] 검사 경로의 한 장당 지연을 재는 4·6단계 측정 모듈이다(`python -m defect_inspect.bench`). 서빙과
@@ -44,7 +44,7 @@ from .inspector import (
 
 # 카메라 원본 크기의 가정(가로 1500, 세로 1000, VisA 원본 약 1,300~1,560 × 960~1,180px과 비슷한 크기). 이
 # 사진을 입력 크기로 줄이는 시간을 CPU 지연에 더하는 것이 등록된 규칙이다.
-RESIZE_SOURCE = (1500, 1000)  # width, height of the photo whose resize is added to the CPU latency
+RESIZE_SOURCE = (1500, 1000)  # 리사이즈 시간을 CPU 지연에 더하는 사진의 (가로, 세로)
 
 
 # 밀리초 목록의 중앙값과 95백분위. 평균 대신 중앙값을 써서 가끔 튀는 한 번(다른 프로그램의 끼어듦 등)에 덜
@@ -54,17 +54,15 @@ def _stats(ms: list[float]) -> dict:
     return {"median": float(np.median(values)), "p95": float(np.percentile(values, 95))}
 
 
-# PatchCore CPU 검사기의 단계별 지연. backbone_ms는 정규화 + ONNX 백본, search_ms는 뱅크 최근접 탐색 + 이미지
-# 점수, map_ms는 히트맵 계산이다. 이미지 목록을 돌려 쓰고(i % N), 앞의 warmup회는 세지 않는다(첫 호출의 메모리
-# 할당·스레드 풀 준비 시간을 빼려는 것). 결과에 뱅크 행 수·정밀도·스레드 수를 같이 남긴다. 리사이즈는 여기
-# 들어가지 않고 main이 time_resize 값을 더한다.
+# 이미지 목록을 돌려 쓰고(i % N), 앞의 warmup회를 세지 않는 것은 첫 호출의 메모리 할당·스레드 풀 준비 시간을
+# 빼려는 것이다. 결과에 뱅크 행 수·정밀도·스레드 수를 같이 남긴다. 리사이즈는 main이 time_resize 값을 더한다.
 # 호출 위치: main. 4단계 표의 "리사이즈 7.7 + 백본 91.1 + 최근접 탐색 83.7 + 맵 2.0ms" 같은 분해가 이 값이다.
 def time_inspector(inspector: Inspector, images: np.ndarray, *, warmup: int = 5, repeats: int = 50) -> dict:
-    """Latency per stage of the CPU path on uint8 images [N, S, S, 3] (cycled), in milliseconds.
+    """PatchCore CPU 경로의 단계별 지연(ms)을 uint8 이미지 [N, S, S, 3](돌려 가며 씀)으로 잰다.
 
-    `backbone_ms` covers normalisation and the ONNX model, `search_ms` the bank search and the image
-    score, `map_ms` the heatmap. The first `warmup` calls are not timed; `*_ms` are medians over the
-    `repeats` timed calls. The resize of the original photo is not part of it (see `time_resize`).
+    `backbone_ms`는 정규화와 ONNX 모델, `search_ms`는 뱅크 최근접 탐색과 이미지 점수, `map_ms`는 히트맵
+    계산이다. 처음 `warmup`번 호출은 재지 않고, `*_ms`는 잰 `repeats`번 호출의 중앙값이다. 원본 사진의
+    리사이즈는 들어가지 않는다(`time_resize` 참고).
     """
     if len(images) == 0:
         raise ValueError("need at least one image")
@@ -94,20 +92,19 @@ def time_inspector(inspector: Inspector, images: np.ndarray, *, warmup: int = 5,
         repeats=repeats,
         bank_rows=inspector.bank_rows,
         precision=inspector.precision,
-        threads=getattr(inspector, "threads", None),  # None = onnxruntime's default
+        threads=getattr(inspector, "threads", None),  # None = onnxruntime 기본값
     )
     return out
 
 
-# Dinomaly(복원 방식) 검사기의 지연. inspector.run 한 번이 정규화 + ONNX 호출(점수와 256×256 맵)이라 전체
-# 시간만 잰다. 6단계 관문 1(학습 전 모델)과 학습 뒤 아티팩트의 지연(dms-280-car FP32 추론 141.7ms + 리사이즈
-# 8.0ms = 149.7ms)이 이 함수로 잰 값이다. 호출 위치: main. runtime_compare는 같은 방식으로 원시 값을 직접
-# 잰다.
+# 맵은 256×256이다. 6단계 관문 1(학습 전 모델)과 학습 뒤 아티팩트의 지연(dms-280-car FP32 추론 141.7ms +
+# 리사이즈 8.0ms = 149.7ms)이 이 함수로 잰 값이다. 호출 위치: main. runtime_compare는 같은 방식으로 원시 값을
+# 직접 잰다.
 def time_reconstruction(inspector, images: np.ndarray, *, warmup: int = 5, repeats: int = 50) -> dict:
-    """Latency of a reconstruction inspector on uint8 images [N, S, S, 3] (cycled), in milliseconds.
+    """복원 방식(Dinomaly) 검사기의 지연(ms)을 uint8 이미지 [N, S, S, 3](돌려 가며 씀)으로 잰다.
 
-    One call covers the normalisation and the ONNX model, which returns the score and the map. The
-    first `warmup` calls are not timed; `total_ms` is the median over `repeats` timed calls.
+    호출 한 번이 정규화와, 점수와 맵을 돌려주는 ONNX 모델을 포함하므로 전체 시간만 잰다. 처음 `warmup`번
+    호출은 재지 않고, `total_ms`는 잰 `repeats`번 호출의 중앙값이다.
     """
     if len(images) == 0:
         raise ValueError("need at least one image")
@@ -132,16 +129,13 @@ def time_reconstruction(inspector, images: np.ndarray, *, warmup: int = 5, repea
     }
 
 
-# GPU torch 경로를 한 장씩 재기 위한 채점기. patchcore.score_images는 부를 때마다 뱅크를 장치로 옮기고
-# 중심화하고 행 노름을 계산하는데, 서비스라면 이것을 한 번만 한다. 그 비용은 뱅크가 클수록 커지므로 이미지마다
-# 매기면 지연이 부풀려진다(docstring). 그래서 뱅크 준비는 생성자에서 한 번 하고, 이미지마다의 일은
-# score_images와 같은 patchcore 내부 함수 순서를 그대로 부른다.
+# GPU torch 경로를 한 장씩 재기 위한 채점기다. 뱅크 준비는 생성자에서 한 번 한다.
 class _TorchScorer:
-    """`patchcore.score_images` for one image at a time, with the bank prepared once.
+    """뱅크를 한 번만 준비해 두고 한 장씩 채점하는 `patchcore.score_images`.
 
-    `score_images` copies the bank to the device, centres it and computes its row norms on every call.
-    A service does that once, and its cost grows with the bank, so timing `score_images` per image would
-    charge every image for it. The per-image work here is the same sequence of patchcore helpers.
+    `score_images`는 부를 때마다 뱅크를 장치로 복사하고 중심화하고 행 노름을 계산한다. 서비스라면 이것을
+    한 번만 하고, 그 비용은 뱅크가 클수록 커진다. 그래서 `score_images`로 이미지마다 재면 모든 이미지에 그
+    비용이 붙는다. 여기서 이미지마다 하는 일은 같은 patchcore 내부 함수를 같은 순서로 부르는 것이다.
     """
 
     def __init__(
@@ -172,7 +166,7 @@ class _TorchScorer:
     # 크기로 키우고 가우시안 흐림 → 256×256 맵. 결과를 호스트(CPU 메모리)로 가져오는 것까지 포함해, 서비스가
     # 실제로 기다리는 시간을 잰다.
     def __call__(self, image: np.ndarray) -> tuple[float, np.ndarray]:
-        """uint8 [S, S, 3] -> (image score, float16 map [map_size, map_size]), both back on the host."""
+        """uint8 [S, S, 3] -> (이미지 점수, float16 맵 [map_size, map_size]). 둘 다 호스트로 가져온다."""
         import torch
         import torch.nn.functional as F
 
@@ -205,8 +199,7 @@ class _TorchScorer:
             return float(score.cpu().numpy()[0]), maps[0, 0].to(torch.float16).cpu().numpy()
 
 
-# GPU torch 파이프라인(fp16)의 한 장당 지연. 뱅크 준비 시간은 bank_setup_ms로 따로 적고 지연에서는 뺀다. 4단계
-# 표의 "GPU fp16 ms"(예: wrn50-256 코어셋 1% 10.8ms)가 이 값이다. 호출 위치: main(`--gpu`).
+# 4단계 표의 "GPU fp16 ms"(예: wrn50-256 코어셋 1% 10.8ms)가 이 값이다. 호출 위치: main(`--gpu`).
 def time_torch(
     extractor,
     bank,
@@ -217,11 +210,11 @@ def time_torch(
     repeats: int = 50,
     **score_kwargs,
 ) -> dict:
-    """Single-image latency of the torch pipeline (fp16 on CUDA), in milliseconds.
+    """torch 파이프라인(CUDA에서 fp16)의 한 장당 지연(ms)을 잰다.
 
-    The work per image is that of `patchcore.score_images` (upload, features, search, image score, map,
-    results back on the host). The bank is moved to the device and centred once, before the clock
-    starts; that one-off cost is reported as `bank_setup_ms`.
+    이미지마다 하는 일은 `patchcore.score_images`와 같다(올리기, 특징, 탐색, 이미지 점수, 맵, 결과를
+    호스트로 가져오기). 뱅크는 시계를 시작하기 전에 한 번 장치로 옮기고 중심화하며, 이 한 번의 비용은
+    `bank_setup_ms`로 따로 적고 지연에서는 뺀다.
     """
     import torch
 
@@ -260,10 +253,10 @@ def time_torch(
     }
 
 
-# 1500×1000 RGB 사진(시드 0의 무작위 픽셀)을 입력 크기로 PIL BICUBIC 리사이즈하는 시간의 중앙값(20회).
-# 서비스와 캐시가 쓰는 것과 같은 리사이즈다. 4·6단계에서 약 8ms였다.
+# 사진은 1500×1000 RGB(시드 0의 무작위 픽셀)이고 20번 잰다. 서비스와 캐시가 쓰는 것과 같은 리사이즈다.
+# 4·6단계에서 약 8ms였다.
 def time_resize(size: int, source: tuple[int, int] = RESIZE_SOURCE, repeats: int = 20) -> float:
-    """Median milliseconds to resize a camera-sized RGB image to the input size (PIL BICUBIC)."""
+    """카메라 크기 RGB 이미지를 입력 크기로 리사이즈(PIL BICUBIC)하는 시간의 중앙값(ms)을 잰다."""
     rng = np.random.default_rng(0)
     image = Image.fromarray(rng.integers(0, 256, (source[1], source[0], 3), dtype=np.uint8))
     ms = []
@@ -296,10 +289,10 @@ def _write_json(path: Path, data: dict) -> None:
         f.write("\n")
 
 
-# 지연 파일(JSON)에 key 항목을 합쳐 쓴다. 파일 하나에 여러 구성(키)의 결과가 쌓이고, 같은 키도 기존 필드를
-# 지우지 않고 새 필드로 덮어쓴다. 그래서 CPU 측정과 GPU 측정을 따로 돌려도 한 항목에 모인다.
+# 파일 하나에 여러 구성(키)의 결과가 쌓이고, 같은 키도 기존 필드를 지우지 않고 새 필드로 덮어쓴다. 그래서 CPU
+# 측정과 GPU 측정을 따로 돌려도 한 항목에 모인다.
 def merge_into(path: Path, key: str, entry: dict) -> dict:
-    """Add `entry` under `key` to the JSON file at `path` (created if missing); returns the whole content."""
+    """`path`의 JSON 파일(없으면 만듦)에 `entry`를 `key` 항목으로 합쳐 쓰고, 파일 전체 내용을 돌려준다."""
     data = {}
     if path.exists():
         with open(path, encoding="utf-8") as f:
@@ -316,22 +309,22 @@ def merge_into(path: Path, key: str, entry: dict) -> dict:
 # 양자화)이다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--artifacts", type=Path, required=True, help="artifact set directory")
+    parser.add_argument("--artifacts", type=Path, required=True, help="아티팩트 세트 폴더")
     parser.add_argument("--category", default="pcb1")
     parser.add_argument(
         "--precision",
         nargs="+",
         default=["fp32"],
         choices=sorted({"fp32", "int8", *RECONSTRUCTION_PRECISIONS}),
-        help="fp32 and int8 (PatchCore artifacts) or fp32 and int8-dynamic (reconstruction artifacts)",
+        help="PatchCore 아티팩트는 fp32·int8, 복원 방식 아티팩트는 fp32·int8-dynamic",
     )
     parser.add_argument(
-        "--threads", type=int, default=None, help="onnxruntime intra-op threads (default: its own)"
+        "--threads", type=int, default=None, help="onnxruntime 연산 안 스레드 수(기본값: onnxruntime 자체 값)"
     )
     parser.add_argument("--images", type=int, default=50)
-    parser.add_argument("--gpu", action="store_true", help="also time the torch fp16 pipeline on the GPU")
-    parser.add_argument("--key", required=True, help="entry name in the latency file, e.g. wrn50-256-r0.01")
-    parser.add_argument("--out", type=Path, default=None, help="default: reports/stage4/latency.json")
+    parser.add_argument("--gpu", action="store_true", help="GPU의 torch fp16 파이프라인 지연도 잰다")
+    parser.add_argument("--key", required=True, help="지연 파일의 항목 이름, 예: wrn50-256-r0.01")
+    parser.add_argument("--out", type=Path, default=None, help="기본값: reports/stage4/latency.json")
     args = parser.parse_args(argv)
     latency_path = args.out or paths.REPORTS / "stage4" / "latency.json"
 
@@ -377,7 +370,7 @@ def main(argv: list[str] | None = None) -> None:
     for precision in args.precision:
         inspector = Inspector.load(art_dir, precision=precision, threads=args.threads)
         timing = time_inspector(inspector, images, repeats=len(images))
-        # The registered CPU latency: the photo's resize plus the inference path.
+        # 등록된 CPU 지연: 사진 리사이즈 + 추론 경로.
         timing["total_with_resize_ms"] = resize_ms + timing["total_ms"]
         entry[f"cpu_{precision}"] = timing
     if args.gpu:

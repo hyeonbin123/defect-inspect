@@ -1,4 +1,4 @@
-"""Tests for bootstrap resampling, intervals and the verdict rule."""
+"""부트스트랩 재표본 추출, 구간, 판정 규칙의 테스트."""
 
 # [파일 역할] 통계 도구 `defect_inspect.stats`(층화·군집 부트스트랩 인덱스, 백분위 구간, Clopper-Pearson 구간,
 # 범주 평균 AUROC와 합산 비율의 부트스트랩 분포, 미리 정한 판정 문구)를 검증한다.
@@ -60,7 +60,7 @@ def test_stratified_indices_are_deterministic_and_paired():
     c = stratified_indices([300, 40, 200, 40], n_boot=20, seed=1)
     assert all(np.array_equal(x, y) for x, y in zip(a, b, strict=True))
     assert not np.array_equal(a[0], c[0])
-    # groups are drawn in order from one generator: an empty group does not shift the others
+    # 묶음은 생성기 하나에서 순서대로 뽑힌다: 빈 묶음은 다른 묶음의 인덱스를 밀지 않는다
     d = stratified_indices([300, 0, 40], n_boot=20, seed=0)
     assert np.array_equal(d[0], a[0]) and np.array_equal(d[2], a[1])
     with pytest.raises(ValueError):
@@ -70,13 +70,12 @@ def test_stratified_indices_are_deterministic_and_paired():
 # 구현 계약: default_rng(seed) 하나에서 묶음 순서대로 [n_boot, 크기]를 한 번씩 뽑는다. 크기가 같은 묶음끼리
 # 인덱스를 공유하면 범주 사이에 상관이 생기므로, 서로 다르고 상관이 거의 없는지도 본다.
 def test_stratified_indices_groups_are_independent_draws_from_one_stream():
-    # The contract: one default_rng(seed), then one [n_boot, size] draw per group, in order.
     sizes = [40, 40, 7, 40]
     out = stratified_indices(sizes, n_boot=25, seed=11)
     rng = np.random.default_rng(11)
     for idx, size in zip(out, sizes, strict=True):
         assert np.array_equal(idx, rng.integers(0, size, size=(25, size)))
-    # groups of equal size must not share their indices (that would correlate the categories)
+    # 크기가 같은 묶음도 인덱스를 공유하면 안 된다(공유하면 범주 사이에 상관이 생긴다)
     assert not np.array_equal(out[0], out[1]) and not np.array_equal(out[1], out[3])
     corr = np.corrcoef(out[0].ravel(), out[1].ravel())[0, 1]
     assert abs(corr) < 0.1
@@ -88,14 +87,14 @@ def test_stratified_indices_resample_uniformly():
     idx = stratified_indices([5], n_boot=20000, seed=0)[0]
     freq = np.bincount(idx.ravel(), minlength=5) / idx.size
     assert np.allclose(freq, 0.2, atol=0.01)
-    # a bootstrap sample of size 5 contains on average 5 * (1 - 0.8^5) distinct items
+    # 크기 5인 부트스트랩 표본에는 평균 5 * (1 - 0.8^5)개의 서로 다른 값이 들어 있다
     distinct = np.mean([len(set(row)) for row in idx.tolist()])
     assert distinct == pytest.approx(5 * (1 - 0.8**5), abs=0.03)
 
 
 # 기본값이 규칙대로 2,000번·seed 0인지, 그 난수열을 직접 만들어 비교한다.
 def test_stratified_indices_defaults_are_2000_resamples_with_seed_0():
-    # docs/experiments.md: 2,000 bootstrap resamples, seed 0.
+    # docs/experiments.md: 부트스트랩 재표본 2,000번, seed 0.
     out = stratified_indices([5, 3])
     rng = np.random.default_rng(0)
     assert np.array_equal(out[0], rng.integers(0, 5, size=(2000, 5)))
@@ -119,7 +118,7 @@ def test_cluster_indices_draws_whole_clusters():
     lengths = set()
     for idx in out:
         assert idx.dtype == np.int64
-        # split the result back into whole clusters, in draw order
+        # 결과를 뽑힌 순서대로 다시 온전한 군집 단위로 자른다
         pos, drawn = 0, []
         while pos < len(idx):
             cluster = ids[idx[pos]]
@@ -127,9 +126,9 @@ def test_cluster_indices_draws_whole_clusters():
             assert idx[pos : pos + len(rows)].tolist() == rows
             drawn.append(cluster)
             pos += len(rows)
-        assert len(drawn) == 4  # as many draws as distinct clusters
+        assert len(drawn) == 4  # 서로 다른 군집 수만큼 뽑는다
         lengths.add(len(idx))
-    assert len(lengths) > 1  # lengths vary because cluster sizes differ
+    assert len(lengths) > 1  # 군집 크기가 달라 길이가 달라진다
     assert min(lengths) >= 4 and max(lengths) <= 12
 
 
@@ -142,7 +141,7 @@ def test_cluster_indices_deterministic_and_uniform_over_clusters():
     c = cluster_indices(ids, n_boot=4000, seed=1)
     assert all(np.array_equal(x, y) for x, y in zip(a, b, strict=True))
     assert any(not np.array_equal(x, y) for x, y in zip(a, c, strict=True))
-    # each cluster is drawn once per resample on average, whatever its size
+    # 각 군집은 크기와 상관없이 재표본마다 평균 한 번 뽑힌다
     first_rows = [np.flatnonzero(ids == k)[0] for k in range(6)]
     draws = np.array([[np.sum(idx == r) for r in first_rows] for idx in a])
     assert np.allclose(draws.mean(axis=0), 1.0, atol=0.06)
@@ -162,7 +161,6 @@ def test_cluster_indices_single_rows_and_empty():
 
 # 기본값 2,000번·seed 0 확인. 한 행 군집에 정렬된 id면 결과가 군집 추출 난수 그 자체라 직접 비교할 수 있다.
 def test_cluster_indices_defaults_are_2000_resamples_with_seed_0():
-    # One-row clusters with sorted ids: the rows of a resample are the cluster draws themselves.
     out = cluster_indices(np.arange(5))
     assert len(out) == 2000
     assert np.array_equal(np.stack(out), np.random.default_rng(0).integers(0, 5, size=(2000, 5)))
@@ -207,7 +205,7 @@ def test_clopper_pearson_matches_scipy_binomtest(k, n, conf):
 # 정의로 확인: 하한 p에서 'k 이상' 확률과 상한 p에서 'k 이하' 확률이 모두 0.025다.
 @pytest.mark.parametrize("k,n", [(1, 10), (5, 40), (38, 40), (192, 3848)])
 def test_clopper_pearson_tail_definition(k, n):
-    # By definition: P(X >= k | p = lo) = 0.025 and P(X <= k | p = hi) = 0.025.
+    # 정의: P(X >= k | p = lo) = 0.025, P(X <= k | p = hi) = 0.025.
     lo, hi = clopper_pearson(k, n)
     assert binom.sf(k - 1, n, lo) == pytest.approx(0.025, rel=1e-6)
     assert binom.cdf(k, n, hi) == pytest.approx(0.025, rel=1e-6)
@@ -283,8 +281,8 @@ def test_macro_auroc_bootstrap_is_paired_and_centred():
     assert a.mean() == pytest.approx(point, abs=0.01)
     lo, hi = percentile_ci(a)
     assert lo < point < hi
-    # a second method scored on the same images uses the same resamples: a constant shift of the scores
-    # leaves every resample's AUROC unchanged, so the paired difference is exactly zero
+    # 같은 이미지로 점수를 낸 두 번째 방법은 같은 재표본을 쓴다: 점수에 상수를 더해도 재표본마다의
+    # AUROC가 바뀌지 않으므로 짝지은 차이가 정확히 0이다
     shifted = macro_auroc_bootstrap([n + 3 for n in negs], [p + 3 for p in poss], n_boot=2000, seed=0)
     assert np.array_equal(a, shifted)
 
@@ -297,7 +295,7 @@ def test_macro_auroc_bootstrap_defaults_are_2000_resamples_with_seed_0():
     assert out.shape == (2000,)
     assert np.array_equal(out, macro_auroc_bootstrap(negs, poss, n_boot=2000, seed=0))
     assert not np.array_equal(out, macro_auroc_bootstrap(negs, poss, n_boot=2000, seed=1))
-    # the seed-0 stream itself: one default_rng(0), groups in the order neg_0, pos_0, neg_1, pos_1
+    # seed 0 난수열 자체: default_rng(0) 하나, 묶음 순서는 neg_0, pos_0, neg_1, pos_1
     rng = np.random.default_rng(0)
     (neg0, pos0), (neg1, pos1) = zip(negs, poss, strict=True)
     i0, j0, i1, j1 = (rng.integers(0, len(a), size=(2000, len(a))) for a in (neg0, pos0, neg1, pos1))
@@ -309,10 +307,10 @@ def test_macro_auroc_bootstrap_defaults_are_2000_resamples_with_seed_0():
 # 경계: 완전히 갈린 범주(1.0)와 점수가 모두 같은 범주(0.5)의 평균, 결함이 없는 범주가 있으면 전부 NaN, 범주가
 # 없으면 NaN, 정상·결함 범주 수가 다르면 ValueError, 점수에 NaN이 있으면 ValueError.
 def test_macro_auroc_bootstrap_degenerate_inputs():
-    # perfectly separated and constant categories
+    # 완전히 갈린 범주와 점수가 모두 같은 범주
     out = macro_auroc_bootstrap([np.zeros(5), np.ones(4)], [np.ones(3), np.ones(2)], n_boot=30, seed=0)
     assert np.allclose(out, (1.0 + 0.5) / 2)
-    # a category without positives has no AUROC
+    # 결함(양성)이 없는 범주는 AUROC가 없다
     out = macro_auroc_bootstrap([np.zeros(5), np.zeros(4)], [np.ones(3), np.array([])], n_boot=10, seed=0)
     assert out.shape == (10,) and np.isnan(out).all()
     assert np.isnan(macro_auroc_bootstrap([], [], n_boot=5)).all()
@@ -340,7 +338,7 @@ def test_pooled_rate_bootstrap_matches_explicit_loop():
     ]
     assert out.shape == (n_boot,)
     assert np.allclose(out, expected, atol=1e-15, rtol=0)
-    # 0/1 integers and floats are accepted as flags
+    # 표시로 0/1 정수와 실수도 받는다
     assert np.array_equal(out, pooled_rate_bootstrap([f.astype(int) for f in flags], n_boot=n_boot, seed=2))
     assert np.array_equal(out, pooled_rate_bootstrap([f.astype(float) for f in flags], n_boot=n_boot, seed=2))
 
@@ -354,7 +352,7 @@ def test_pooled_rate_bootstrap_distribution():
     out = pooled_rate_bootstrap(flags)
     assert out.shape == (2000,)
     assert out.mean() == pytest.approx(point, abs=0.002)
-    # stratified: the variance is the sum of the per-category binomial variances
+    # 층화 추출: 분산은 범주별 이항 분산의 합이다
     p0, p1 = flags[0].mean(), flags[1].mean()
     expected_sd = math.sqrt(300 * p0 * (1 - p0) + 200 * p1 * (1 - p1)) / 500
     assert out.std() == pytest.approx(expected_sd, rel=0.1)
@@ -379,17 +377,17 @@ def test_verdict_three_outcomes():
     small = rng.normal(0.005, 0.001, size=2000)
     unclear = rng.normal(0.05, 0.05, size=2000)
     assert verdict(big, 0.05, 0.01) == "차이 있음"
-    assert verdict(-big, -0.05, 0.01) == "차이 있음"  # direction does not matter
+    assert verdict(-big, -0.05, 0.01) == "차이 있음"  # 방향은 상관없다
     assert verdict(small, 0.005, 0.01) == "차이 작음"
     assert verdict(-small, -0.005, 0.01) == "차이 작음"
     assert verdict(unclear, 0.05, 0.01) == "판정 불가"
-    assert verdict(big, 0.01, 0.01) == "차이 있음"  # exactly the minimum effect counts
+    assert verdict(big, 0.01, 0.01) == "차이 있음"  # 최소 효과와 정확히 같아도 포함한다
 
 
 # 구간 끝이 정확히 0이면 0을 포함한 것으로 보아 '판정 불가'다. 표본이 모두 NaN이거나 차이가 0뿐이어도 '판정
 # 불가'다.
 def test_verdict_interval_touching_zero_is_inconclusive():
-    samples = np.concatenate([np.zeros(100), np.full(1900, 0.1)])  # 2.5th percentile is exactly 0
+    samples = np.concatenate([np.zeros(100), np.full(1900, 0.1)])  # 2.5 백분위수가 정확히 0
     assert percentile_ci(samples)[0] == 0.0
     assert verdict(samples, 0.1, 0.01) == "판정 불가"
     assert verdict(np.full(10, np.nan), 0.1, 0.01) == "판정 불가"
@@ -402,9 +400,9 @@ def test_verdict_interval_touching_zero_is_inconclusive():
 @pytest.mark.parametrize("sign", [1.0, -1.0])
 @pytest.mark.parametrize("across,excludes_zero", [(40, True), (50, True), (51, False), (60, False)])
 def test_verdict_uses_the_95_percent_interval(sign, across, excludes_zero):
-    # 2,000 resamples of which `across` lie on the other side of zero. The 2.5th percentile sits between
-    # the 50th and 51st smallest, so 2% (and exactly 2.5%) across still excludes zero and 3% does not.
-    # A 99% interval would call the 2% case inconclusive; a 90% interval would call the 3% case a difference.
+    # 재표본 2,000개 가운데 `across`개가 0의 반대쪽에 놓인다. 2.5 백분위수는 50번째와 51번째로 작은 값
+    # 사이에 있으므로, 반대쪽이 2%(그리고 정확히 2.5%)면 여전히 0을 배제하고 3%면 배제하지 않는다.
+    # 99% 구간을 쓰면 2% 경우를 '판정 불가'로, 90% 구간을 쓰면 3% 경우를 '차이 있음'으로 판정하게 된다.
     samples = sign * np.concatenate([np.full(across, -1.0), np.full(2000 - across, 1.0)])
     lo, hi = percentile_ci(samples)
     assert (lo > 0 or hi < 0) == excludes_zero
@@ -415,7 +413,6 @@ def test_verdict_uses_the_95_percent_interval(sign, across, excludes_zero):
 # 점 추정이 NaN이면(파이썬 float, numpy float64·float32 모두) 구간이 분명해도 '판정 불가'다. 정의되지 않은
 # 비교가 '차이 있음'이나 '차이 작음'으로 보고되는 일을 막는다.
 def test_verdict_nan_point_is_inconclusive():
-    # An undefined point estimate is never reported as a difference, not even a small one.
     clear = np.full(100, 0.5)
     assert verdict(clear, 0.5, 0.01) == "차이 있음"
     assert verdict(clear, 0.005, 0.01) == "차이 작음"

@@ -83,7 +83,7 @@ def test_summary_and_paired_difference():
         assert lo - 0.01 <= v["macro_aupro"] <= hi + 0.01
         fixed = v["fixed_threshold"]
         assert fixed["calibration"] == "crossfit" and fixed["n_cal"] == 180
-        # Calibration scores and test normals are both N(0, 1): the rate is near the 5% target.
+        # 보정 점수와 테스트 정상 점수가 둘 다 N(0, 1)이라 실제 오검출률은 목표 5% 근처로 나와야 한다.
         assert 0.0 <= fixed["fpr"] < 0.15
     d = report["vs_baseline"]["pairs"]["d-s"]
     assert d["verdict"] == "차이 있음" and d["diff"] > 0.1
@@ -135,7 +135,7 @@ def test_different_evaluation_images_are_rejected():
 def test_unseen_masks_follow_the_training_types():
     sup = _run("sup", 2.0, 3, calibration="holdout", train_types=["scratch", "hole|scratch"])
     masks, total = compare.unseen_masks(sup)
-    # Only "stain" defects (every third one) share no type with the training defects.
+    # 학습 결함과 유형이 하나도 겹치지 않는 것은 "stain" 결함(세 장마다 한 장)뿐이다.
     assert set(masks) == set(CATEGORIES) and total == 3 * 8
     assert masks["alpha"].tolist() == [i % 3 == 2 for i in range(N_POS)]
     seen_all = _run("sup", 2.0, 3, calibration="holdout", train_types=["scratch", "hole", "stain"])
@@ -171,7 +171,7 @@ def test_supervised_crossing_and_hypotheses(monkeypatch):
     assert h["H5 (k=5)"] == "지지" and h["H5 (k=10)"] == "지지" and h["H6 (k=40)"] == "지지"
     assert h["교차점"] == "k = 40"
     assert h["H8 (d-s > P0)"] == "지지"
-    # Unseen types: 8 "stain" defects per category are judged at every k, and at k=40 supervised is ahead.
+    # 보지 못한 유형: 범주마다 "stain" 결함 8장을 모든 k에서 판정하고, k=40에서는 지도 학습이 앞선다.
     assert rows["40"]["unseen_types"]["judged"] and rows["40"]["unseen_types"]["unseen_defects_mean"] == 24
     assert h["H7"].startswith("기각") and "40" in h["H7"]
     text = compare.format_report(report)
@@ -183,7 +183,7 @@ def test_supervised_crossing_and_hypotheses(monkeypatch):
 # 결론을 내지 않는 규칙을 지키는지 본다.
 def test_unseen_types_need_enough_defects():
     unsup = [_run("p0", 1.5, 1), _run("d-s", 2.2, 2)]
-    sup = _supervised({5: 1.0, 40: 3.0}, ["scratch", "hole"])  # 24 unseen defects < the pooled minimum of 30
+    sup = _supervised({5: 1.0, 40: 3.0}, ["scratch", "hole"])  # 보지 못한 결함 24장 < 합계 최소치 30장
     report = compare.build_report(unsup, sup, reference_name="d-s")
     assert not report["supervised"]["5"]["unseen_types"]["judged"]
     assert report["hypotheses"]["H7"].startswith("판정 불가")

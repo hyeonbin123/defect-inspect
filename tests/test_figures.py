@@ -1,4 +1,4 @@
-"""figures on synthetic reports and on the committed ones (needs the `figures` dependency group)."""
+"""합성 리포트와 커밋된 실제 리포트로 그린 figures 그림을 검증한다(`figures` 의존성 그룹이 필요하다)."""
 
 # [파일 역할] README 그림을 그리는 `defect_inspect.figures`를 검증하는 테스트 묶음이다. 리포트 다섯 개로
 # 그리는 그림(calibration, label_curve, m2ad_conditions, perturb, grid), 평가 실행 하나에서 뽑는 실패 사례
@@ -43,8 +43,8 @@ from defect_inspect.visa import CATEGORIES  # noqa: E402
 # 고장).
 PERTURBED = condition_names(include_clean=False)
 M2AD_CONDITIONS = ["S", *[f"P:{name}" for name in PERTURBED], *[f"R:{i:02d}" for i in range(2, 11)]]
-SHIFTED = "brightness-2"  # every score moves up: the ranking stays, the fixed thresholds are overrun
-# The note under a condition axis with WRN-50 (256 px input) and DINOv2 ViT-S (448 px input).
+SHIFTED = "brightness-2"
+# WRN-50(256px 입력)과 DINOv2 ViT-S(448px 입력)를 함께 그린 조건 축 아래에 붙는 주석 글.
 SCALED_NOTE = (
     "* blur σ and shift in pixels of a 256 px image, the input of PatchCore WRN-50; "
     "other input sizes got them scaled:\nPatchCore DINOv2 ViT-S (448 px): σ ×1.75, shift 2, 4, 7 px"
@@ -76,13 +76,13 @@ def _y(fig, gid):
 
 # 구간 세로선(vlines) 묶음에서 선마다 (x, 아래, 위)를 꺼낸다. 리포트의 구간과 그대로 비교한다.
 def _whiskers(fig, gid):
-    """(x, low, high) of every interval line drawn under `gid`."""
+    """`gid` 이름으로 그린 구간 선마다 (x, 아래, 위)."""
     return [(seg[0, 0], seg[0, 1], seg[1, 1]) for seg in _one(fig, gid).get_segments()]
 
 
 # 축 안 주석 글자 → 그 글자가 가리키는 좌표. 값 표시가 맞는 점 위에 붙었는지 본다.
 def _notes(ax):
-    """Text -> anchor point of the annotations of an axes."""
+    """축 안 주석 글자 -> 그 주석이 가리키는 좌표."""
     return {t.get_text(): tuple(t.xy) for t in ax.texts if hasattr(t, "xy")}
 
 
@@ -96,23 +96,22 @@ def _png(fig, path):
     return figures.save(fig, path).read_bytes()
 
 
-# 선·마커 전체·구간·띠·막대가 모두 자기 축 안에 있는지(잘려 보이지 않는지) 픽셀 좌표로 확인한다. 축 범위가
-# 표시를 잘라도 artist 데이터는 그대로라 데이터로는 알 수 없기 때문이다. 마커는 반지름만큼 여유를 둔다.
 def _marks_inside(fig):
-    """Every line, whole marker, interval, band and bar lies inside the view of its axes (none is cut off).
+    """선·마커 전체·구간·띠·막대가 모두 자기 축 안에 있는지(잘려 보이지 않는지) 확인한다.
 
-    Artist data does not change when the view limits cut a mark off, so the check is made in pixels.
+    축 범위가 표시를 잘라도 artist 데이터는 그대로라 데이터로는 알 수 없으므로 픽셀 좌표로 잰다. 마커는
+    반지름만큼 여유를 둔다.
     """
     with figures._style():
         fig.canvas.draw()
     for ax in fig.axes:
         box = ax.bbox
         for artist in [*ax.lines, *ax.collections, *ax.patches]:
-            room = -1.0  # pixels between a point and the edge; a line may touch it
+            room = -1.0  # 점과 축 경계 사이 픽셀 여유. 선은 경계에 닿아도 된다
             if isinstance(artist, Line2D):
                 points = artist.get_transform().transform(artist.get_xydata())
                 if artist.get_marker() not in ("", " ", "None", "none", None):
-                    room = artist.get_markersize() * fig.dpi / 72 / 2 - 1.0  # the whole marker
+                    room = artist.get_markersize() * fig.dpi / 72 / 2 - 1.0  # 마커 전체
             elif isinstance(artist, Patch):
                 ext = artist.get_extents()
                 points = np.array([[ext.x0, ext.y0], [ext.x1, ext.y1]])
@@ -138,13 +137,12 @@ def _drawn(fig):
     return fig.canvas.get_renderer()
 
 
-# x 눈금 글자가 이웃과 최소한 공백 한 칸만큼 떨어져 있는지 줄마다 잰다(강도 줄끼리, 묶음 이름 줄끼리). 조건이
-# 25개인 M2AD 축처럼 칸이 좁은 그림에서 글자가 겹치는 회귀를 막는다.
 def _tick_labels_apart(fig):
-    """On every axes, neighbouring x tick labels keep at least a space between them, line by line.
+    """모든 축에서 이웃한 x 눈금 글자가 줄마다 최소한 공백 한 칸만큼 떨어져 있는지 잰다.
 
-    A tick label of two lines ("1.25\\ngamma") is centred on its tick line by line, so the lines are
-    measured one by one: a strength against the next strength, a group name against the next group name.
+    두 줄짜리 눈금 글자("1.25\\ngamma")는 줄마다 따로 눈금 가운데에 놓이므로 줄 단위로 잰다: 강도는 다음
+    강도와, 묶음 이름은 다음 묶음 이름과 비교한다. 조건이 25개인 M2AD 축처럼 칸이 좁은 그림에서 글자가 겹치는
+    회귀를 막는다.
     """
     renderer = _drawn(fig)
     for ax in fig.axes:
@@ -175,20 +173,20 @@ def _tick_labels_apart(fig):
 
 # 같은 조건 위에 나란히 놓인 방법들의 마커가 흰 테두리까지 포함해 서로 겹치지 않는지 확인한다.
 def _markers_apart(fig, gids):
-    """At every x position, the markers of neighbouring series stand side by side without overlapping."""
+    """x 위치마다 이웃한 계열의 마커가 겹치지 않고 나란히 서 있는지 확인한다."""
     _drawn(fig)
     lines = [_one(fig, gid) for gid in gids]
     for a, b in zip(lines, lines[1:], strict=False):
         xa = a.axes.transData.transform(a.get_xydata())[:, 0]
         xb = b.axes.transData.transform(b.get_xydata())[:, 0]
-        # Half the width of each marker, with the white edge drawn around it.
+        # 두 마커 너비의 절반씩(둘레에 그린 흰 테두리 포함)을 더한 거리가 필요하다.
         room = sum(line.get_markersize() + line.get_markeredgewidth() for line in (a, b)) / 2 * fig.dpi / 72
         assert np.min(np.abs(xb - xa)) >= room, f"{a.get_gid()} and {b.get_gid()} overlap"
 
 
 # 제목·축 이름·주석·범례 글자가 모두 그림 경계 안에 있는지 확인한다(PNG에서 잘려 나가지 않게).
 def _texts_inside(fig):
-    """Every text (titles, labels, notes, legend entries) lies inside the figure."""
+    """모든 글자(제목, 축 이름, 주석, 범례 항목)가 그림 안에 있는지 확인한다."""
     renderer = _drawn(fig)
     box = fig.bbox
     for text in fig.findobj(
@@ -201,7 +199,7 @@ def _texts_inside(fig):
         assert inside, f"{text.get_text()!r} sticks out of the figure: {ext}"
 
 
-# ---- calibration -----------------------------------------------------------------------------------------
+# ---- calibration 그림 ------------------------------------------------------------------------------------
 
 
 # 1단계 리포트(analyze.build_report) 모양의 합성 데이터. 목표 5%와 1%마다 세 보정 방식(재대입, 홀드아웃, 교차
@@ -262,7 +260,7 @@ def test_calibration_draws_the_rates_of_the_report_in_percent():
         "Actual false-alarm rate of thresholds set for 5% (PatchCore WRN-50, VisA test split, "
         "1,000 normal images)"
     )
-    # Every procedure on the full axis; hold-out and cross-fit once more on the enlarged one.
+    # 전체 축에는 세 방식이 모두 있고, 확대한 축에는 홀드아웃과 교차 적합이 한 번 더 그려진다.
     assert [p.get_gid() for p in full.patches] == ["bar:resubstitution", "bar:holdout", "bar:crossfit"]
     assert [p.get_height() for p in full.patches] == pytest.approx([80.0, 5.5, 4.0])
     assert [p.get_x() + p.get_width() / 2 for p in full.patches] == pytest.approx(full.get_xticks())
@@ -274,7 +272,7 @@ def test_calibration_draws_the_rates_of_the_report_in_percent():
         "Hold-out\nn = 180",
         "Cross-fit\nn = 900",
     ]
-    # The bootstrap intervals are the whiskers of the bars, in both panels.
+    # 두 패널 모두에서 부트스트랩 구간은 막대 위의 수염(세로선)이다.
     (whiskers,) = full.findobj(lambda a: a.get_gid() == "ci")
     assert [(s[0, 0], s[0, 1], s[1, 1]) for s in whiskers.get_segments()] == [
         pytest.approx((0, 78.0, 82.0)),
@@ -286,7 +284,7 @@ def test_calibration_draws_the_rates_of_the_report_in_percent():
         pytest.approx((0, 4.5, 6.5)),
         pytest.approx((1, 3.2, 4.8)),
     ]
-    # The value over each whisker, and the target named at the right end of its line.
+    # 수염마다 위에 값을 쓰고, 목표선 오른쪽 끝에 목표 이름을 붙인다.
     assert _notes(full) == {
         "80.0%": pytest.approx((0, 82.0)),
         "5.5%": pytest.approx((1, 6.5)),
@@ -298,14 +296,14 @@ def test_calibration_draws_the_rates_of_the_report_in_percent():
         "4.00%": pytest.approx((1, 4.8)),
         "target 5%": pytest.approx((1.0, 5.0)),
     }
-    # One target line per panel, at 5%.
+    # 패널마다 5% 목표선이 하나씩 있다.
     targets = _artists(fig, "target")
     assert len(targets) == 3
     assert all(list(line.get_ydata()) == pytest.approx([5.0, 5.0]) for line in targets)
-    # The theory range of the hold-out threshold, next to its bar.
+    # 홀드아웃 임계값의 이론 구간을 그 막대 옆에 그린다.
     assert _y(fig, "theory:holdout") == pytest.approx([3.5, 6.5])
     assert _one(fig, "theory:holdout").axes is zoom
-    # The finite-sample curve: observed means, and the simulated mean inside its interval, n by n.
+    # 유한표본 곡선: n마다 관측 평균, 그리고 모의 구간 띠 안의 모의 평균.
     assert _x(fig, "observed") == pytest.approx(by_n.get_xticks())
     assert _y(fig, "observed") == pytest.approx([4.1, 3.3, 4.0])
     assert _y(fig, "reference:mean") == pytest.approx([4.8, 3.9, 5.0])
@@ -315,8 +313,8 @@ def test_calibration_draws_the_rates_of_the_report_in_percent():
         assert (at.min(), at.max()) == pytest.approx((lo, hi))
     assert [t.get_text() for t in by_n.get_xticklabels()] == ["20", "50", "100"]
     assert _notes(by_n) == {"target 5%": pytest.approx((1.0, 5.0))}
-    # The whiskers of the bars are named next to the theory range, so neither is taken for the other; the
-    # n under the bars is a total over the categories, the n of the right panel is per category.
+    # 막대의 수염과 이론 구간을 범례에 나란히 적어 서로 헷갈리지 않게 한다. 막대 아래 n은 범주 합계이고,
+    # 오른쪽 패널의 n은 범주당이다.
     assert [t.get_text() for t in zoom.get_legend().get_texts()] == [
         "on the bars: 95% bootstrap interval",
         "hold-out: 95% range expected in theory",
@@ -344,10 +342,10 @@ def test_calibration_at_another_target_rate():
         figures.fig_calibration(_calibration_report(), alpha=0.1)
 
 
-# ---- label curve -----------------------------------------------------------------------------------------
+# ---- label_curve 그림 ------------------------------------------------------------------------------------
 
-# 합성 지도 학습 평균 AUROC.
-MEANS = (0.95, 0.97, 0.98, 0.985)  # supervised AUROC at k = 5, 10, 20, 40
+# 합성 지도 학습 평균 AUROC(k = 5, 10, 20, 40 순서).
+MEANS = (0.95, 0.97, 0.98, 0.985)
 
 
 # 2단계 비교 리포트(compare.build_report) 모양의 합성 데이터. 비지도 세 방법의 AUROC와 구간, k마다 지도 학습의
@@ -358,7 +356,7 @@ def _compare_report(judged=(5, 10)):
         return {"macro_image_auroc": value, "macro_image_auroc_ci": [value - 0.01, value + 0.01]}
 
     supervised = {}
-    # Means over the seeds, whose subsets differ: 116.67 at k = 5 (as in the committed report), whole at 10.
+    # 시드마다 부분집합이 달라 평균이 k = 5에서 116.67(커밋된 리포트와 같음), k = 10에서는 정수다.
     unseen_defects = {5: 350 / 3, 10: 60.0}
     for k, mean in zip((5, 10, 20, 40), MEANS, strict=True):
         unseen = {"unseen_defects_mean": 2.0, "categories_mean": 1.0, "judged": False}
@@ -372,7 +370,7 @@ def _compare_report(judged=(5, 10)):
                 "ci": [mean - 0.02 - 0.975 - 0.015, mean - 0.02 - 0.975 + 0.015],
                 "judged": True,
             }
-        # Keyed by str(k) and listed out of order, as a JSON object may be.
+        # JSON 객체처럼 str(k)를 키로 쓰고 순서를 뒤섞어(뒤집어) 담는다.
         supervised[str(k)] = {
             "k": k,
             "labels_with_validation": k + 20,
@@ -400,7 +398,7 @@ def test_label_curve_draws_the_supervised_curve_over_the_unsupervised_lines():
     fig = figures.fig_label_curve(_compare_report())
     assert len(fig.axes) == 2
     curve, unseen = fig.axes
-    # Sorted by k whatever the order of the report, each k at its own tick.
+    # 리포트 순서와 상관없이 k 순으로 정렬하고, k마다 제 눈금에 놓는다.
     ticks = curve.get_xticks()
     assert [t.get_text() for t in curve.get_xticklabels()] == ["5\n(25)", "10\n(30)", "20\n(40)", "40\n(60)"]
     assert _x(fig, "supervised") == pytest.approx(ticks)
@@ -408,14 +406,14 @@ def test_label_curve_draws_the_supervised_curve_over_the_unsupervised_lines():
     assert _whiskers(fig, "supervised:ci") == [
         pytest.approx((x, 100 * m - 0.5, 100 * m + 0.5)) for x, m in zip(ticks, MEANS, strict=True)
     ]
-    # The single seeds of a k stand a little to the right of its mean.
+    # k의 시드별 점은 그 평균보다 조금 오른쪽에 선다.
     seeds = _one(fig, "supervised:seeds")
     xs, ys = np.asarray(seeds.get_xdata()), np.asarray(seeds.get_ydata())
     assert len(xs) == 12
     for x, m in zip(ticks, MEANS, strict=True):
         mine = (xs > x) & (xs < x + 0.3)
         assert sorted(ys[mine]) == pytest.approx([100 * m - 0.2, 100 * m, 100 * m + 0.2])
-    # The unsupervised methods: line, interval band and the value at the right end.
+    # 비지도 방법: 수평선, 구간 띠, 오른쪽 끝의 값.
     for name, value in (("p0", 89.0), ("d-s", 94.0), ("dm", 96.8)):
         assert _y(fig, f"line:{name}") == pytest.approx([value, value])
         band = _one(fig, f"band:{name}").get_extents().transformed(curve.transData.inverted())
@@ -428,9 +426,9 @@ def test_label_curve_draws_the_supervised_curve_over_the_unsupervised_lines():
     legend = [t.get_text() for t in fig.legends[0].get_texts()]
     assert legend[1:] == ["PatchCore WRN-50", "PatchCore DINOv2 ViT-S", "Dinomaly"]
     assert legend[0].startswith("Supervised head: mean of 3 seeds")
-    # Unseen defect types: the judged k only, supervised against the reference method (Dinomaly).
+    # 보지 못한 결함 유형: 판정된 k만, 지도 학습과 기준 방법(Dinomaly)을 비교한다.
     uticks = unseen.get_xticks()
-    # The number of unseen defects is a mean over the seeds: not written as a count unless it is whole.
+    # 보지 못한 결함 수는 시드 평균이라, 정수가 아니면 개수처럼 적지 않는다(소수로 적는다).
     assert [t.get_text() for t in unseen.get_xticklabels()] == ["k = 5\n116.7 defects", "k = 10\n60 defects"]
     assert unseen.get_xlabel() == "defects of these types: mean over the 3 seeds"
     assert _x(fig, "unseen:supervised") == pytest.approx(uticks)
@@ -439,7 +437,7 @@ def test_label_curve_draws_the_supervised_curve_over_the_unsupervised_lines():
     assert _y(fig, "unseen:reference") == pytest.approx([97.5, 97.5])
     reference = _one(fig, "unseen:reference")
     assert (reference.get_color(), reference.get_marker()) == figures.METHODS["dm"][1:]
-    # The difference with its interval between the two markers of its k; the markers named at the first.
+    # 차이와 구간은 그 k의 두 마커 사이에 적고, 마커 이름은 첫 k에만 붙인다.
     assert _notes(unseen) == {
         "−4.5 pt\n[−6.0, −3.0]": pytest.approx((uticks[0], 95.25)),
         "−2.5 pt\n[−4.0, −1.0]": pytest.approx((uticks[1], 96.25)),
@@ -494,7 +492,7 @@ def test_m2ad_conditions_are_grouped_and_every_rate_is_drawn():
     fig = figures.fig_m2ad_conditions(report)
     assert len(fig.axes) == 2
     ax, recal = fig.axes
-    # The two methods stand side by side at each condition: marker and interval at the condition's tick.
+    # 조건마다 두 방법이 나란히 서고, 마커와 구간은 그 조건 눈금 양옆에 놓인다.
     ticks, rticks = ax.get_xticks(), recal.get_xticks()
     sides, rsides = figures._offsets(2, 0.38), figures._offsets(2, 0.46)
     for (method, run), dx, rdx in zip(report["methods"].items(), sides, rsides, strict=True):
@@ -513,8 +511,8 @@ def test_m2ad_conditions_are_grouped_and_every_rate_is_drawn():
             pytest.approx((x + rdx, 100 * row["fpr_ci"][0], 100 * row["fpr_ci"][1]))
             for x, row in zip(rticks, run["recal"], strict=True)
         ]
-    assert sides[0] < 0 < sides[1]  # WRN-50 on the left
-    # The recalibrated rate written over its marker and interval.
+    assert sides[0] < 0 < sides[1]  # WRN-50이 왼쪽
+    # 재보정 오검출률 값은 그 마커와 구간 위에 적는다.
     assert [(t.get_text(), *t.xy) for t in recal.texts] == [
         ("92.0", pytest.approx(rsides[0]), pytest.approx(100.0)),
         ("0.0", pytest.approx(1 + rsides[0]), pytest.approx(0.0)),
@@ -523,36 +521,36 @@ def test_m2ad_conditions_are_grouped_and_every_rate_is_drawn():
         ("0.0", pytest.approx(1 + rsides[1]), pytest.approx(0.0)),
         ("7.0", pytest.approx(2 + rsides[1]), pytest.approx(10.5)),
     ]
-    # The seven groups are set apart.
+    # 일곱 묶음 사이에 간격을 둔다.
     steps = np.diff(ticks)
     assert np.isclose(steps, 1.0).sum() == 18 and (steps > 1.5).sum() == 6
     assert [int(i) for i in np.flatnonzero(steps > 1.5)] == [0, 3, 6, 9, 12, 15]
     labels = [t.get_text() for t in ax.get_xticklabels()]
-    # The reference condition is lighting 01, the one the thresholds were fixed on (as 02-10 are lightings).
+    # 기준 조건은 임계값을 고정한 조명 01이다(02~10이 다른 조명이므로 번호로 적는다).
     assert labels[0] == "01\nreference"
     assert labels[1:4] == ["0.9\n ", "0.8\nbrightness", "0.7\n "]
     assert labels[13:16] == ["90\n ", "70\nJPEG quality", "50\n "]
     assert labels[16] == "02\n " and labels[20] == "06\nreal lighting" and labels[24] == "10\n "
-    # Blur and shift are on the 256 px grid: their groups are starred, and the note under the axis says
-    # what the 448 px input of DINOv2 got (conditions.strength: shift rounded, blur scaled).
+    # 흐림과 이동은 256px 격자 기준 값이라 묶음 이름에 *를 붙이고, 축 아래 주석에 DINOv2의 448px 입력이 실제로
+    # 받은 값을 적는다(conditions.strength: 이동은 반올림, 흐림은 비례 환산).
     assert labels[7:13] == ["0.5\n ", "1\nblur σ*", "1.5\n ", "1\n ", "2\nshift (px)*", "4\n "]
     assert "gamma" in labels[5]
     assert ax.get_xlabel() == SCALED_NOTE
-    # The target line in both panels, named in the legend; a rate of 0 has a place on the recalibration axis.
+    # 목표선은 두 패널 모두에 있고 범례로 이름을 준다. 오검출률 0도 재보정 축에 자리가 있다.
     targets = _artists(fig, "target")
     assert {line.axes for line in targets} == {ax, recal}
     assert all(list(line.get_ydata()) == pytest.approx([5.0, 5.0]) for line in targets)
-    assert not ax.texts  # no label at the end of the line: it would take room from the 25 slots
+    assert not ax.texts  # 선 끝에 글자를 붙이지 않는다. 붙이면 25칸의 자리를 차지한다
     assert np.isfinite(recal.transData.transform((1.0, 0.0))).all()
     assert [t.get_text() for t in recal.get_xticklabels()] == ["0", "8", "30"]
-    # The legend names the vertical lines too.
+    # 범례는 구간 세로선의 이름도 적는다.
     assert [t.get_text() for t in fig.legends[0].get_texts()] == [
         "PatchCore WRN-50",
         "PatchCore DINOv2 ViT-S",
         "95% bootstrap interval",
         "target 5%",
     ]
-    # "Fixed thresholds" is said of the left panel only: the right one shows recalibrated thresholds.
+    # '고정 임계값'이라는 말은 왼쪽 패널에만 쓴다. 오른쪽은 다시 잡은 임계값을 보여 준다.
     assert fig.get_suptitle() == "M2AD: false alarms when the capture condition changes (2 inspectors)"
     assert ax.get_title(loc="left").startswith("Thresholds fixed on the reference lighting 01: ")
     assert recal.get_title(loc="left") == "After recalibration"
@@ -569,10 +567,10 @@ def test_m2ad_conditions_are_grouped_and_every_rate_is_drawn():
 def test_m2ad_takes_the_methods_the_report_has_and_checks_their_conditions():
     fig = figures.fig_m2ad_conditions(_m2ad_report(methods=("p0",)), alpha=0.1)
     assert len(fig.axes) == 2 and not _artists(fig, "fpr:d-s")
-    assert _x(fig, "fpr:p0") == pytest.approx(fig.axes[0].get_xticks())  # alone: on the tick
+    assert _x(fig, "fpr:p0") == pytest.approx(fig.axes[0].get_xticks())  # 하나뿐이면 눈금 위에
     assert all(list(line.get_ydata()) == pytest.approx([10.0, 10.0]) for line in _artists(fig, "target"))
     assert [t.get_text() for t in fig.legends[0].get_texts()][-1] == "target 10%"
-    # Only the 256 px input: nothing was scaled.
+    # 256px 입력뿐이라 환산된 것이 없다.
     assert (
         fig.axes[0].get_xlabel()
         == "* blur σ and shift in pixels of a 256 px image, the input of PatchCore WRN-50"
@@ -586,13 +584,13 @@ def test_m2ad_takes_the_methods_the_report_has_and_checks_their_conditions():
         figures.fig_m2ad_conditions(report)
 
 
-# ---- perturbation ----------------------------------------------------------------------------------------
+# ---- perturb 그림(합성 교란) -----------------------------------------------------------------------------
 
 
 # 12개 범주 전체의 작은 run_perturb 실행 폴더를 만든다. SHIFTED는 모든 점수에 +2(순위 그대로, 임계값 넘침),
 # blur-3은 결함 점수만 −2.5(정확도 하락)다.
 def _perturb_run(root, method, seed, cal=60, protocol="test"):
-    """A small `run_perturb` folder over all categories; `SHIFTED` adds 2 to every score."""
+    """12개 범주 전체의 작은 `run_perturb` 실행 폴더. `SHIFTED`는 모든 점수에 2를 더한다."""
     names = condition_names()
     rng = np.random.default_rng(seed)
     run_dir = root / f"perturb-{method}-{protocol}"
@@ -624,7 +622,7 @@ def _perturb_run(root, method, seed, cal=60, protocol="test"):
 # 합성 실행들로 실제 analyze_perturb.build_report를 돌려 그림 입력 리포트를 만든다(부트스트랩 40번). 그림과
 # 분석 코드가 같은 리포트 형식을 쓰는지도 함께 확인된다.
 def _perturb_report(root, cal=None):
-    """The report `analyze_perturb` writes, from synthetic runs; `cal`: calibration scores per method."""
+    """합성 실행으로 만든 `analyze_perturb` 리포트. `cal`은 방법별 보정 점수 장수다."""
     cal = {"p0": 60, "d-s": 60} if cal is None else cal
     run_dirs = {
         method: _perturb_run(root, method, seed=i, cal=n) for i, (method, n) in enumerate(cal.items())
@@ -644,7 +642,7 @@ def test_perturb_shows_accuracy_change_and_fixed_threshold_rate(tmp_path):
     fig = figures.fig_perturb(report)
     assert len(fig.axes) == 2
     ax_auc, ax_fpr = fig.axes
-    # Clean first, then the 15 conditions; the accuracy change has no clean marker.
+    # 교란 없음(clean)이 먼저, 그다음 15개 조건이다. 정확도 변화 패널에는 clean 마커가 없다.
     ticks = ax_fpr.get_xticks()
     assert len(ticks) == 16 and list(ax_auc.get_xticks()) == pytest.approx(ticks)
     for (method, table), dx in zip(report["tables"].items(), figures._offsets(2, 0.25), strict=True):
@@ -659,20 +657,20 @@ def test_perturb_shows_accuracy_change_and_fixed_threshold_rate(tmp_path):
         ]
         rates = _one(fig, f"fpr:{method}")
         assert rates.axes is ax_fpr
-        assert _x(fig, f"fpr:{method}") == pytest.approx(ticks + dx)  # with clean
+        assert _x(fig, f"fpr:{method}") == pytest.approx(ticks + dx)  # clean 포함
         assert _y(fig, f"fpr:{method}") == pytest.approx([100 * row["fpr"] for row in table])
         assert _whiskers(fig, f"fpr:{method}:ci") == [
             pytest.approx((x + dx, 100 * row["fpr_ci"][0], 100 * row["fpr_ci"][1]))
             for x, row in zip(ticks, table, strict=True)
         ]
-    # The shifted condition keeps its accuracy and overruns the threshold; the figure shades it in both rows.
+    # 점수를 올린 조건은 정확도는 그대로이고 임계값을 넘친다. 그림은 이 조건을 두 패널 모두에 음영으로 칠한다.
     k = PERTURBED.index(SHIFTED)
     assert _y(fig, "d_auroc:p0")[k] == pytest.approx(0.0) and _y(fig, "fpr:p0")[k + 1] > 50.0
     shaded = _artists(fig, f"h9:{SHIFTED}")
     assert {patch.axes for patch in shaded} == {ax_auc, ax_fpr}
     assert all(p.get_x() + p.get_width() / 2 == pytest.approx(ticks[k + 1]) for p in shaded)
     assert not _artists(fig, "h9:blur-3")
-    # The target line belongs to the rate panel only.
+    # 목표선은 오검출률 패널에만 있다.
     (target,) = _artists(fig, "target")
     assert target.axes is ax_fpr and list(target.get_ydata()) == pytest.approx([5.0, 5.0])
     assert _notes(ax_fpr) == {"target 5%": pytest.approx((1.0, 5.0))}
@@ -680,7 +678,7 @@ def test_perturb_shows_accuracy_change_and_fixed_threshold_rate(tmp_path):
     assert labels[0] == "\nclean" and labels[1:4] == ["0.9\n ", "0.8\nbrightness", "0.7\n "]
     assert labels[7:13] == ["0.5\n ", "1\nblur σ*", "1.5\n ", "1\n ", "2\nshift (px)*", "4\n "]
     assert all(t.get_text() == "" for t in ax_auc.get_xticklabels())
-    # The starred strengths are on the 256 px grid; the note says what the larger inputs got.
+    # *를 붙인 강도는 256px 격자 기준이고, 주석이 더 큰 입력이 실제로 받은 값을 적는다.
     assert ax_auc.get_xlabel() == ""
     assert ax_fpr.get_xlabel() == SCALED_NOTE
     legend = [t.get_text() for t in fig.legends[0].get_texts()]
@@ -704,7 +702,7 @@ def test_perturb_method_without_calibration_scores_has_no_rate_markers(tmp_path)
     assert not _artists(fig, "fpr:dm")
     assert _x(fig, "fpr:p0") == pytest.approx(ticks + figures._offsets(2, 0.25)[0])
     _marks_inside(fig)
-    # A partial run is not judged: nothing is shaded and the legend has the methods and intervals only.
+    # 일부 범주 실행은 판정하지 않는다: 음영이 없고 범례에는 방법과 구간만 있다.
     report["h9"] = None
     fig = figures.fig_perturb(report)
     assert not _artists(fig, f"h9:{SHIFTED}")
@@ -720,7 +718,7 @@ def test_perturb_method_without_calibration_scores_has_no_rate_markers(tmp_path)
 # 겹치지 않으며 모든 글자가 그림 안에 있다.
 def test_perturb_of_three_methods_keeps_its_legend_and_note_inside_the_figure(tmp_path):
     report = _perturb_report(tmp_path, cal={"p0": 60, "d-s": 60, "dm": 60})
-    assert report["h9"]["conditions"] == [SHIFTED]  # the longest legend: three methods and the H9 shading
+    assert report["h9"]["conditions"] == [SHIFTED]  # 가장 긴 범례: 세 방법과 H9 음영
     fig = figures.fig_perturb(report)
     assert fig.axes[1].get_xlabel().splitlines()[1] == (
         "PatchCore DINOv2 ViT-S (448 px): σ ×1.75, shift 2, 4, 7 px;   "
@@ -736,8 +734,8 @@ def test_perturb_of_three_methods_keeps_its_legend_and_note_inside_the_figure(tm
 # 교란이 흐림과 이동뿐이며, 크기를 모르는 방법은 주석에 'input size not known'으로 적힌다. 그림 주석이
 # conditions.strength의 실제 환산을 따르는지 고정한다.
 def test_scaled_strengths_follow_the_input_size_of_each_method():
-    # The input sizes of stage 3, and the conditions that conditions.strength scales with them.
-    # p0-c and d-s-c: the stage 7 centred variants, same input sizes as their base configs.
+    # 3단계 방법들의 입력 크기와, conditions.strength가 그 크기에 맞춰 환산하는 조건들.
+    # p0-c와 d-s-c는 7단계 중심화 변형이라 바탕 구성과 입력 크기가 같다.
     assert figures.INPUT_SIZES == {"p0": 256, "d-s": 448, "d-b": 448, "dm": 392, "p0-c": 256, "d-s-c": 448}
     assert figures._SCALED == ("blur", "shift")
     assert [figures._condition(f"P:{kind}-1")[0] for kind in ("gamma", "blur", "shift")] == [
@@ -752,14 +750,14 @@ def test_scaled_strengths_follow_the_input_size_of_each_method():
     )
 
 
-# ---- grid ------------------------------------------------------------------------------------------------
+# ---- grid 그림(CPU 지연과 정확도) ------------------------------------------------------------------------
 
 
 # 4단계 격자 리포트와 지연 파일을 analyze_grid의 main처럼 만든다. 설정 두 개 × 코어셋 두 비율의 CPU FP32
 # 지연(WRN-50은 INT8도)과, GPU로만 잰 행 하나를 넣는다. 리포트에 합쳐 넣은 지연과 디스크의 지연 파일은 따로
 # 둔다(나중에 파일만 바뀐 상황을 시험하려고). dev면 서빙 구성 선택도 넣는다.
 def _grid_inputs(protocol="dev", budget_ms=analyze_grid.CPU_BUDGET_MS):
-    """Grid rows and a latency file put together by `analyze_grid`, as its `main` does."""
+    """`analyze_grid`의 `main`처럼 묶은 격자 행과 지연 파일."""
     rows, latency = [], {}
     for setting, ms, auroc in (("wrn50-256", 60.0, 0.90), ("dinov2_vits14-392", 400.0, 0.95)):
         for ratio, slower, drop in ((0.1, 3.0, 0.0), (0.01, 1.0, 0.004)):
@@ -776,7 +774,7 @@ def _grid_inputs(protocol="dev", budget_ms=analyze_grid.CPU_BUDGET_MS):
             latency[key] = {"cpu": "some cpu", "resize_ms": 2.0, "cpu_fp32": {"total_ms": ms * slower}}
             if setting == "wrn50-256":
                 latency[key]["cpu_int8"] = {"total_ms": ms * slower / 2}
-    # A row timed on the GPU only has no CPU latency and no marker.
+    # GPU로만 잰 행은 CPU 지연이 없어 마커도 없다.
     gpu_only = f"wrn50-384-{ratio_name(0.1)}"
     rows.append(
         {
@@ -788,7 +786,7 @@ def _grid_inputs(protocol="dev", budget_ms=analyze_grid.CPU_BUDGET_MS):
         }
     )
     latency[gpu_only] = {"gpu_fp16": {"total_ms": 9.0}}
-    # The file the grid report was made from stays apart from the one returned (as on disk).
+    # 격자 리포트를 만든 지연 값은 돌려주는 지연 파일과 따로 둔다(디스크에서처럼 별개의 사본).
     analyze_grid.merge_latency(rows, copy.deepcopy(latency))
     grid = {"protocol": protocol, "alpha": 0.05, "rows": rows}
     if protocol == "dev":
@@ -807,7 +805,7 @@ SLOW, FAST = f"wrn50-256-{ratio_name(0.1)}", f"wrn50-256-{ratio_name(0.01)}"
 # 한다.
 def test_grid_puts_every_timed_configuration_at_its_latency_and_accuracy():
     grid, latency = _grid_inputs()
-    assert grid["serving"]["key"] == SLOW  # 182 ms: the best within 200 ms
+    assert grid["serving"]["key"] == SLOW  # 182ms: 200ms 안에서 가장 좋음
     fig = figures.fig_grid(grid, latency)
     assert len(fig.axes) == 1
     (ax,) = fig.axes
@@ -817,28 +815,28 @@ def test_grid_puts_every_timed_configuration_at_its_latency_and_accuracy():
         assert list(point.get_xdata()) == pytest.approx([row["cpu_ms"]])
         assert list(point.get_ydata()) == pytest.approx([100 * row["macro_image_auroc"]])
     assert _x(fig, f"point:{FAST}:fp32") == pytest.approx([62.0])
-    # INT8: its own latency at the accuracy of the row.
+    # INT8: 자기 지연을 x로, 그 행의 정확도를 y로 찍는다.
     assert _x(fig, f"point:{FAST}:int8") == pytest.approx([32.0])
     assert _y(fig, f"point:{FAST}:int8") == pytest.approx([89.6])
     assert not _artists(fig, f"point:dinov2_vits14-392-{ratio_name(0.1)}:int8")
     assert not [a for a in fig.findobj() if str(a.get_gid()).startswith("point:wrn50-384")]
-    # Marker size is the coreset ratio, the same as in the key.
+    # 마커 크기는 코어셋 비율이고, 범례의 크기와 같다.
     key = fig.legends[0].legend_handles
     big, small = (_one(fig, f"point:{k}:fp32").get_markersize() for k in (SLOW, FAST))
     assert big > small and (big, small) == pytest.approx((key[0].get_markersize(), key[1].get_markersize()))
-    # The budget line and the ring around the serving configuration.
+    # 예산선과 서빙 구성을 두른 고리.
     assert _x(fig, "budget") == pytest.approx([200.0, 200.0])
     assert _x(fig, "serving") == pytest.approx([182.0]) and _y(fig, "serving") == pytest.approx([90.0])
     notes = _notes(ax)
     assert notes["serving: 182 ms, AUROC 90.0"] == pytest.approx((182.0, 90.0))
     assert notes["budget 200 ms"] == pytest.approx((200.0, 1.0))
-    # Each setting named next to its slowest FP32 marker.
+    # 설정마다 가장 느린 FP32 마커 옆에 이름표를 붙인다.
     assert notes["WRN-50 256 px"] == pytest.approx((182.0, 90.0))
     assert notes["DINOv2 ViT-S 392 px"] == pytest.approx((1202.0, 95.0))
     legend = [t.get_text() for t in fig.legends[0].get_texts()]
     assert legend[:3] == ["coreset 10%", "coreset 1%", "FP32"] and legend[3].startswith("INT8")
     _marks_inside(fig)
-    # Without the latency file the entries merged into the rows give the same picture.
+    # 지연 파일 없이 행에 합쳐 넣은 값만으로도 같은 그림이 나온다.
     merged = figures.fig_grid(grid)
     assert _x(merged, f"point:{FAST}:int8") == pytest.approx([32.0])
 
@@ -846,7 +844,7 @@ def test_grid_puts_every_timed_configuration_at_its_latency_and_accuracy():
 # 확인: 예산선과 서빙 고리는 리포트에 기록된 예산(150ms)과 선택을 따른다. 그림이 선택을 다시 계산하지 않는다.
 def test_grid_takes_the_budget_and_the_choice_of_the_report():
     grid, latency = _grid_inputs(budget_ms=150.0)
-    assert grid["serving"]["key"] == FAST  # 182 ms is over 150 ms
+    assert grid["serving"]["key"] == FAST  # 182ms는 150ms를 넘는다
     fig = figures.fig_grid(grid, latency)
     assert _x(fig, "budget") == pytest.approx([150.0, 150.0])
     assert _x(fig, "serving") == pytest.approx([62.0])
@@ -860,35 +858,35 @@ def test_grid_takes_the_budget_and_the_choice_of_the_report():
 # 이 구성을 골랐는지'가 그림과 어긋난다.
 def test_grid_draws_the_timings_the_serving_choice_was_made_on():
     grid, latency = _grid_inputs()
-    # bench ran again after analyze_grid: the file has other timings than the report.
+    # analyze_grid 뒤에 bench를 다시 돌린 상황: 지연 파일의 값이 리포트와 다르다.
     newer = copy.deepcopy(latency)
     newer[SLOW]["cpu_fp32"]["total_ms"] = 398.0
     newer[FAST]["cpu_int8"]["total_ms"] = 97.0
     fig = figures.fig_grid(grid, newer)
     assert _x(fig, f"point:{SLOW}:fp32") == pytest.approx([182.0])
-    assert _x(fig, f"point:{FAST}:int8") == pytest.approx([32.0])  # the report has INT8 timings too
+    assert _x(fig, f"point:{FAST}:int8") == pytest.approx([32.0])  # 리포트에 INT8 지연도 있다
     assert _x(fig, "serving") == pytest.approx([182.0]) and "serving: 182 ms, AUROC 90.0" in _texts(fig)
-    # The file fills in what the report has no timing for: a whole row, or a precision timed later.
+    # 지연 파일은 리포트에 지연이 없는 것만 채운다: 행 전체, 또는 나중에 잰 정밀도.
     bare = {
         **grid,
         "rows": [{k: v for k, v in r.items() if k not in ("latency", "cpu_ms")} for r in grid["rows"]],
     }
     for row in grid["rows"]:
         row.get("latency", {}).pop("cpu_int8", None)
-    newer[FAST]["cpu_int8"]["total_with_resize_ms"] = 35.0  # bench writes the sum with its own resize
+    newer[FAST]["cpu_int8"]["total_with_resize_ms"] = 35.0  # bench는 자기 리사이즈를 더한 합을 쓴다
     assert not _artists(figures.fig_grid(grid), f"point:{FAST}:int8")
     for report in (grid, bare):
         fig = figures.fig_grid(report, newer)
         assert _x(fig, f"point:{FAST}:fp32") == pytest.approx([62.0])
         assert _x(fig, f"point:{FAST}:int8") == pytest.approx([35.0])
-    assert _x(fig, f"point:{SLOW}:fp32") == pytest.approx([400.0])  # no registered cpu_ms in `bare`
+    assert _x(fig, f"point:{SLOW}:fp32") == pytest.approx([400.0])  # `bare`에는 등록된 cpu_ms가 없다
 
 
 # 확인: FP32 마커의 x는 analyze_grid가 등록한 cpu_ms(리사이즈 10 + 180 = 190ms)이고, 나중에 INT8만 다시 재면서
 # 바뀐 resize_ms로 다시 더한 값이 아니다. INT8 마커는 자기 total_with_resize_ms를 쓴다.
 def test_grid_fp32_marker_is_the_registered_cpu_latency():
-    # bench timed FP32 with a 2 ms resize, then INT8 alone with a 10 ms resize, which replaced `resize_ms`;
-    # analyze_grid registered 10 + 180 ms for FP32, and the serving choice was made on that.
+    # bench가 FP32를 리사이즈 2ms로 잰 뒤 INT8만 리사이즈 10ms로 다시 재어 `resize_ms`가 10으로 바뀌었다.
+    # analyze_grid는 FP32를 10 + 180ms로 등록했고, 서빙 구성 선택도 그 값으로 했다.
     _, latency = _grid_inputs()
     latency[SLOW]["resize_ms"] = 10.0
     latency[SLOW]["cpu_fp32"]["total_with_resize_ms"] = 182.0
@@ -919,7 +917,7 @@ def test_grid_names_a_setting_timed_in_int8_only():
     assert _x(fig, f"point:{SLOW}:int8") == pytest.approx([92.0])
     assert _notes(fig.axes[0])["WRN-50 256 px"] == pytest.approx((92.0, 90.0))
     _marks_inside(fig)
-    # Nothing but INT8: the key still says what the hollow markers are.
+    # INT8뿐이어도 범례가 속 빈 마커가 무엇인지 설명한다.
     for key in latency:
         latency[key].pop("cpu_fp32", None)
     fig = figures.fig_grid(grid, latency)
@@ -939,7 +937,7 @@ def test_grid_without_a_serving_choice_or_without_cpu_timings():
         figures.fig_grid(grid, {})
 
 
-# ---- examples --------------------------------------------------------------------------------------------
+# ---- examples 패널 그리기 --------------------------------------------------------------------------------
 
 
 # fig_examples에 직접 넘기는 패널 행 네 개: 결함(마스크 있음, 맵이 임계값을 넘는 칸이 마스크 위), 정상(마스크
@@ -949,8 +947,8 @@ def _example_rows():
     image = rng.integers(0, 256, (64, 48, 3), dtype=np.uint8)
     mask = np.zeros((64, 48), dtype=bool)
     mask[20:32, 12:28] = True
-    scores = np.zeros((16, 12))  # one score per 4 x 4 pixels
-    scores[5:8, 3:7] = 2.0  # the cells over the mask
+    scores = np.zeros((16, 12))  # 4 x 4 픽셀마다 점수 하나
+    scores[5:8, 3:7] = 2.0  # 마스크 위의 칸
     return [
         {"image": image, "mask": mask, "map": scores, "title": "defect", "threshold": 1.0},
         {"image": image, "mask": None, "map": 0.2 * scores, "title": "normal", "threshold": 1.0},
@@ -987,29 +985,28 @@ def test_examples_draw_three_panels_and_one_colour_scale_per_row():
     for i, row in enumerate(rows):
         for ax in panels[3 * i : 3 * i + 3]:
             assert np.array_equal(ax.images[0].get_array(), row["image"])
-            assert ax.get_xlim() == (-0.5, 47.5) and ax.get_ylim() == (63.5, -0.5)  # image coordinates
-        # The score map lies over the whole image although it is coarser.
+            assert ax.get_xlim() == (-0.5, 47.5) and ax.get_ylim() == (63.5, -0.5)  # 이미지 좌표계
+        # 점수 맵은 이미지보다 거칠어도 이미지 전체를 덮는다.
         heat = panels[3 * i + 2].images[1]
         assert tuple(heat.get_extent()) == (-0.5, 47.5, 63.5, -0.5)
         assert np.array_equal(heat.get_array(), row["map"])
         assert len(panels[3 * i].images) == 1 and len(panels[3 * i + 1].images) == 1
-    # The scale of a row spans its map and its threshold.
+    # 행의 색 범위는 그 행의 맵과 임계값을 함께 덮는다.
     clims = [panels[3 * i + 2].images[1].get_clim() for i in range(4)]
     assert clims == [(0.0, 2.0), (0.0, 1.0), (1.0, 3.0), (1.0, 5.0)]
     marks = _artists(fig, "threshold")
     assert [line.axes for line in marks] == [bars[0], bars[1], bars[3]]
     assert all(list(line.get_ydata()) == [1.0, 1.0] for line in marks)
-    # Low scores stay transparent; a map above its threshold everywhere is coloured everywhere.
+    # 낮은 점수는 투명하고, 모든 곳이 임계값 위인 맵은 전부 색이 칠해진다.
     for i, peak in ((0, 0.75), (2, 0.75), (3, 0.75)):
         alpha = panels[3 * i + 2].images[1].get_alpha()
         assert alpha.max() == pytest.approx(peak)
         assert np.all(alpha[rows[i]["map"] == rows[i]["map"].min()] == (0.375 if i == 3 else 0.0))
-    # The mask outline only where there is a mask, along the mask; the normal row says so instead.
+    # 마스크 윤곽은 마스크가 있는 행에만, 마스크를 따라 그린다. 정상 행은 윤곽 대신 마스크가 없다고 적는다.
     assert [len(panels[3 * i + 1].collections) for i in range(4)] == [1, 0, 1, 1]
     assert _bounds(panels[1].collections[0]) == pytest.approx((11.5, 19.5, 27.5, 31.5))
     assert "normal image: no defect mask" in [t.get_text() for t in panels[4].texts]
-    # The threshold contour only where the map crosses the threshold, in image coordinates: the flagged
-    # cells are the ones over the mask.
+    # 임계값 윤곽선은 맵이 임계값을 넘는 곳에만 이미지 좌표로 그린다. 넘는 칸은 마스크 위의 칸이다.
     assert [len(panels[3 * i + 2].collections) for i in range(4)] == [1, 0, 0, 0]
     contour = panels[2].collections[0]
     assert list(contour.levels) == [1.0]
@@ -1032,12 +1029,12 @@ def test_examples_refuse_maps_they_cannot_draw_and_masks_of_another_size():
         figures.fig_examples([{**row, "map": np.zeros((2, 2, 2))}])
     with pytest.raises(ValueError, match="size of its image"):
         figures.fig_examples([{**row, "mask": np.zeros((32, 24), dtype=bool)}])
-    # A map one score high crosses the threshold but gives no contour.
+    # 높이가 점수 하나인 맵은 임계값을 넘어도 윤곽선을 만들지 못한다.
     fig = figures.fig_examples([{**row, "map": np.array([[0.0, 0.5, 2.0, 0.1]])}])
     assert not fig.axes[2].collections and len(_artists(fig, "threshold")) == 1
 
 
-# ---- committed reports, determinism, CLI -----------------------------------------------------------------
+# ---- 커밋된 리포트, 결정성, CLI --------------------------------------------------------------------------
 
 
 # 확인: 저장소에 커밋된 실제 리포트(reports/)가 있으면 그것으로 그려도 폭 1800px PNG가 나오고 표시·글자가
@@ -1067,10 +1064,10 @@ def test_the_same_report_gives_identical_bytes(tmp_path):
     fig = figures.fig_m2ad_conditions(report)
     first = _png(fig, tmp_path / "a.png")
     assert first[:8] == b"\x89PNG\r\n\x1a\n"
-    assert _png(fig, tmp_path / "b.png") == first  # saved twice
-    assert _png(figures.fig_m2ad_conditions(report), tmp_path / "c.png") == first  # built twice
+    assert _png(fig, tmp_path / "b.png") == first  # 두 번 저장
+    assert _png(figures.fig_m2ad_conditions(report), tmp_path / "c.png") == first  # 두 번 생성
     with Image.open(tmp_path / "a.png") as image:
-        assert "Software" not in image.info  # no matplotlib version in the file
+        assert "Software" not in image.info  # 파일에 matplotlib 버전이 없다
     rows = _example_rows()
     assert _png(figures.fig_examples(rows), tmp_path / "d.png") == _png(
         figures.fig_examples(rows), tmp_path / "e.png"
@@ -1092,7 +1089,7 @@ def test_building_a_figure_leaves_the_global_settings_alone():
 def test_the_users_settings_do_not_reach_the_figures(tmp_path):
     import matplotlib
 
-    # What a matplotlibrc file or the calling code may have set.
+    # matplotlibrc 파일이나 호출 코드가 바꿔 두었을 수 있는 설정.
     theirs = {
         "savefig.bbox": "tight",
         "savefig.pad_inches": 0.5,
@@ -1129,7 +1126,7 @@ def test_cli_writes_what_it_has_inputs_for_and_names_what_it_skips(tmp_path, cap
     _write_json(reports / "stage1" / "p0-test.json", _calibration_report())
     _write_json(reports / "stage3" / "m2ad.json", _m2ad_report())
     grid, _ = _grid_inputs()
-    _write_json(reports / "stage4" / "grid-dev.json", grid)  # the latency file is missing
+    _write_json(reports / "stage4" / "grid-dev.json", grid)  # 지연 파일은 없다
     figures.main(["--reports", str(reports), "--out", str(out)])
     assert sorted(p.name for p in out.iterdir()) == ["calibration.png", "m2ad_conditions.png"]
     lines = capsys.readouterr().out.splitlines()
@@ -1140,7 +1137,7 @@ def test_cli_writes_what_it_has_inputs_for_and_names_what_it_skips(tmp_path, cap
         f"skipped perturb: no {reports / 'stage3' / 'perturb-test.json'}",
         f"skipped grid: no {reports / 'stage4' / 'latency.json'}",
     ]
-    # A second run overwrites the files with the same bytes.
+    # 두 번째 실행은 같은 바이트로 파일을 덮어쓴다.
     first = (out / "calibration.png").read_bytes()
     figures.main(["--reports", str(reports), "--out", str(out), "--only", "calibration", "perturb"])
     assert (out / "calibration.png").read_bytes() == first
@@ -1172,12 +1169,12 @@ def test_cli_writes_every_figure_when_all_inputs_are_there(tmp_path, capsys):
 def test_cli_draws_the_other_figures_when_a_report_is_broken(tmp_path, capsys):
     reports, out = tmp_path / "reports", tmp_path / "out"
     old = _calibration_report()
-    del old["finite_sample"]  # a report of an older schema
+    del old["finite_sample"]  # 옛 형식의 리포트
     _write_json(reports / "stage1" / "p0-test.json", old)
     _write_json(reports / "stage2" / "compare-test.json", _compare_report())
     cut = reports / "stage3" / "m2ad.json"
     _write_json(cut, _m2ad_report())
-    cut.write_text(cut.read_text(encoding="utf-8")[:200], encoding="utf-8")  # a write that was interrupted
+    cut.write_text(cut.read_text(encoding="utf-8")[:200], encoding="utf-8")  # 쓰다가 끊긴 파일
     with pytest.raises(SystemExit, match="^figures not written: calibration, m2ad_conditions$"):
         figures.main(["--reports", str(reports), "--out", str(out)])
     assert sorted(p.name for p in out.iterdir()) == ["label_curve.png"]
@@ -1201,7 +1198,7 @@ def test_cli_prints_paths_the_console_code_page_cannot_encode(tmp_path, monkeypa
     reports, out = tmp_path / "reports", tmp_path / "figé中"
     _write_json(reports / "stage1" / "p0-test.json", _calibration_report())
     _write_json(reports / "stage3" / "m2ad.json", _m2ad_report())
-    console = io.TextIOWrapper(io.BytesIO(), encoding="cp949")  # stdout redirected on a Korean Windows
+    console = io.TextIOWrapper(io.BytesIO(), encoding="cp949")  # 한국어 Windows에서 리디렉션한 stdout
     monkeypatch.setattr(sys, "stdout", console)
     figures.main(["--reports", str(reports), "--out", str(out), "--only", "calibration", "m2ad_conditions"])
     console.flush()
@@ -1212,15 +1209,16 @@ def test_cli_prints_paths_the_console_code_page_cannot_encode(tmp_path, monkeypa
     ]
 
 
-# ---- example inspections of an evaluation run --------------------------------------------------------------
+# ---- 평가 실행에서 뽑은 검사 사례 패널 ---------------------------------------------------------------------
 
 # 실패 사례 패널은 256px 캐시의 이미지와 마스크를 쓴다. 아래 EXAMPLE_CATS·EXPECTED_EXAMPLES는 선택 규칙의
 # 결과를 손으로 계산할 수 있게 고른 점수와 그 기대 결과다.
 SIZE = cache.MASK_SIZE
-# category -> (threshold its calibration scores give, [(image, defect types, image score)] in run order).
-# Detected margins 1.75, 2.25, 8 (cat_a) and 1.25, 1.5, 16 (cat_b): median 2.0, with the two cat_a hits
-# 0.25 away from it on either side. cat_a/Anomaly/002 is listed before 001, so only the path breaks the tie.
-# The scores equal to the threshold are not flagged (score > threshold is the rule).
+# 범주 -> (그 보정 점수가 주는 임계값, 실행 순서대로 [(이미지, 결함 유형, 이미지 점수)]).
+# 검출된 결함의 margin(점수 ÷ 임계값)은 1.75, 2.25, 8(cat_a)과 1.25, 1.5, 16(cat_b)이라 중앙값이 2.0이고,
+# cat_a의 두 검출이 그 양쪽으로 0.25씩 떨어져 있다. cat_a/Anomaly/002가 001보다 먼저 나오므로 동점은 경로로만
+# 갈린다.
+# 임계값과 같은 점수는 불량으로 판정하지 않는다(규칙은 score > threshold).
 EXAMPLE_CATS = {
     "cat_a": (
         1.0,
@@ -1249,7 +1247,7 @@ EXAMPLE_CATS = {
         ],
     ),
 }
-# (image, row title, threshold) of the six rows the rule picks, in panel order.
+# 선택 규칙이 고르는 여섯 행의 (이미지, 행 제목, 임계값), 패널 순서대로.
 EXPECTED_EXAMPLES = [
     ("cat_a/Anomaly/001.JPG", "detected defect: cat_a, crack + scratch, score/threshold = 2.25", 1.0),
     ("cat_b/Anomaly/003.JPG", "detected defect: cat_b, dent, score/threshold = 1.50", 2.0),
@@ -1260,8 +1258,8 @@ EXPECTED_EXAMPLES = [
 ]
 
 
-N_CAL = 19  # calibration scores per category: the conformal rank at 5% is the 19th, the largest
-# Keys the driver reads from each .npz before any score: image lists and evaluation labels.
+N_CAL = 19  # 범주당 보정 점수 수: 5%의 conformal 순위가 19번째, 즉 최댓값이다
+# 점수보다 먼저 각 .npz에서 읽는 키: 이미지 목록과 평가 라벨.
 NAME_KEYS = {
     "common": ("eval_images", "eval_labels", "cal_images"),
     "patchcore": ("eval_images", "eval_labels", "pool_images"),
@@ -1283,9 +1281,9 @@ def _cal_images(category):
 # pool_score_oof만 임계값에 써야 함)이다. 보정 점수 19개의 최댓값이 정해 둔 임계값이 된다. scores로 일부
 # 이미지 점수를 바꿀 수 있다.
 def _write_examples_run(root, fmt="common", protocol="dev", scores=None):
-    """A finished evaluation run of EXAMPLE_CATS: the common format (Dinomaly) or a run_patchcore run.
+    """EXAMPLE_CATS의 완성된 평가 실행: 공통 형식(Dinomaly) 또는 run_patchcore 실행.
 
-    Map i of a category is filled with i, so a drawn map tells which evaluation row it came from.
+    범주의 맵 i는 값 i로 채워, 그려진 맵이 어느 평가 행에서 왔는지 알 수 있다.
     """
     run_dir = root / "run"
     run_dir.mkdir(parents=True)
@@ -1294,11 +1292,11 @@ def _write_examples_run(root, fmt="common", protocol="dev", scores=None):
         images = np.array([image for image, _, _ in items])
         labels = np.array([int(_is_defect(image)) for image in images], dtype=np.int8)
         score = np.array([(scores or {}).get(image, s) for image, _, s in items], dtype=np.float32)
-        # The largest of the N_CAL scores is the threshold.
+        # N_CAL개 보정 점수의 최댓값이 임계값이다.
         cal = (threshold * np.linspace(0.0, 1.0, N_CAL)).astype(np.float32)
         if fmt == "common":
             arrays = {"eval_score": score, "cal_score": cal, "cal_images": np.array(_cal_images(category))}
-        else:  # other strategies' scores too: only the cross-fitted ones may decide
+        else:  # 다른 보정 방식의 점수도 같이 둔다. 임계값은 교차 적합 점수로만 정해야 한다
             arrays = {
                 "eval_score_full": score,
                 "eval_score_holdout": score[::-1].copy(),
@@ -1326,18 +1324,14 @@ def _write_examples_run(root, fmt="common", protocol="dev", scores=None):
     return run_dir
 
 
-# 가짜 매니페스트와 256px 캐시를 만드는 fixture(프로토콜을 받는 함수를 돌려준다). 평가 이미지는 프로토콜에
-# 맞는 역할(dev면 학습 풀·dev 결함, test면 봉인 테스트)을 받고, 실행과 다른 순서·다른 행을 섞는다. 캐시 이미지
-# j는 값 j + 1로 채우고 결함 j는 4j행부터 마스크 띠를 둬, 그려진 이미지가 어느 행에서 왔는지 값으로 알 수
-# 있다. 장부는 임시 파일로 돌린다.
 @pytest.fixture
 def fake_data(tmp_path, monkeypatch):
-    """A manifest and a 256 px cache of the EXAMPLE_CATS images (other rows and another order than the run).
+    """EXAMPLE_CATS 이미지의 가짜 매니페스트와 256px 캐시(실행과 다른 행·다른 순서를 섞는다).
 
-    The evaluation images get the roles of the protocol; the calibration images are pool normals, after
-    the others. Cache image j is filled with j + 1; defect j has a mask band at rows 4j..4j+8. The test
-    ledger goes to a temporary file. Call the returned function with the protocol; it returns the
-    manifest rows.
+    평가 이미지는 프로토콜에 맞는 역할(dev면 학습 풀·dev 결함, test면 봉인 테스트)을 받고, 보정
+    이미지는 학습 풀 정상으로 다른 행들 뒤에 온다. 캐시 이미지 j는 값 j + 1로 채우고 결함 j는
+    4j..4j+8행에 마스크 띠를 둬, 그려진 이미지가 어느 행에서 왔는지 값으로 알 수 있다. 테스트 장부는
+    임시 파일로 돌린다. 돌려주는 함수를 프로토콜과 함께 부르면 매니페스트 행을 돌려준다.
     """
     monkeypatch.setattr(paths, "TEST_LEDGER", tmp_path / "ledger" / "test_ledger.jsonl")
     monkeypatch.setattr(ledger, "git_commit", lambda root=None: "abc1234")
@@ -1383,7 +1377,7 @@ def fake_data(tmp_path, monkeypatch):
 # fixture. '장부 기록 뒤에만 이미지를 읽는다'를 순서로 확인한다.
 @pytest.fixture
 def reads(monkeypatch):
-    """Every read of cached images, masks and score maps, with the ledger lines that existed at the time."""
+    """캐시 이미지·마스크·점수 맵을 읽을 때마다 그때 장부에 있던 줄과 함께 기록한다."""
     seen = []
 
     def ledger_lines():
@@ -1412,7 +1406,7 @@ def reads(monkeypatch):
 # 그려졌는지 본다.
 @pytest.fixture
 def drawn(monkeypatch):
-    """(rows, keyword arguments, figure) of every call of fig_examples."""
+    """fig_examples를 부를 때마다 (패널 행, 키워드 인자, 그림)을 기록한다."""
     calls = []
     original = figures.fig_examples
 
@@ -1429,7 +1423,7 @@ def drawn(monkeypatch):
 # 거부할 때 점수를 한 개도 읽지 않았는지 확인하는 데 쓴다.
 @pytest.fixture
 def npz_reads(monkeypatch):
-    """Every read of a run's .npz files: (file name, keys read); "all" for compare's loaders."""
+    """실행의 .npz 파일 읽기마다 (파일 이름, 읽은 키)를 기록한다. compare의 로더는 "all"이다."""
     seen = []
     some, every = figures._npz_arrays, compare._load_npz
 
@@ -1448,7 +1442,7 @@ def npz_reads(monkeypatch):
 
 # 범주 .npz를 읽어 change가 dict를 고치게 한 뒤 다시 저장한다(손상·변형 실행을 만드는 도우미).
 def _rewrite(run_dir, category, change):
-    """Load every array of a category's .npz, let `change` edit the dict in place, save it again."""
+    """범주 .npz의 배열을 모두 읽어 `change`가 dict를 제자리에서 고치게 한 뒤 다시 저장한다."""
     path = run_dir / f"{category}.npz"
     with np.load(path) as z:
         arrays = {k: z[k] for k in z.files}
@@ -1458,7 +1452,7 @@ def _rewrite(run_dir, category, change):
 
 # 범주의 평가 배열 전부와 맵에 결함 행을 덧붙인다(봉인 이미지를 몰래 섞는 상황 등).
 def _add_eval_rows(run_dir, category, images, score):
-    """Append defects ("crack", one score) to a category's evaluation: every eval_* array and the maps."""
+    """범주의 평가에 결함("crack", 같은 점수 하나)을 덧붙인다: 모든 eval_* 배열과 맵."""
     n = len(images)
 
     def change(arrays):
@@ -1493,12 +1487,12 @@ def _example(category, image, margin, types="crack"):
 # 그림이 나온다.
 def test_examples_breaks_ties_by_path_and_takes_one_image_per_category():
     cats = {}
-    for category in ("z", "y", "x"):  # not in path order
+    for category in ("z", "y", "x"):  # 경로 순서가 아니다
         cats[category] = {
             "eval_images": np.array([f"{category}/2.JPG", f"{category}/1.JPG", f"{category}/0.JPG"]),
             "eval_labels": np.array([1, 1, 0], dtype=np.int8),
             "eval_defect_types": np.array(["crack", "dent", ""]),
-            "eval_score": np.array([0.5, 0.5, 0.25], dtype=np.float32),  # two missed defects with one margin
+            "eval_score": np.array([0.5, 0.5, 0.25], dtype=np.float32),  # 놓친 결함 둘의 margin이 같다
         }
     picks = figures.pick_examples(cats, {"x": 1.0, "y": 1.0, "z": 1.0})
     assert [(e.category, e.image, e.index) for e in picks["missed defect"]] == [
@@ -1532,13 +1526,13 @@ def test_example_titles_keep_the_ratio_whole_and_never_round_it_to_the_other_sid
     assert len(lines) <= 3 and all(len(line) <= 34 for line in lines)
     assert lines[-1].endswith("score/threshold = 1.23") and "more," in " ".join(lines)
     short = _example("pcb3", "p/1.JPG", 0.75, "melt|missing|scratch")
-    assert short.wrapped_title().replace("\n", " ") == short.title  # fits: nothing left out
+    assert short.wrapped_title().replace("\n", " ") == short.title  # 들어맞아 빠진 것 없음
     assert _example("a", "a/1.JPG", 0.999).title.endswith("= 0.999")
     assert _example("a", "a/1.JPG", 1.0004).title.endswith("= 1.0004")
     assert _example("a", "a/1.JPG", 0.125).title.endswith("= 0.12")
     normal = figures.Example("false alarm", "a", 3, "a/n.JPG", 0, "", 2.5)
     assert normal.title == "false alarm: a, normal, score/threshold = 2.50"
-    # As many digits as it takes, however close to 1.
+    # 1에 아무리 가까워도 1과 구별될 때까지 자릿수를 늘린다.
     assert _example("a", "a/1.JPG", float(np.nextafter(1.0, 0.0))).title.endswith("= 0.9999999999999999")
     assert _example("a", "a/1.JPG", float(np.nextafter(1.0, 2.0))).title.endswith("= 1.0000000000000002")
     assert _example("a", "a/1.JPG", 1.0).title.endswith("= 1.00")
@@ -1548,7 +1542,7 @@ def test_example_titles_keep_the_ratio_whole_and_never_round_it_to_the_other_sid
 # 임계값' 규칙상 놓친 결함이고 비가 정확히 1.00으로 적힌다. 검출 묶음에는 들어가지 않는다.
 def test_example_margins_next_to_one_show_their_side_of_the_threshold():
     threshold = np.float32(1.3)
-    below = np.nextafter(threshold, np.float32(0.0))  # one float32 step under the threshold
+    below = np.nextafter(threshold, np.float32(0.0))  # 임계값보다 float32 한 칸 아래
     cats = {
         category: {
             "eval_images": np.array([f"{category}/0.JPG"]),
@@ -1559,7 +1553,7 @@ def test_example_margins_next_to_one_show_their_side_of_the_threshold():
         for category, score in (("a", below), ("b", threshold))
     }
     picks = figures.pick_examples(cats, {"a": float(threshold), "b": float(threshold)})
-    # Flagged means score > threshold (calibrate's rule): a score equal to it is missed, at exactly 1.
+    # 불량 판정은 score > threshold(calibrate의 규칙)라, 임계값과 같은 점수는 비가 정확히 1인 놓친 결함이다.
     assert [e.title for e in picks["missed defect"]] == [
         "missed defect: a, crack, score/threshold = 0.9999999",
         "missed defect: b, crack, score/threshold = 1.00",
@@ -1581,7 +1575,7 @@ def test_examples_draw_the_rows_the_rule_picks_with_their_image_mask_and_map(
     out = tmp_path / "figs"
     figures.main(["--examples", str(run_dir), "--out", str(out)])
     assert capsys.readouterr().out.splitlines() == [f"wrote {out / 'examples.png'}"]
-    assert (out / "examples.png").exists() and not paths.TEST_LEDGER.exists()  # a dev run is not logged
+    assert (out / "examples.png").exists() and not paths.TEST_LEDGER.exists()  # dev 실행은 기록 안 함
     ((panel, kwargs, fig),) = drawn
     assert [row["title"].replace("\n", " ") for row in panel] == [title for _, title, _ in EXPECTED_EXAMPLES]
     assert [row["threshold"] for row in panel] == [thr for _, _, thr in EXPECTED_EXAMPLES]
@@ -1598,7 +1592,7 @@ def test_examples_draw_the_rows_the_rule_picks_with_their_image_mask_and_map(
         category = image.split("/")[0]
         index = [item[0] for item in EXAMPLE_CATS[category][1]].index(image)
         assert np.array_equal(row["map"], np.full((SIZE, SIZE), float(index)))
-    # At most one image per category in each group.
+    # 묶음마다 범주당 많아야 한 장이다.
     shown = [row["title"].replace("\n", " ").split(", ")[0].split(": ") for row in panel]
     assert [tuple(pair) for pair in shown] == [
         (group, category) for group in figures.EXAMPLE_GROUPS for category in ("cat_a", "cat_b")
@@ -1610,10 +1604,10 @@ def test_examples_draw_the_rows_the_rule_picks_with_their_image_mask_and_map(
     caption = fig.get_supxlabel().replace("\n", " ")
     assert caption.startswith(f"Images: VisA (Zou et al., ECCV 2022), CC BY 4.0. Method: {method}.")
     assert source in caption and "5% target false-alarm rate" in caption
-    # The decision rule (a score equal to the threshold is not flagged), and what the line on a map is.
+    # 판정 규칙(임계값과 같은 점수는 불량이 아님)과 맵 위의 선이 무엇인지를 적는다.
     assert "An image is flagged when its score/threshold is above 1." in caption
     assert "the line and the decision can disagree" in caption
-    # The figure title, the caption and the row titles lie inside the figure (the panels have no ticks).
+    # 그림 제목, 설명, 행 제목이 모두 그림 안에 있다(패널에는 눈금이 없다).
     renderer = _drawn(fig)
     titles = [ax.title for ax in fig.axes if ax.get_label() != "colorbar"]
     for text in [fig._suptitle, fig._supxlabel, *titles]:
@@ -1629,7 +1623,7 @@ def test_examples_draw_the_rows_the_rule_picks_with_their_image_mask_and_map(
 # 개수를 적는다(빈 자리를 다른 규칙으로 채우지 않는다).
 def test_examples_say_in_the_title_when_a_group_is_short(tmp_path, fake_data, drawn):
     fake_data("dev")
-    # No false alarm left; the missed defects are all in cat_a, which gives one row.
+    # 오검출이 하나도 남지 않고, 놓친 결함은 모두 cat_a에 있어 한 행만 나온다.
     calm = {"cat_a/Normal/002.JPG": 0.5, "cat_a/Normal/003.JPG": 0.5, "cat_b/Normal/001.JPG": 0.5}
     run_dir = _write_examples_run(
         tmp_path, scores={**calm, "cat_b/Anomaly/000.JPG": 6.0, "cat_b/Anomaly/002.JPG": 5.0}
@@ -1660,7 +1654,7 @@ def test_examples_of_a_test_run_are_refused_without_allow_test(tmp_path, fake_da
     err = capsys.readouterr().err
     assert err.startswith("examples not drawn: ") and "sealed test set" in err and "--allow-test" in err
     assert reads == [] and not paths.TEST_LEDGER.exists() and not out.exists()
-    # Only True opens the seal, as in splits.select.
+    # splits.select처럼 정확히 True만 봉인을 연다.
     for value in ("yes", 1, "true"):
         with pytest.raises(SealedTestError):
             figures.examples(run_dir, out, allow_test=value)
@@ -1670,13 +1664,13 @@ def test_examples_of_a_test_run_are_refused_without_allow_test(tmp_path, fake_da
 # 확인: run.json은 dev라고 하지만 매니페스트상 봉인 테스트 이미지를 채점한 실행은 거부한다. 첫 범주의 이미지
 # 목록 키만 읽은 시점에서 멈춰, 봉인 이미지의 점수를 한 개도 읽지 않는다.
 def test_examples_refuse_sealed_images_in_a_run_that_says_dev(tmp_path, fake_data, reads, npz_reads, capsys):
-    fake_data("test")  # the manifest has the images as sealed test images
+    fake_data("test")  # 매니페스트에서는 이 이미지들이 봉인 테스트 이미지다
     run_dir = _write_examples_run(tmp_path, protocol="dev")
     with pytest.raises(SystemExit) as stop:
         figures.main(["--examples", str(run_dir), "--out", str(tmp_path / "figs")])
     assert stop.value.code == 2 and "sealed test image" in capsys.readouterr().err
     assert reads == [] and not paths.TEST_LEDGER.exists()
-    # Refused on the image lists of the first category: no score of a sealed image was read.
+    # 첫 범주의 이미지 목록에서 거부했으므로 봉인 이미지의 점수는 하나도 읽지 않았다.
     assert npz_reads == [("cat_a.npz", NAME_KEYS["common"])]
 
 
@@ -1690,9 +1684,6 @@ def test_examples_refuse_sealed_images_in_a_run_that_says_dev(tmp_path, fake_dat
 def test_examples_refuse_a_dev_run_with_sealed_images_among_the_rows_not_drawn(
     where, fmt, tmp_path, fake_data, reads, npz_reads, capsys
 ):
-    # Sealed images whose scores would steer the panel without being drawn: three detected test defects
-    # (margin 16: never picked, but they move the median of the detected margins), or test normals as
-    # the calibration images whose scores set the threshold of cat_a.
     fake_data("dev")
     run_dir = _write_examples_run(tmp_path, fmt)
     if where == "eval":
@@ -1736,9 +1727,9 @@ def test_examples_take_only_plain_category_names_of_the_manifest(
     names, message, tmp_path, fake_data, npz_reads, capsys
 ):
     fake_data("dev")
-    _write_examples_run(tmp_path / "t", protocol="test")  # a test run next to the dev run
+    _write_examples_run(tmp_path / "t", protocol="test")  # dev 실행 옆에 둔 test 실행
     run_dir = _write_examples_run(tmp_path / "d")
-    for suffix in (".npz", "_maps.npy"):  # cat_c: a copy of cat_a under a name the manifest does not have
+    for suffix in (".npz", "_maps.npy"):  # cat_c: 매니페스트에 없는 이름으로 복사한 cat_a
         (run_dir / f"cat_c{suffix}").write_bytes((run_dir / f"cat_a{suffix}").read_bytes())
     meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     meta["categories"] = [{"category": name} for name in names]
@@ -1748,7 +1739,7 @@ def test_examples_take_only_plain_category_names_of_the_manifest(
     assert stop.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("examples not drawn: ") and message in err
-    assert npz_reads == []  # refused before any .npz is opened, here or in the test run next to it
+    assert npz_reads == []  # 이 실행이든 옆 test 실행이든 .npz를 열기 전에 거부
 
 
 # 확인: --allow-test로 test 실행을 그리면 장부에 stage 5, config examples-<이름>, '그림용, 점수 없음' 설명 한
@@ -1769,7 +1760,7 @@ def test_examples_of_a_test_run_write_the_ledger_line_before_reading_an_image(
     assert (entry["stage"], entry["config"], entry["commit"]) == ("5", f"examples-{name}", "abc1234")
     assert "figure only" in entry["note"] and "no scores" in entry["note"]
     assert [kind for kind, _, _ in reads] == ["images", "masks", *["map"] * 6]
-    assert all(seen == lines for _, _, seen in reads)  # every read came after the line
+    assert all(seen == lines for _, _, seen in reads)  # 모든 읽기가 장부 줄 뒤에 일어났다
     assert reads[0][1] == [image for image, _, _ in EXPECTED_EXAMPLES]
     ((_, kwargs, _),) = drawn
     assert kwargs["title"].endswith("on the VisA test split")
@@ -1803,7 +1794,7 @@ def test_examples_refuse_a_picked_map_that_is_not_finite(protocol, tmp_path, fak
     fake_data(protocol)
     run_dir = _write_examples_run(tmp_path, protocol=protocol)
     maps = np.load(run_dir / "cat_a_maps.npy")
-    maps[6, 10, 10] = np.nan  # cat_a/Anomaly/001.JPG, the first row of the panel
+    maps[6, 10, 10] = np.nan  # 패널 첫 행인 cat_a/Anomaly/001.JPG
     np.save(run_dir / "cat_a_maps.npy", maps)
     out = tmp_path / "figs"
     with pytest.raises(SystemExit) as stop:
@@ -1814,8 +1805,8 @@ def test_examples_refuse_a_picked_map_that_is_not_finite(protocol, tmp_path, fak
     err = capsys.readouterr().err
     assert err.startswith("examples not drawn: ") and "cat_a_maps.npy" in err and "not all finite" in err
     assert not out.exists()
-    # A map shows where the defect of its image is, so it is read after the images, behind the ledger line:
-    # a test run that gets this far has read its images and keeps its line.
+    # 맵은 그 이미지의 결함 위치를 보여 주므로 이미지 다음에, 장부 줄 뒤에 읽는다. 여기까지 온 test 실행은
+    # 이미지를 이미 읽었으므로 장부 줄이 남는다.
     assert [kind for kind, _, _ in reads] == ["images", "masks", "map"]
     assert paths.TEST_LEDGER.exists() == (protocol == "test")
     lines = paths.TEST_LEDGER.read_text(encoding="utf-8").splitlines() if protocol == "test" else []
@@ -1877,7 +1868,7 @@ def _protocol(value):
 
 
 # 파일을 200바이트로 자른다.
-def _truncate(run_dir, name):  # a copy or a rewrite cut short
+def _truncate(run_dir, name):  # 복사나 다시 쓰기가 중간에 끊긴 상황
     (run_dir / name).write_bytes((run_dir / name).read_bytes()[:200])
 
 
@@ -1892,7 +1883,7 @@ def _no_cal_images(run_dir, name):
 
 
 # 같은 평가 이미지를 한 번 더 넣는다.
-def _eval_row_twice(run_dir, name):  # cat_a/Anomaly/000.JPG again, now detected
+def _eval_row_twice(run_dir, name):  # cat_a/Anomaly/000.JPG를 다시, 이번에는 검출된 점수로
     _add_eval_rows(run_dir, "cat_a", ["cat_a/Anomaly/000.JPG"], 2.0)
 
 
@@ -1952,7 +1943,7 @@ def test_examples_options_only_go_with_examples(tmp_path, capsys):
 # 넣어 흉내 낸다). matplotlib는 그림 함수 안에서만 import하므로, 모듈 docstring대로 이 모듈을 import하는 데는
 # 기본 패키지만 필요하다(CI는 기본 패키지만 설치한다).
 def test_the_module_imports_without_matplotlib():
-    # `None` in sys.modules makes every `import matplotlib` fail, as where the group is not installed.
+    # sys.modules에 `None`을 넣으면 그룹이 설치되지 않은 환경처럼 모든 `import matplotlib`가 실패한다.
     code = (
         "import sys; sys.modules['matplotlib'] = None; "
         "from defect_inspect import figures; print(len(figures.FIGURES))"

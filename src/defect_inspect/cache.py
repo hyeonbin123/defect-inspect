@@ -1,4 +1,4 @@
-"""Resized image and mask cache: one sequential pass over the tar into a few large .npy files."""
+"""리사이즈한 이미지·마스크 캐시: tar를 한 번 순서대로 읽어 큰 .npy 파일 몇 개로 만든다."""
 
 # [파일 역할] VisA tar를 처음부터 끝까지 한 번 순서대로 읽어, 입력 크기 S로 줄인 이미지
 # 배열(`visa_<S>_images.npy`)과 256×256 결함 마스크 배열(`visa_masks_256.npy`), 각 배열의 행 순서
@@ -55,22 +55,22 @@ def masks_path(out_dir: Path) -> Path:
 
 
 def masks_index_path(out_dir: Path) -> Path:
-    # Row order of the mask array, kept next to it so that other sizes can check it before reusing it.
+    # 마스크 배열의 행 순서 파일. 배열 옆에 두어, 다른 크기의 캐시가 마스크를 재사용하기 전에 확인할 수 있게
+    # 한다.
     return Path(out_dir) / f"visa_masks_{MASK_SIZE}_index.csv"
 
 
-# 이미지 한 장을 RGB uint8 [S, S, 3]으로 줄인다. 원본(약 1,300~1,560 × 960~1,180px)을 정사각형으로 늘이거나
-# 줄여 비율은 맞추지 않는다. BICUBIC은 축소할 때 PIL이 안티앨리어싱을 적용한다.
+# 원본(약 1,300~1,560 × 960~1,180px)을 정사각형으로 늘이거나 줄인다.
 def resize_image(img: Image.Image, size: int) -> np.ndarray:
-    """RGB uint8 [size, size, 3]; aspect ratio ignored, bicubic (antialiased when shrinking)."""
+    """이미지 한 장을 RGB uint8 [size, size, 3]으로 줄인다. 비율은 무시하고 bicubic(축소 시 안티앨리어싱)."""
     return np.asarray(img.convert("RGB").resize((size, size), Image.Resampling.BICUBIC), dtype=np.uint8)
 
 
-# 마스크 한 장을 {0, 1} [256, 256]으로 줄인다. 먼저 0보다 큰 값을 255로 이진화하고, BOX 필터(상자 안 평균)로
-# 줄인 뒤 0보다 크면 1로 둔다. 상자 안에 결함 픽셀이 하나라도 있으면 결함이 되므로, 몇 픽셀짜리 작은
-# 결함(마카로니의 잔금 등)이 축소로 사라지지 않는다. 채널이 둘 이상인 마스크는 형식이 다른 것이라 거절한다.
+# 먼저 0보다 큰 값을 255로 이진화하고, BOX 필터(상자 안 평균)로 줄인 뒤 0보다 크면 1로 둔다. 그래서 몇
+# 픽셀짜리 작은 결함(마카로니의 잔금 등)이 축소로 사라지지 않는다. 채널이 둘 이상인 마스크는 형식이 다른
+# 것이라 거절한다.
 def resize_mask(mask: Image.Image, size: int = MASK_SIZE) -> np.ndarray:
-    """uint8 {0, 1} [size, size]: 1 where any source pixel of the box is a defect (value > 0)."""
+    """마스크 한 장을 uint8 {0, 1} [size, size]로 줄인다: 상자 안 원본 픽셀 중 하나라도 결함(값 > 0)이면 1."""
     source = np.asarray(mask)
     if source.ndim != 2:
         raise ValueError(f"expected a single-channel mask, got mode {mask.mode}")
@@ -111,10 +111,9 @@ def _npy_shape(path: Path) -> tuple[int, ...]:
     return shape
 
 
-# 같은 행 순서로 만든 완성된 마스크 배열이 이미 있는지 본다. 있으면 새 크기의 캐시를 만들 때 마스크를 다시
-# 만들지 않고 재사용한다.
+# 참이면 새 크기의 캐시를 만들 때 마스크를 다시 만들지 않고 재사용한다.
 def _masks_match(out_dir: Path, index: list[str]) -> bool:
-    """True when a finished mask array with exactly this row order is already in `out_dir`."""
+    """정확히 이 행 순서로 만든 완성된 마스크 배열이 `out_dir`에 이미 있으면 True."""
     if not (masks_path(out_dir).exists() and masks_index_path(out_dir).exists()):
         return False
     if _read_index(masks_index_path(out_dir)) != index:
@@ -122,10 +121,9 @@ def _masks_match(out_dir: Path, index: list[str]) -> bool:
     return _npy_shape(masks_path(out_dir)) == (len(index), MASK_SIZE, MASK_SIZE)
 
 
-# 주어진 크기의 캐시가 다 만들어져 있고 매니페스트 순서를 따르는지 본다. main은 이것이 참이면(그리고 --force가
-# 아니면) tar를 다시 읽지 않는다.
+# main은 이것이 참이면(그리고 --force가 아니면) tar를 다시 읽지 않는다.
 def cache_is_complete(out_dir: Path, size: int, manifest: list[ManifestRow]) -> bool:
-    """True when images, masks and both indexes exist for `size` and follow the manifest order."""
+    """`size`의 이미지·마스크와 두 index가 모두 있고 매니페스트 순서를 따르면 True."""
     index = [r.image for r in manifest]
     if not (images_path(out_dir, size).exists() and index_path(out_dir, size).exists()):
         return False
@@ -134,15 +132,13 @@ def cache_is_complete(out_dir: Path, size: int, manifest: list[ManifestRow]) -> 
     return _npy_shape(images_path(out_dir, size)) == (len(index), size, size, 3)
 
 
-# 큰 .npy 파일을 한 행씩 채우는 도우미. open_memmap으로 헤더와 0으로 채운 파일을 만든 뒤 맵은 바로 풀고, 일반
-# 파일 핸들로 행 위치(offset + row × 행 바이트)에 찾아가 쓴다. 메모리 맵을 계속 열어 두면 Windows에서 이름
-# 바꾸기·지우기가 막히므로, 닫는 시점을 확실히 정할 수 있는 파일 핸들을 쓴다(docstring). 행을 순서와 상관없이
-# 쓸 수 있어 tar 순서대로 오는 이미지를 매니페스트 순서 자리에 바로 넣는다.
+# 맵은 만들자마자 풀고, 일반 파일 핸들로 행 위치(offset + row × 행 바이트)에 찾아가 쓴다. 행을 순서와
+# 상관없이 쓸 수 있어 tar 순서대로 오는 이미지를 매니페스트 순서 자리에 바로 넣는다.
 class _RowWriter:
-    """A .npy file created with `open_memmap`, then filled row by row through a plain file handle.
+    """`open_memmap`으로 만든 .npy 파일을 일반 파일 핸들로 한 행씩 채운다.
 
-    The handle (unlike a live memory map) can be closed at a known point, which Windows needs before
-    the file is renamed or removed.
+    살아 있는 메모리 맵과 달리 파일 핸들은 닫는 시점을 확실히 정할 수 있다. Windows는 파일 이름을 바꾸거나
+    지우기 전에 파일이 닫혀 있어야 한다.
     """
 
     def __init__(self, path: Path, shape: tuple[int, ...]):
@@ -151,7 +147,7 @@ class _RowWriter:
         self.row_bytes = int(np.prod(self.row_shape))
         created = np.lib.format.open_memmap(path, mode="w+", dtype=np.uint8, shape=shape)
         self.offset = int(created.offset)
-        del created  # unmaps; the file is zero-filled, so rows that are never written stay 0
+        del created  # 맵을 푼다. 파일은 0으로 채워져 있어 쓰지 않은 행은 0으로 남는다
         self.file = open(path, "r+b")
 
     # 행 하나를 제자리에 쓴다. 모양이나 dtype이 다르면 잘못된 행이 조용히 섞이지 않게 ValueError를 낸다.
@@ -170,8 +166,7 @@ def _member_name(name: str) -> str:
     return name[2:] if name.startswith("./") else name
 
 
-# tar를 한 번 순서대로 읽으며 필요한 멤버만 꺼내 디코딩을 스레드 풀에 맡기고, 결과는 이 스레드에서 차례로
-# 파일에 쓴다. 디스크에서 앞뒤로 건너뛰지 않고 한 방향으로만 읽는 것이 핵심이다.
+# 디스크에서 앞뒤로 건너뛰지 않고 한 방향으로만 읽는 것이 핵심이다.
 # - 메모리: 대기 중인 작업을 workers × 4개로 묶어(max_pending), 원본 바이트와 디코딩한 배열이 메모리에 무한히
 #   쌓이지 않게 한다.
 # - 필요한 것을 다 읽으면 tar 끝까지 가지 않고 멈춘다.
@@ -187,9 +182,9 @@ def _fill(
     workers: int,
     progress: bool,
 ) -> None:
-    """Read wanted members in tar order, decode them in a thread pool, write rows from this thread."""
+    """필요한 멤버를 tar 순서대로 읽어 스레드 풀에서 디코딩하고, 결과 행은 이 스레드에서 차례로 쓴다."""
     total = len(image_rows) + len(mask_rows)
-    max_pending = max(1, workers) * 4  # bounds the encoded bytes and decoded arrays held in memory
+    max_pending = max(1, workers) * 4  # 메모리에 쥐고 있는 원본 바이트와 디코딩한 배열의 양을 묶는다
     pending: deque = deque()
     done = 0
     started = time.perf_counter()
@@ -214,7 +209,7 @@ def _fill(
     ):
         for member in tar:
             if not (image_rows or mask_rows):
-                break  # everything wanted has been read
+                break  # 필요한 것을 모두 읽었다
             if not member.isfile():
                 continue
             name = _member_name(member.name)
@@ -236,10 +231,9 @@ def _fill(
         raise FileNotFoundError(f"{len(missing)} manifest members are not in {tar_path}: {missing[:3]}")
 
 
-# 이번 빌드가 바꿀 파일 쌍(배열, index)을 정한다. 마스크가 재사용 가능하면 이미지 쌍만, 아니면 마스크 쌍을
-# 앞에 더한다.
+# 마스크가 재사용 가능하면 이미지 쌍만, 아니면 마스크 쌍을 앞에 더한다.
 def _targets(out_dir: Path, size: int, index: list[str]) -> tuple[bool, list[tuple[Path, Path]]]:
-    """(reuse_masks, [(array, its index file)]): the files a build for `size` replaces, masks first."""
+    """(reuse_masks, [(배열, 그 index 파일)]): `size` 빌드가 바꿀 파일 쌍, 마스크가 먼저."""
     reuse_masks = _masks_match(out_dir, index)
     pairs = [(images_path(out_dir, size), index_path(out_dir, size))]
     if not reuse_masks:
@@ -247,14 +241,12 @@ def _targets(out_dir: Path, size: int, index: list[str]) -> tuple[bool, list[tup
     return reuse_masks, pairs
 
 
-# 바꿀 파일이 다른 프로세스(닫지 않은 ImageCache의 메모리 맵 등)에 잡혀 있으면 몇 분짜리 tar 읽기를 시작하기
-# 전에 바로 PermissionError를 낸다. 파일 이름을 자기 자신으로 바꿔 보는 것은 아무것도 바꾸지 않으면서 같은
-# 권한이 필요한 시험이다.
+# 확인은 몇 분짜리 tar 읽기를 시작하기 전에 한다.
 def _check_replaceable(pairs: list[tuple[Path, Path]]) -> None:
-    """Raise PermissionError now, not after the build, if a file the build replaces is held open.
+    """빌드가 바꿀 파일이 열려 있으면 빌드가 끝난 뒤가 아니라 지금 PermissionError를 낸다.
 
-    Windows refuses to replace a file that is memory-mapped (an `ImageCache` that was not closed).
-    Renaming a file onto itself needs the same access and changes nothing.
+    Windows는 메모리 맵으로 열린 파일(닫지 않은 `ImageCache`)의 교체를 거부한다. 파일 이름을 자기 자신으로
+    바꿔 보는 것은 같은 권한이 필요하면서 아무것도 바꾸지 않는 시험이다.
     """
     for path in (path for pair in pairs for path in pair):
         if path.exists():
@@ -266,16 +258,12 @@ def _check_replaceable(pairs: list[tuple[Path, Path]]) -> None:
                 ) from err
 
 
-# 다 만든 `.part` 파일을 (배열, index) 쌍마다 최종 이름으로 옮긴다. index 파일이 "옆의 배열은 이 순서다"라는
-# 보증이므로, 옛 index를 먼저 치우고 배열을 바꾼 뒤 새 index를 둔다. 어디서 끊겨도 맞지 않는 배열 옆에 index가
-# 남지 않는다. 배열 교체 자체가 실패하면 옛 index를 되돌려 이전 캐시를 계속 쓸 수 있게 한다.
 def _publish(pairs: list[tuple[Path, Path]], parts: dict[Path, Path]) -> None:
-    """Move the finished ".part" files into place, one (array, index) pair at a time.
+    """다 만든 ".part" 파일을 (배열, index) 쌍마다 하나씩 최종 이름으로 옮긴다.
 
-    An index file vouches for the array next to it. The old index is therefore taken away before
-    the array changes and the new one appears only after the new array is in place: whatever
-    interrupts this, no index is left next to an array it does not describe. When the array cannot
-    be replaced at all, the old index is put back, so the previous cache stays usable.
+    index 파일은 "옆의 배열은 이 순서다"라는 보증이다. 그래서 배열을 바꾸기 전에 옛 index를 치우고, 새
+    배열이 자리 잡은 뒤에야 새 index를 둔다. 어디서 끊겨도 설명하지 않는 배열 옆에 index가 남지 않는다.
+    배열 교체 자체가 실패하면 옛 index를 되돌려 이전 캐시를 계속 쓸 수 있게 한다.
     """
     for array, index in pairs:
         previous = index.read_bytes() if index.exists() else None
@@ -284,16 +272,13 @@ def _publish(pairs: list[tuple[Path, Path]], parts: dict[Path, Path]) -> None:
             os.replace(parts[array], array)
         except OSError:
             if previous is not None:
-                index.write_bytes(previous)  # os.replace failed, so the old array is untouched
+                index.write_bytes(previous)  # os.replace가 실패했으니 옛 배열은 그대로다
             raise
         os.replace(parts[index], index)
 
 
-# 캐시를 만드는 본 함수. 매니페스트에 같은 이미지가 두 번 있거나 비었으면 거절하고, 모든 파일을 `.part`
-# 이름으로 쓴 뒤 끝에 한꺼번에 옮긴다. 실패하면(Ctrl+C 같은 BaseException 포함) `.part` 파일을 지워 반쯤 만든
-# 캐시가 남지 않게 한다.
-# tar에서 테스트 이미지를 읽는 유일한 코드지만 장부 기록은 여기서 하지 않고 main이 이 함수를 부르기 전에
-# 한다(docstring).
+# 캐시를 만드는 본 함수. 매니페스트에 같은 이미지가 두 번 있거나 비었으면 거절한다. 실패에는 Ctrl+C 같은
+# BaseException도 포함되며, 그때 `.part` 파일을 지워 반쯤 만든 캐시가 남지 않게 한다.
 def build_cache(
     tar_path: Path,
     manifest: list[ManifestRow],
@@ -303,11 +288,11 @@ def build_cache(
     workers: int = 8,
     progress: bool = True,
 ) -> None:
-    """Build the image array for `size` (and the 256x256 masks unless a matching array exists).
+    """`size`의 이미지 배열을 만든다(맞는 마스크 배열이 없으면 256x256 마스크도).
 
-    This is the only code that reads test images from the tar; it does not write the test ledger
-    itself (`main` does, before it calls this). Everything is written under ".part" names and
-    renamed at the end, each index file after its array; a failed build removes its ".part" files.
+    tar에서 테스트 이미지를 읽는 유일한 코드지만 테스트 장부 기록은 여기서 하지 않는다(`main`이 이 함수를
+    부르기 전에 한다). 모든 파일을 ".part" 이름으로 쓴 뒤 끝에 이름을 바꾸며, index 파일은 그 배열 다음에
+    옮긴다. 빌드가 실패하면 ".part" 파일을 지운다.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -318,7 +303,7 @@ def build_cache(
     if n == 0:
         raise ValueError("manifest is empty")
     reuse_masks, pairs = _targets(out_dir, size, index)
-    _check_replaceable(pairs)  # before the pass over the tar, which takes minutes
+    _check_replaceable(pairs)  # 몇 분 걸리는 tar 읽기 전에 확인한다
     image_rows = {image: i for i, image in enumerate(index)}
     mask_rows = {} if reuse_masks else {r.mask: i for i, r in enumerate(manifest) if r.mask}
     parts = {final: final.with_name(final.name + _PART) for pair in pairs for final in pair}
@@ -345,10 +330,10 @@ def build_cache(
         raise
 
 
-# 메모리 맵 배열에서 원하는 행들을 메모리로 복사한다. 요청 순서 그대로 읽으면 디스크에서 파일 위치를
-# 오가므로, 행 번호를 오름차순으로 정렬해 파일 앞에서 뒤로 256행씩 읽고 결과는 원래 순서 자리에 넣는다.
+# 요청 순서 그대로 읽으면 디스크에서 파일 위치를 오가므로, 행 번호를 오름차순으로 정렬해 파일 앞에서 뒤로
+# 256행씩 읽고 결과는 원래 순서 자리에 넣는다.
 def _take(source: np.ndarray, rows: np.ndarray, chunk: int = 256) -> np.ndarray:
-    """In-memory copy of `source[rows]`, read in ascending file order in small chunks."""
+    """메모리 맵 배열의 `source[rows]`를 메모리로 복사한다. 파일 순서(오름차순)로 작은 묶음씩 읽는다."""
     out = np.empty((len(rows), *source.shape[1:]), dtype=source.dtype)
     order = np.argsort(rows, kind="stable")
     for start in range(0, len(rows), chunk):
@@ -357,12 +342,11 @@ def _take(source: np.ndarray, rows: np.ndarray, chunk: int = 256) -> np.ndarray:
     return out
 
 
-# 완성된 캐시의 읽기 전용 접근자. 이미지·마스크 배열을 메모리 맵으로 열고, 매니페스트 행(ManifestRow)을 주면
-# 그 순서대로 이미지 [N, S, S, 3]이나 마스크 [N, 256, 256]을 돌려준다. 이미지 index와 마스크 index가
-# 다르면(다른 매니페스트로 만든 마스크) 열지 않는다.
-# 봉인 테스트를 막지 않는다. 어떤 행을 읽을지는 splits.select가 --allow-test를 보고 정한다(docstring).
+# 이미지·마스크 배열을 메모리 맵으로 열고, 매니페스트 행(ManifestRow)을 주면 그 순서대로 이미지 [N, S, S,
+# 3]이나 마스크 [N, 256, 256]을 돌려준다. 이미지 index와 마스크 index가 다르면(다른 매니페스트로 만든 마스크)
+# 열지 않는다. 어떤 행을 읽을지는 splits.select가 --allow-test를 보고 정한다.
 class ImageCache:
-    """Read access to a finished cache. It does not enforce the test seal: `splits.select` does."""
+    """완성된 캐시의 읽기 전용 접근자. 봉인 테스트를 막지는 않는다: 그것은 `splits.select`의 몫이다."""
 
     def __init__(self, out_dir: Path, size: int):
         out_dir = Path(out_dir)
@@ -388,24 +372,23 @@ class ImageCache:
             raise KeyError(f"image not in the cache index: {err.args[0]}") from None
 
     def images(self, rows: Sequence[ManifestRow]) -> np.ndarray:
-        """uint8 [len(rows), size, size, 3], in the order of `rows`."""
+        """uint8 [len(rows), size, size, 3]을 `rows` 순서대로 돌려준다."""
         return _take(self._images, self._rows(rows))
 
     def masks(self, rows: Sequence[ManifestRow]) -> np.ndarray:
-        """uint8 {0, 1} [len(rows), 256, 256], in the order of `rows` (zeros for normal images)."""
+        """uint8 {0, 1} [len(rows), 256, 256]을 `rows` 순서대로 돌려준다(정상 이미지는 모두 0)."""
         return _take(self._masks, self._rows(rows))
 
-    # 메모리 맵을 놓는다. 같은 프로세스에서 캐시를 다시 만들기 전에 불러야 Windows가 파일 교체를
-    # 허락한다(_check_replaceable의 오류 메시지가 가리키는 것).
+    # 같은 프로세스에서 캐시를 다시 만들기 전에 불러야 한다(_check_replaceable의 오류 메시지가 가리키는 것).
     def close(self) -> None:
-        """Drop the memory maps (Windows cannot replace a file that is still mapped)."""
+        """메모리 맵을 놓는다(Windows는 아직 맵으로 열린 파일을 교체하지 못한다)."""
         self._images = self._masks = None
 
 
-# 지금 마스크 배열에 기대는 다른 크기의 완성된 캐시를 찾는다. 다른 매니페스트로 마스크를 다시 만들면 그
-# 캐시들의 index와 마스크 index가 어긋나 ImageCache가 열리지 않으므로, main이 미리 경고하는 데 쓴다.
+# 다른 매니페스트로 마스크를 다시 만들면 그 캐시들의 index와 마스크 index가 어긋나 ImageCache가 열리지
+# 않으므로, main이 미리 경고하는 데 쓴다.
 def _sizes_using_masks(out_dir: Path, size: int) -> list[int]:
-    """Other image sizes in `out_dir` whose finished cache relies on the current mask array."""
+    """`out_dir`에서 지금 마스크 배열에 기대는, 완성된 다른 크기의 캐시 목록."""
     if not masks_index_path(out_dir).exists():
         return []
     mask_index = _read_index(masks_index_path(out_dir))
@@ -425,17 +408,17 @@ def main(argv: list[str] | None = None) -> int:
     from defect_inspect import ledger, paths
     from defect_inspect.splits import SEALED_ROLES, read_manifest
 
-    parser = argparse.ArgumentParser(description="Build the resized VisA cache from the tar.")
-    parser.add_argument("--size", type=int, default=256, help="side of the square images")
-    parser.add_argument("--workers", type=int, default=8, help="decoder threads")
+    parser = argparse.ArgumentParser(description="VisA tar에서 리사이즈 캐시를 만든다.")
+    parser.add_argument("--size", type=int, default=256, help="정사각형 이미지의 한 변(px)")
+    parser.add_argument("--workers", type=int, default=8, help="디코딩 스레드 수")
     parser.add_argument(
         "--force",
         action="store_true",
-        help="rebuild even if the cache is complete, or if new masks would invalidate other sizes",
+        help="캐시가 이미 완성됐거나, 새 마스크가 다른 크기의 캐시를 못 쓰게 만들더라도 다시 만든다",
     )
-    parser.add_argument("--tar", type=Path, default=paths.VISA_TAR, help="VisA tar file")
-    parser.add_argument("--manifest", type=Path, default=paths.VISA_MANIFEST, help="split manifest CSV")
-    parser.add_argument("--out", type=Path, default=paths.CACHE, help="cache directory")
+    parser.add_argument("--tar", type=Path, default=paths.VISA_TAR, help="VisA tar 파일")
+    parser.add_argument("--manifest", type=Path, default=paths.VISA_MANIFEST, help="분할 매니페스트 CSV")
+    parser.add_argument("--out", type=Path, default=paths.CACHE, help="캐시 폴더")
     args = parser.parse_args(argv)
 
     manifest = read_manifest(args.manifest)
@@ -457,8 +440,8 @@ def main(argv: list[str] | None = None) -> int:
         # 읽기 전에 기록한다: 기록이 실패하면 테스트 이미지를 읽지 않은 채 멈춘다. config 이름은
         # `cache-<크기>`이고, 점수나 지표를 내지 않는 캐시 생성임을 note에 적는다.
         if any(r.role in SEALED_ROLES for r in manifest):
-            # The sealed test images are about to be decoded: that is a read, and every read is
-            # recorded before it happens (docs/experiments.md).
+            # 이제 봉인 테스트 이미지를 디코딩한다. 이것도 읽기이고, 모든 읽기는 일어나기 전에
+            # 기록한다(docs/experiments.md).
             ledger.record_test_access(
                 paths.TEST_LEDGER,
                 stage="cache",

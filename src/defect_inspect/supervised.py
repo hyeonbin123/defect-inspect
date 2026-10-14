@@ -1,7 +1,6 @@
-"""Supervised patch head on frozen patch features: targets, training and prediction.
+"""고정한 패치 특징 위의 지도 학습 패치 헤드: 정답 만들기, 학습, 예측.
 
-The rules (head, loss, schedule, augmentation, model selection) are fixed in docs/experiments.md,
-section "2단계 / 지도 학습".
+규칙(헤드, 손실, 스케줄, 증강, 모델 선택)은 docs/experiments.md의 "2단계 / 지도 학습" 절에 고정되어 있다.
 """
 
 # [파일 역할] 2단계 질문 1("결함 라벨 몇 장부터 지도 학습이 비지도 이상 탐지를 이기는가")의 지도 학습 쪽 모델.
@@ -32,14 +31,14 @@ from defect_inspect.patchcore import ScoreResult, collect_features
 
 # GRID: 패치 격자 한 변(448px ÷ 패치 14px = 32). 정답 마스크도 이 격자로 줄인다.
 GRID = 32
-# Batch size of the validation passes inside `train_head` (the default of `predict`).
+# `train_head` 안에서 검증 채점에 쓰는 배치 크기(`predict`의 기본값과 같다).
 _VAL_BATCH = 64
 
 
 # 패치 격자 위의 분할 헤드: Conv3×3(384→256)-BN-ReLU 두 번, 그다음 Conv1×1(→1)로 패치마다 결함 로짓 하나를
 # 낸다. 3×3 합성곱이라 이웃 패치의 문맥도 함께 본다(규칙에 고정한 구조).
 class SegHead(torch.nn.Module):
-    """Conv3x3-BN-ReLU twice, then a 1x1 convolution: one defect logit per patch."""
+    """Conv3x3-BN-ReLU 두 번, 그다음 1x1 합성곱: 패치마다 결함 로짓 하나."""
 
     def __init__(self, dim: int = 384, hidden: int = 256) -> None:
         super().__init__()
@@ -56,7 +55,7 @@ class SegHead(torch.nn.Module):
     # 특징은 [B, H, W, D](채널 마지막)로 저장돼 있으므로 Conv2d가 받는 [B, D, H, W]로 바꿔 넣고, 채널 축 1개를
     # 없애 [B, H, W] 로짓으로 돌려준다.
     def forward(self, feats: torch.Tensor) -> torch.Tensor:
-        """Channels-last features [B, H, W, D] -> logits [B, H, W]."""
+        """채널 마지막 특징 [B, H, W, D] -> 로짓 [B, H, W]."""
         if feats.ndim != 4:
             raise ValueError(f"expected features [B, H, W, D], got {tuple(feats.shape)}")
         return self.net(feats.permute(0, 3, 1, 2)).squeeze(1)
@@ -66,7 +65,7 @@ class SegHead(torch.nn.Module):
 # 결함으로 본다(= 8×8 최대 풀링, 규칙의 "정답" 항목). 작은 결함이 축소로 사라지지 않게 any를 쓴다.
 # 호출 위치: run_supervised.run_category(정상 학습 이미지와 라벨 풀).
 def patch_targets(masks: np.ndarray, grid: int = GRID) -> np.ndarray:
-    """{0, 1} masks [N, S, S] -> bool [N, grid, grid]: a patch is a defect if any of its pixels is."""
+    """{0, 1} 마스크 [N, S, S] -> bool [N, grid, grid]: 픽셀 하나라도 결함이면 그 패치는 결함이다."""
     masks = np.asarray(masks)
     if masks.ndim != 3 or masks.shape[1] != masks.shape[2]:
         raise ValueError(f"expected square masks [N, S, S], got {masks.shape}")
@@ -84,7 +83,7 @@ def patch_targets(masks: np.ndarray, grid: int = GRID) -> np.ndarray:
 # 비율이라 그대로 두면 헤드가 "전부 정상"으로 기운다. 비율만큼 결함 패치를 키우되, 결함이 아주 작을 때
 # 가중치가 폭주하지 않게 100에서 자른다(규칙의 손실 항목). 결함 패치가 없으면 1.0이다.
 def pos_weight(targets: np.ndarray, max_pos_weight: float) -> float:
-    """min(negative patches / positive patches, max_pos_weight); 1.0 when there is no positive patch."""
+    """min(음성 패치 수 / 양성 패치 수, max_pos_weight). 양성 패치가 없으면 1.0."""
     targets = np.asarray(targets)
     n_pos = int(np.count_nonzero(targets))
     if n_pos == 0:
@@ -109,16 +108,16 @@ class TrainConfig:
 # 손실·검증 AUROC 기록.
 @dataclass
 class TrainResult:
-    head: SegHead  # loaded with the best state, in eval mode
-    best_epoch: int  # 1-based
+    head: SegHead  # 가장 좋은 상태를 실은 eval 모드 헤드
+    best_epoch: int  # 1부터 센다
     best_val_auroc: float
-    history: list[dict]  # one {"epoch", "loss", "val_auroc"} per epoch; val_auroc is None when not evaluated
+    history: list[dict]  # 에폭마다 {"epoch", "loss", "val_auroc"} 하나. 검증하지 않은 에폭은 val_auroc가 None
 
 
 # 한 에폭의 배치 수. 마지막 배치가 한 장뿐이면 버린다(_epoch_batches와 같은 규칙, 배치 크기가 1이면 버리지
 # 않음). train_head가 cosine 스케줄의 전체 스텝 수(T_max)를 실제 스텝 수와 정확히 맞추려고 따로 계산한다.
 def steps_per_epoch(n_images: int, batch_size: int) -> int:
-    """Batches in one epoch: the last partial batch is kept unless it has a single image."""
+    """한 에폭의 배치 수: 마지막 덜 찬 배치는 이미지가 한 장뿐일 때만 버린다."""
     full, partial = divmod(n_images, batch_size)
     return full + (1 if partial > 1 else 0)
 
@@ -128,10 +127,10 @@ def steps_per_epoch(n_images: int, batch_size: int) -> int:
 def _flipped_batch(
     feats: torch.Tensor, targets: torch.Tensor, index: torch.Tensor, flips: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Rows `index` of `feats` [N, H, W, D] and `targets` [N, H, W], flipped per image.
+    """`feats` [N, H, W, D]와 `targets` [N, H, W]에서 `index` 행을 골라 이미지마다 뒤집는다.
 
-    `flips` is bool [B, 2]: column 0 flips left-right (the W axis), column 1 up-down (the H axis).
-    One gather per tensor, with the same indices, so features and targets always move together.
+    `flips`는 bool [B, 2]: 열 0은 좌우(W 축), 열 1은 상하(H 축) 뒤집기다. 텐서마다 같은 인덱스로 gather를 한
+    번씩 하므로 특징과 정답이 늘 함께 움직인다.
     """
     h, w = feats.shape[1], feats.shape[2]
     rows = torch.arange(h).expand(len(index), h)
@@ -140,7 +139,7 @@ def _flipped_batch(
     # 브로드캐스트해 [B, H, W]를 한 번에 고르는 고급 인덱싱이다.
     rows = torch.where(flips[:, 1:2], h - 1 - rows, rows)
     cols = torch.where(flips[:, 0:1], w - 1 - cols, cols)
-    # The indices are drawn on the CPU; the gather runs where the features live.
+    # 인덱스는 CPU에서 뽑고, gather는 특징이 있는 장치에서 한다.
     index, rows, cols = index.to(feats.device), rows.to(feats.device), cols.to(feats.device)
     pick = (index[:, None, None], rows[:, :, None], cols[:, None, :])
     return feats[pick], targets[pick]
@@ -151,16 +150,16 @@ def _flipped_batch(
 def _epoch_batches(
     feats: torch.Tensor, targets: torch.Tensor, batch_size: int, generator: torch.Generator
 ) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
-    """One epoch: a permutation of the images cut into batches, each image flipped at random.
+    """한 에폭: 이미지 순열을 배치로 자르고, 이미지마다 무작위로 뒤집는다.
 
-    Both the order and the flips (probability 0.5 each, independent) are drawn from `generator`.
+    순서와 뒤집기(각각 확률 0.5, 서로 독립)를 모두 `generator`에서 뽑는다.
     """
     n = feats.shape[0]
     order = torch.randperm(n, generator=generator)
     for start in range(0, n, batch_size):
         index = order[start : start + batch_size]
         if len(index) == 1 and batch_size > 1:
-            break  # a last batch of one image is dropped
+            break  # 한 장뿐인 마지막 배치는 버린다
         flips = torch.rand((len(index), 2), generator=generator) < 0.5
         yield _flipped_batch(feats, targets, index, flips)
 
@@ -169,7 +168,7 @@ def _epoch_batches(
 # 이동 평균을 쓰게 하고, 기울기를 계산하지 않는다.
 @torch.no_grad()
 def _max_logits(head: SegHead, feats: torch.Tensor, batch_size: int, device: torch.device) -> np.ndarray:
-    """Image scores (largest patch logit, float32) with the head in eval mode."""
+    """eval 모드 헤드로 낸 이미지 점수(가장 큰 패치 로짓, float32)."""
     head.eval()
     scores = np.empty(feats.shape[0], dtype=np.float32)
     for start in range(0, feats.shape[0], batch_size):
@@ -217,20 +216,18 @@ def train_head(
     *,
     device: str | torch.device = "cuda",
 ) -> TrainResult:
-    """Train a `SegHead` on patch features and keep the epoch with the best validation image AUROC.
+    """패치 특징으로 `SegHead`를 학습하고 검증 이미지 AUROC가 가장 좋은 에폭을 남긴다.
 
-    `train_feats` [N, H, W, D] and `val_feats` [M, H, W, D] are CPU fp16 tensors. On CUDA they are moved
-    to the device once (a category is a few hundred MB as fp16) and batches are gathered there; a host
-    to device copy per step made a run take minutes instead of seconds. Batches are cast to fp32.
-    `train_targets` is bool [N, H, W], `val_labels` is 0/1 [M]. The
-    validation AUROC is measured every `cfg.eval_every` epochs and at the last epoch; a later epoch
-    replaces the best one only when it is strictly better.
+    `train_feats` [N, H, W, D]와 `val_feats` [M, H, W, D]는 CPU fp16 텐서다. CUDA면 장치로 한 번만 옮기고(범주
+    하나가 fp16으로 수백 MB) 배치는 장치 안에서 고른다. 스텝마다 호스트에서 장치로 복사하면 실행 하나가 몇
+    초가 아니라 몇 분 걸렸다. 배치는 fp32로 바꿔 계산한다. `train_targets`는 bool [N, H, W], `val_labels`는
+    0/1 [M]이다. 검증 AUROC는 `cfg.eval_every` 에폭마다와 마지막 에폭에 재고, 뒤의 에폭이 지금까지의 최고와
+    같거나 더 높으면 그 에폭으로 바꾼다(동점이면 뒤의 에폭, docs/experiments.md 규칙 변경 4 (가)).
 
-    Reproducibility: order, flips and initial weights depend only on `cfg.seed`. On the CPU the same
-    inputs and seed give bit-identical results for the same number of threads
-    (`torch.get_num_threads()`); another thread count, or a GPU, changes the arithmetic at float
-    rounding level, and training amplifies that (a validation AUROC can move in the third decimal, and
-    with it the selected epoch). Results are then comparable, not identical.
+    재현성: 순서, 뒤집기, 초기 가중치는 `cfg.seed`에만 달려 있다. CPU에서는 입력과 시드가 같고 스레드 수
+    (`torch.get_num_threads()`)가 같으면 비트 단위로 같은 결과가 나온다. 스레드 수가 다르거나 GPU면 계산이
+    부동소수 반올림 수준에서 달라지고 학습이 그 차이를 키운다(검증 AUROC가 소수 셋째 자리에서 움직이고, 그에
+    따라 고른 에폭도 바뀔 수 있다). 그때 결과는 비교할 만하지만 똑같지는 않다.
     """
     device = torch.device(device)
     train_targets = np.asarray(train_targets)
@@ -252,9 +249,9 @@ def train_head(
     # 하면 실행이 몇 초에서 몇 분으로 늘었다.
     if device.type == "cuda":
         train_feats, targets, val_feats = train_feats.to(device), targets.to(device), val_feats.to(device)
-    # Order and flips are drawn on the CPU, so they are the same on every device.
+    # 순서와 뒤집기는 CPU 생성기에서 뽑으므로 어느 장치에서든 같다.
     generator = torch.Generator().manual_seed(cfg.seed)
-    torch.manual_seed(cfg.seed)  # weight initialisation
+    torch.manual_seed(cfg.seed)  # 가중치 초기화용
     # AdamW + cosine 감소(전체 스텝 n_steps 동안 학습률을 0까지 줄임, 스텝마다 scheduler.step). 규칙의 최적화
     # 설정 그대로다.
     head = SegHead(dim=int(train_feats.shape[-1])).to(device)
@@ -267,7 +264,7 @@ def train_head(
         head.train()
         loss_sum, seen = 0.0, 0
         for feats, target in _epoch_batches(train_feats, targets, cfg.batch_size, generator):
-            # Moved as fp16 and cast on the device: half the bytes cross over.
+            # fp16으로 옮긴 뒤 장치에서 fp32로 바꾼다: 건너가는 바이트가 절반이다.
             feats = feats.to(device).to(torch.float32)
             target = target.to(device).to(torch.float32)
             loss = F.binary_cross_entropy_with_logits(head(feats), target, pos_weight=weight)
@@ -291,7 +288,7 @@ def train_head(
             # 뒤가 전부 동점이 되는데, 앞선 에폭을 고르면 덜 학습된 헤드가 뽑혀 지도 학습 쪽이
             # 불리해진다(docs/experiments.md 규칙 변경 4 (가)). 가중치는 clone으로 복사해 이후 학습이 덮어쓰지
             # 않게 한다.
-            if value >= best_auroc:  # ties keep the later epoch (rule change 4)
+            if value >= best_auroc:  # 동점이면 뒤의 에폭을 남긴다(규칙 변경 4)
                 best_epoch, best_auroc = epoch, value
                 best_state = {name: tensor.detach().clone() for name, tensor in head.state_dict().items()}
         history.append(entry)
@@ -317,11 +314,11 @@ def predict(
     device: str | torch.device = "cuda",
     map_size: int = 256,
 ) -> ScoreResult:
-    """Score patch features [N, H, W, D] with a trained head (switched to eval mode).
+    """학습한 헤드(eval 모드로 바꿈)로 패치 특징 [N, H, W, D]를 채점한다.
 
-    Image score = largest patch logit (float32). Map = the logits upsampled bilinearly
-    (align_corners=False) to `map_size`, float16. Logits rather than probabilities: a float16 probability
-    saturates at 1.0 above a logit of about 8.3 and would tie every confident pixel (rule change 4).
+    이미지 점수 = 가장 큰 패치 로짓(float32). 맵 = 로짓을 `map_size`로 bilinear 확대(align_corners=False)한
+    float16. 확률이 아니라 로짓을 쓴다: float16 확률은 로짓 약 8.3 이상에서 1.0으로 포화해, 확신하는 픽셀이
+    모두 동점이 되기 때문이다(규칙 변경 4).
     """
     if feats.ndim != 4:
         raise ValueError(f"expected features [N, H, W, D], got {tuple(feats.shape)}")
@@ -364,6 +361,6 @@ def extract(
     batch_size: int = 32,
     device: str | torch.device = "cuda",
 ) -> torch.Tensor:
-    """uint8 images [N, S, S, 3] -> CPU fp16 patch features [N, H, W, D]."""
+    """uint8 이미지 [N, S, S, 3] -> CPU fp16 패치 특징 [N, H, W, D]."""
     feats, (grid_h, grid_w) = collect_features(extractor, images, batch_size=batch_size, device=device)
     return feats.view(len(images), grid_h, grid_w, feats.shape[1])

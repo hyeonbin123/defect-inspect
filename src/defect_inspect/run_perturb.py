@@ -1,9 +1,8 @@
-"""Score the evaluation set of a finished run again under the synthetic conditions of stage 3.
+"""끝난 실행의 평가 세트를 3단계 합성 교란 조건에서 다시 채점한다.
 
-Nothing is trained or calibrated here: the memory bank (PatchCore) or the model (Dinomaly) and the scores
-the thresholds are fixed from all come from the source run. Per category this writes
-`<out>/<category>.npz` with the image scores under every condition (clean first). Tables are made by
-`defect_inspect.analyze_perturb`.
+여기서는 아무것도 학습하거나 보정하지 않는다: 메모리 뱅크(PatchCore)나 모델(Dinomaly), 그리고 임계값을
+정하는 점수는 모두 원본 실행에서 가져온다. 범주마다 모든 조건(교란 없는 clean이 먼저)의 이미지 점수를 담은
+`<out>/<category>.npz`를 쓴다. 표는 `defect_inspect.analyze_perturb`가 만든다.
 """
 
 # [파일 역할] 3단계 3-A 실행기(python -m defect_inspect.run_perturb). 이미 끝난 실행(원본 실행: PatchCore의
@@ -41,49 +40,49 @@ from .ledger import git_commit, record_test_access
 from .splits import ManifestRow, read_manifest, select
 from .visa import CATEGORIES
 
-# 다시 채점할 수 있는 방법: PatchCore 구성 네 가지와 Dinomaly(dm).
-# CLEAN_RTOL: 교란 없는 점수가 원본 점수와 이 상대 차이 안에 들어야 한다(규칙의 허용 0.1%, 실제 3-A 결과는 0).
-# p0-c and d-s-c: the stage 7 (E1) centred variants, dev protocol only by the rules.
+# 다시 채점할 수 있는 방법: PatchCore 구성 네 가지와 Dinomaly(dm). p0-c와 d-s-c는 7단계(E1)의 이미지별 특징
+# 중심화 변형이며, 규칙상 dev 절차에서만 쓴다.
+# CLEAN_RTOL: 교란 없는 점수가 원본 실행의 점수를 이 상대 차이 안에서 재현해야 한다(규칙의 허용 0.1%, 실제
+# 3-A 결과는 0).
 PATCHCORE_METHODS = ("p0", "d-s", "p0-c", "d-s-c")
 DINOMALY = "dm"
 METHODS = (*PATCHCORE_METHODS, DINOMALY)
-# The clean scores must reproduce the source run's scores within this relative difference.
 CLEAN_RTOL = 1e-3
 
 # 채점기 타입: 이미지 배열을 받아 이미지 점수를 돌려주는 함수. PatchCore와 Dinomaly를 같은 모양으로 감싸
 # run_category가 방법을 몰라도 되게 한다.
-Scorer = Callable[[np.ndarray], np.ndarray]  # uint8 images [N, S, S, 3] -> image scores [N]
+Scorer = Callable[[np.ndarray], np.ndarray]  # uint8 이미지 [N, S, S, 3] -> 이미지 점수 [N]
 
 
 # 교란 없는 점수가 원본과 다를 때 내는 전용 예외. 뱅크·모델·이미지 중 하나가 원본 실행과 달라 원본의 임계값을
 # 쓸 수 없다는 뜻이다.
 class CleanScoreMismatch(RuntimeError):
-    """The clean scores differ from the source run: its thresholds do not belong to what is scored here."""
+    """교란 없는 점수가 원본 실행과 다르다: 원본의 임계값이 여기서 채점하는 것의 임계값이 아니다."""
 
 
 # 원본 실행에서 범주 하나에 대해 가져오는 것: 평가 이미지 경로, 교란 없는 평가 점수(대조용), 임계값 보정 점수.
 @dataclass(frozen=True)
 class Source:
-    """What a perturbation run takes from one category of the run whose thresholds it reuses."""
+    """교란 실행이 임계값을 다시 쓰는 원본 실행에서 범주 하나에 대해 가져오는 것."""
 
-    eval_images: np.ndarray  # str [N], image paths of the evaluation set
-    eval_score: np.ndarray  # float32 [N], scores of the evaluated model on the unchanged images
-    cal_score: np.ndarray  # float32, scores the thresholds are fixed from (may be empty)
+    eval_images: np.ndarray  # str [N], 평가 세트의 이미지 경로
+    eval_score: np.ndarray  # float32 [N], 평가한 모델이 바꾸지 않은 이미지에 매긴 점수
+    cal_score: np.ndarray  # float32, 임계값을 정하는 점수(비어 있을 수 있다)
 
 
 # 원본 .npz에서 읽을 열 이름. Dinomaly(2단계 공통 형식)는 eval_score와 cal_score(홀드아웃), PatchCore는 전체
 # 뱅크의 평가 점수와 교차 적합 점수다. 3-A 결과의 "P0·D-S 교차 적합, DM 홀드아웃" 임계값이 여기서 정해진다.
 def source_keys(method: str) -> tuple[str, str]:
-    """npz keys of (evaluation scores, calibration scores) in the source run of `method`."""
+    """`method`의 원본 실행 npz에서 (평가 점수, 보정 점수)를 담은 키."""
     if method == DINOMALY:
-        return "eval_score", "cal_score"  # common stage 2 format
-    return "eval_score_full", "pool_score_oof"  # run_patchcore: full bank, cross-fitted pool scores
+        return "eval_score", "cal_score"  # 2단계 공통 형식
+    return "eval_score_full", "pool_score_oof"  # run_patchcore: 전체 뱅크 점수, 교차 적합 풀 점수
 
 
 # 원본 실행의 범주 파일을 읽고 이미지 없이 할 수 있는 검사(열 존재, 모양, 유한값)를 한다. 끝나지 않은 실행이나
 # 다른 방법의 실행을 원본으로 잘못 넘긴 경우를 여기서 잡는다.
 def load_source(source_dir: Path, category: str, method: str) -> Source:
-    """One category of the source run, checked as far as the file alone allows (no image is needed)."""
+    """원본 실행의 범주 하나. 파일만으로 할 수 있는 데까지 검사한다(이미지는 필요 없다)."""
     score_key, cal_key = source_keys(method)
     path = Path(source_dir) / f"{category}.npz"
     with np.load(path) as z:
@@ -111,9 +110,9 @@ def load_source(source_dir: Path, category: str, method: str) -> Source:
 def evaluation_rows(
     protocol: str, category: str, manifest: list[ManifestRow], source: Source, allow_test: bool
 ) -> tuple[list[ManifestRow], list[ManifestRow]]:
-    """The (normal, defect) evaluation rows of a category, which must be the images `source` scored.
+    """한 범주의 (정상, 결함) 평가 행. `source`가 채점한 이미지와 같아야 한다.
 
-    Reads the manifest only, so a source that does not fit is found before any image is touched.
+    매니페스트만 읽으므로, 맞지 않는 원본은 이미지를 하나라도 건드리기 전에 드러난다.
     """
     eval_normal = select(
         manifest, protocol=protocol, part="eval_normal", category=category, allow_test=allow_test
@@ -133,7 +132,7 @@ def evaluation_rows(
 
 # 이미지별 상대 차이의 최댓값. 분모가 0이면 나눗셈이 터지지 않게 float64의 가장 작은 양수(tiny)로 막는다.
 def max_rel_diff(scores: np.ndarray, reference: np.ndarray) -> float:
-    """Largest `|score - reference| / |reference|` over the images (0.0 for an empty set)."""
+    """이미지들에 걸친 `|score - reference| / |reference|`의 최댓값(빈 집합이면 0.0)."""
     a = np.asarray(scores, dtype=np.float64)
     b = np.asarray(reference, dtype=np.float64)
     if a.shape != b.shape:
@@ -146,7 +145,7 @@ def max_rel_diff(scores: np.ndarray, reference: np.ndarray) -> float:
 # 저장된 전체 뱅크로 채점하는 함수를 만든다. 배치 크기·재가중 이웃 수·맵 σ는 원본과 같은 구성 값을 써서 교란
 # 없는 점수가 원본과 같게 나오게 한다.
 def patchcore_scorer(cfg, extractor, bank, device: str) -> Scorer:
-    """Image scores against a saved memory bank, with the batch size and scoring options of `cfg`."""
+    """저장된 메모리 뱅크로 이미지 점수를 낸다. 배치 크기와 채점 옵션은 `cfg`의 것을 쓴다."""
     from .patchcore import score_images
 
     def score(images: np.ndarray) -> np.ndarray:
@@ -166,7 +165,7 @@ def patchcore_scorer(cfg, extractor, bank, device: str) -> Scorer:
 # run_dinomaly를 늦게 가져온다. Dinomaly 모델을 만들려면 anomalib이 필요해서, PatchCore만 돌릴 때는 그
 # 의존성을 요구하지 않는다.
 def _dinomaly():
-    """`run_dinomaly`, imported only when the dm method is used (building its model needs anomalib)."""
+    """`run_dinomaly` 모듈. dm 방법을 쓸 때만 가져온다(그 모델을 만들려면 anomalib이 필요하다)."""
     from . import run_dinomaly
 
     return run_dinomaly
@@ -175,12 +174,12 @@ def _dinomaly():
 # run_dinomaly train이 쓴 model.pt를 CPU에서 eval 모드로 읽는다. 지금의 run_dinomaly에는 load_model이 있어
 # 그것을 쓰고, 없으면 2단계 초기 파일 형식(인코더 이름 + 학습한 파라미터)으로 직접 복원한다.
 def load_dinomaly(path: Path):
-    """The model written by `run_dinomaly train`, on the CPU in eval mode."""
+    """`run_dinomaly train`이 쓴 모델을 CPU에 eval 모드로 읽는다."""
     dm = _dinomaly()
     loader = getattr(dm, "load_model", None)
     if loader is not None:
         return loader(path)[0]
-    # The file layout of contract-stage2: the trainable state with the encoder name and step count.
+    # 2단계 초기 파일 형식: 학습 가능한 파라미터 상태와 인코더 이름, 스텝 수.
     import torch
 
     saved = torch.load(path, map_location="cpu", weights_only=True)
@@ -210,7 +209,7 @@ def dinomaly_scorer(model, device: str, batch_size: int, amp: bool) -> Scorer:
 # clean·brightness-3·gamma-3 등) 등록 순서를 지킨다. clean은 원본 점수와의 대조에 꼭 필요하므로 빠지면
 # 거절한다.
 def select_conditions(requested: list[str] | None = None) -> list[str]:
-    """The conditions to score, in the registered order: all of them, or `requested` (clean included)."""
+    """채점할 조건을 등록 순서로 돌려준다: 전부, 또는 `requested`(clean이 들어 있어야 한다)."""
     names = condition_names()
     if requested is None:
         return names
@@ -238,11 +237,11 @@ def run_category(
     rtol: float = CLEAN_RTOL,
     conditions: list[str] | None = None,
 ) -> dict:
-    """Score one category's evaluation set under every condition and write `<category>.npz`.
+    """범주 하나의 평가 세트를 조건마다 채점하고 `<category>.npz`를 쓴다.
 
-    `conditions` defaults to all of them; a subset keeps the registered order and must hold the clean
-    condition. That comes first and must reproduce `source.eval_score` (CleanScoreMismatch otherwise,
-    before any other condition is scored).
+    `conditions`의 기본값은 전부다. 일부만 고르면 등록 순서를 지키고 clean 조건이 들어 있어야 한다. clean이
+    맨 먼저 채점되고 `source.eval_score`를 재현해야 한다(아니면 다른 조건을 채점하기 전에
+    CleanScoreMismatch를 낸다).
     """
     eval_normal, eval_defect = evaluation_rows(protocol, category, manifest, source, allow_test)
     rows = eval_normal + eval_defect
@@ -306,17 +305,17 @@ def run_category(
 # 저장된 뱅크의 행 수만 읽는다. mmap으로 헤더만 보고, 바로 del로 매핑을 풀어 Windows에서 파일이 잠긴 채 남지
 # 않게 한다.
 def _bank_rows(path: Path) -> int:
-    """Number of rows of a saved memory bank, read from the file header only."""
+    """저장된 메모리 뱅크의 행 수. 파일 헤더만 읽는다."""
     bank = np.load(path, mmap_mode="r")
     rows = int(bank.shape[0])
-    del bank  # unmaps: Windows cannot replace a file that is still mapped
+    del bank  # 매핑을 푼다: Windows는 매핑된 채인 파일을 바꿔 쓰지 못한다
     return rows
 
 
 # 출력 폴더가 원본 폴더와 같은지 확인한다(.., 링크, 대소문자 차이까지). 같으면 원본의 run.json과 .npz를
 # 덮어쓰게 되므로 main이 거절한다.
 def _same_dir(a: Path, b: Path) -> bool:
-    """Whether two paths name one directory (also through `..`, links or another spelling of the case)."""
+    """두 경로가 같은 폴더를 가리키는지(`..`, 링크, 대소문자 차이를 거쳐도)."""
     if a.exists() and b.exists():
         return a.samefile(b)
     return a.resolve() == b.resolve()
@@ -339,20 +338,20 @@ def main(argv: list[str] | None = None) -> None:
         "--source",
         type=Path,
         default=None,
-        help="finished run whose bank or model scores are reused (default: outputs/<method>-<protocol>)",
+        help="뱅크나 모델과 점수를 다시 쓸 끝난 원본 실행(기본값: outputs/<method>-<protocol>)",
     )
-    parser.add_argument("--model", type=Path, default=None, help="dm only (default: outputs/dm/model.pt)")
+    parser.add_argument("--model", type=Path, default=None, help="dm 전용(기본값: outputs/dm/model.pt)")
     parser.add_argument("--categories", nargs="*", default=list(CATEGORIES))
-    parser.add_argument("--out", type=Path, default=None, help="default: outputs/perturb-<method>-<protocol>")
+    parser.add_argument("--out", type=Path, default=None, help="기본값: outputs/perturb-<method>-<protocol>")
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--allow-test", action="store_true", help="read the sealed test set (logged)")
+    parser.add_argument("--allow-test", action="store_true", help="봉인 테스트 세트를 읽는다(장부에 기록)")
     parser.add_argument(
-        "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
+        "--stage", default="", help="봉인 테스트 장부에 남길 단계 이름(--allow-test와 함께 필수)"
     )
     parser.add_argument("--note", default="")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
-        "--conditions", nargs="+", default=None, help="a subset in the registered order (clean included)"
+        "--conditions", nargs="+", default=None, help="채점할 조건 일부(등록 순서를 따르고 clean을 포함)"
     )
     args = parser.parse_args(argv)
 
@@ -367,7 +366,7 @@ def main(argv: list[str] | None = None) -> None:
     source_dir = args.source or paths.OUTPUTS / f"{args.method}-{args.protocol}"
     out_dir = args.out or paths.OUTPUTS / f"perturb-{args.method}-{args.protocol}"
     if _same_dir(out_dir, source_dir):
-        # Both runs write run.json and <category>.npz: the source run would be replaced file by file.
+        # 두 실행 모두 run.json과 <category>.npz를 쓰므로, 원본 실행이 파일 하나씩 덮어써진다.
         parser.error(f"--out is the source run {source_dir}: the perturbation run would overwrite it")
     if (out_dir / "run.json").exists() and not args.overwrite:
         parser.error(f"{out_dir} already holds a finished run; pass --overwrite to redo it")
@@ -392,8 +391,8 @@ def main(argv: list[str] | None = None) -> None:
     absent = [c for c in args.categories if not (source_dir / f"{c}.npz").exists()]
     if absent:
         parser.error(f"{source_dir} has no scores for {absent}")
-    # Every category's source scores and image list, not only the first one's: none of this needs an
-    # image, so a source that does not fit must stop the run before a test read is recorded or made.
+    # 첫 범주만이 아니라 모든 범주의 원본 점수와 이미지 목록을 확인한다. 이 중 어느 것도 이미지가 필요
+    # 없으므로, 맞지 않는 원본은 봉인 테스트 읽기가 기록되거나 실제로 일어나기 전에 실행을 멈춰야 한다.
     sources: dict[str, Source] = {}
     for category in args.categories:
         try:
@@ -417,7 +416,7 @@ def main(argv: list[str] | None = None) -> None:
         model_sha256 = sha256_file(model_path)
         if source_config.get("model_sha256") not in (None, model_sha256):
             parser.error(f"{model_path} is not the model that {source_dir} was scored with (sha256 differs)")
-        # Same batches and precision as the source run, so that the clean scores can be compared.
+        # 원본 실행과 같은 배치 크기·정밀도로 채점해야 교란 없는 점수를 비교할 수 있다.
         batch_size = int(source_config.get("batch_size", 32))
         amp = bool(source_config.get("amp", True))
         model = load_dinomaly(model_path).to(args.device)
@@ -450,7 +449,7 @@ def main(argv: list[str] | None = None) -> None:
                 f"with `python -m defect_inspect.run_patchcore --config {cfg.name} --protocol "
                 f"{args.protocol} --save-bank`"
             )
-        # A bank left over from another run is caught here, before the test images are read.
+        # 다른 실행이 남긴 뱅크를 테스트 이미지를 읽기 전에 여기서 잡는다.
         recorded = {
             info.get("category"): (info.get("bank_rows") or {}).get("full")
             for info in source_meta.get("categories", [])
@@ -479,10 +478,10 @@ def main(argv: list[str] | None = None) -> None:
     cache = ImageCache(paths.CACHE, img_size)
     out_dir.mkdir(parents=True, exist_ok=True)
     # 다시 돌리는 실행은 끝날 때까지 끝난 실행으로 보이지 않게 run.json부터 지운다.
-    (out_dir / "run.json").unlink(missing_ok=True)  # a run that is being redone is not a finished run
+    (out_dir / "run.json").unlink(missing_ok=True)  # 다시 돌리는 중인 실행은 끝난 실행이 아니다
     if args.protocol == "test":
-        # The source run (config, protocol, every category's scores, image list and bank or the model)
-        # has been checked without an image: the read starts here.
+        # 원본 실행(구성, 절차, 모든 범주의 점수·이미지 목록, 뱅크 또는 모델)을 이미지 없이 모두 확인했다.
+        # 봉인 테스트 읽기는 여기서 시작한다.
         record_test_access(
             paths.TEST_LEDGER,
             stage=args.stage,

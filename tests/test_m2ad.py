@@ -40,7 +40,7 @@ SIZE = 16
 # 오염되므로 막는다.
 @pytest.fixture(autouse=True)
 def temporary_ledger(tmp_path, monkeypatch):
-    """`m2ad.main` records the read of test images: no test may ever write to the real ledger."""
+    """`m2ad.main`은 test 이미지 읽기를 장부에 기록하므로, 어떤 테스트도 진짜 장부에 쓰면 안 된다."""
     path = tmp_path / "reports" / "test_ledger.jsonl"
     monkeypatch.setattr(paths, "TEST_LEDGER", path)
     monkeypatch.setattr(ledger, "git_commit", lambda root=None: "abc1234")
@@ -69,11 +69,11 @@ def entry(category, folder, specimen, view, light, object_anomaly=0, image_anoma
 # 세 불량 시편으로 라벨 규칙의 모든 갈래(결함, 판별 불가, 안 보임)를 만든다. 항목 순서를 뒤집어 넣어 파일
 # 순서와 무관하게 정렬되는지도 시험한다.
 def make_meta(train=("000", "003"), normal=("001",), lights=ILLUMINATIONS, views=(*VIEWS, "030")) -> dict:
-    """Two kept categories and one that must be ignored; view 030 must be dropped as well.
+    """남길 범주 둘과 무시해야 할 범주 하나. 시점 030도 걸러져야 한다.
 
-    Per kept category the test split has the normal specimens plus three defective ones: `hole_1_000`
-    (visible and detectable everywhere), `scratch_1_001` (not detectable in view 120, not visible in view
-    240) and `dent_1_002` (not visible at all).
+    남는 범주마다 test 분할에는 정상 시편과 불량 시편 셋이 있다: `hole_1_000`(모든 시점에서 보이고
+    판별 가능), `scratch_1_001`(시점 120에서 판별 불가, 시점 240에서 안 보임), `dent_1_002`(어느
+    시점에서도 안 보임).
     """
     meta: dict = {"train": {}, "test": {}}
     for category in ("Bird", "Car", "Motor"):
@@ -90,7 +90,7 @@ def make_meta(train=("000", "003"), normal=("001",), lights=ILLUMINATIONS, views
                 else:
                     test_rows.append(entry(category, "NG", "scratch_1_001", view, light, 1, 1, True))
                 test_rows.append(entry(category, "NG", "dent_1_002", view, light, 1, 0, ""))
-        meta["train"][category] = train_rows[::-1]  # the file order must not matter
+        meta["train"][category] = train_rows[::-1]  # 파일 안 순서가 결과를 바꾸면 안 된다
         meta["test"][category] = test_rows[::-1]
     return meta
 
@@ -121,7 +121,7 @@ def png_bytes(name: str, side: int = 40) -> bytes:
 # 해시 순으로(reverse면 거꾸로) 넣어 zip 안의 순서가 행 순서·이름 순서와 다르게 한다. skip으로 일부 멤버를 빼
 # 누락 상황을 만든다.
 def write_zips(zip_dir, rows, *, reverse=False, skip=()):
-    """`<category>.zip` with every image of `rows` plus members that are not wanted."""
+    """`rows`의 모든 이미지에 원하지 않는 멤버까지 더해 담은 `<category>.zip`."""
     zip_dir.mkdir(parents=True, exist_ok=True)
     for category in {r.category for r in rows}:
         names = [r.img_path for r in rows if r.category == category and r.img_path not in skip]
@@ -136,11 +136,11 @@ def write_zips(zip_dir, rows, *, reverse=False, skip=()):
 # 조명 2개(01, 02)만 있는 작은 행 목록. 캐시 테스트를 빨리 돌리려는 것이다.
 def small_rows(tmp_path):
     meta = make_meta(lights=("01", "02"))
-    # Only two illuminations here, so `read_meta` is not asked for completeness.
+    # 여기서는 조명이 둘뿐이라 `read_meta`에 조명이 모두 있는지 확인하라고 하지 않는다.
     return read_meta(write_jsons(tmp_path, meta))
 
 
-# ----------------------------------------------------------------------------------------------- metadata
+# --------------------------------------------------------------------------------------------- 메타데이터
 
 
 # read_meta가 등록한 두 범주(Motor, Bird)와 세 시점만 남기고(Car와 시점 030 제외), 열 가지 조명을 모두 읽어
@@ -150,7 +150,7 @@ def test_read_meta_keeps_two_categories_and_three_views(tmp_path):
     assert {r.category for r in rows} == {"Motor", "Bird"}
     assert {r.view for r in rows} == set(VIEWS)
     assert {r.illumination for r in rows} == set(ILLUMINATIONS)
-    # 2 categories x 3 views x 10 illuminations x (2 train + 1 normal + 3 defective specimens)
+    # 범주 2 x 시점 3 x 조명 10 x (학습 시편 2 + 정상 시편 1 + 불량 시편 3)
     assert len(rows) == 2 * 3 * 10 * 6
     assert all(isinstance(r, M2adRow) for r in rows)
 
@@ -184,14 +184,14 @@ def test_label_rule(tmp_path):
     by = {(r.category, r.specimen, r.view, r.illumination): r for r in rows}
     for category in ("Motor", "Bird"):
         for light in ILLUMINATIONS:
-            # Normal specimens are label 0, in both splits.
+            # 정상 시편은 두 분할 모두 라벨 0이다.
             assert by[category, "000", "000", light].label == 0
             assert by[category, "001", "240", light].label == 0
             assert by[category, "001", "240", light].object_anomaly == 0
-            # Visible and detectable defect.
+            # 보이고 판별 가능한 결함.
             assert by[category, "hole_1_000", "120", light].label == 1
             assert by[category, "scratch_1_001", "000", light].label == 1
-            # detectable False: excluded. Defect not visible (detectable ""): excluded.
+            # detectable False면 제외. 결함이 안 보이는 경우(detectable "")도 제외.
             assert by[category, "scratch_1_001", "120", light].label == -1
             assert by[category, "scratch_1_001", "240", light].label == -1
             assert by[category, "dent_1_002", "000", light].label == -1
@@ -211,7 +211,7 @@ def test_label_of(object_anomaly, image_anomaly, detectable, expected):
 # detectable은 JSON true(파이썬 True)일 때만 결함으로 센다. 1이나 "True" 같은 참으로 읽히는 값이 결함 라벨을
 # 만들면 메타데이터 오류가 조용히 라벨로 바뀐다.
 def test_label_of_needs_a_real_true():
-    # A truthy value that is not the JSON `true` does not make a defect label.
+    # JSON `true`가 아닌 참 같은 값은 결함 라벨을 만들지 않는다.
     assert m2ad.label_of(1, 1, 1) == -1
     assert m2ad.label_of(1, 1, "True") == -1
 
@@ -233,7 +233,7 @@ def test_read_meta_rejects_bad_metadata(tmp_path):
     with pytest.raises(ValueError, match="more than once"):
         read_meta(write_jsons(tmp_path, meta))
 
-    # The same entry again in a view that is not used is ignored.
+    # 쓰지 않는 시점에서 같은 항목이 다시 나오는 것은 무시한다.
     meta = make_meta()
     unused = next(e for e in meta["test"]["Motor"] if e["view"] == "030")
     meta["test"]["Motor"].append(dict(unused))
@@ -260,7 +260,7 @@ def test_read_meta_rejects_bad_metadata(tmp_path):
         read_meta(write_jsons(tmp_path, meta))
 
     meta = make_meta()
-    meta["test"]["Motor"].append(entry("Motor", "Again", "000", "000", "01"))  # a train specimen
+    meta["test"]["Motor"].append(entry("Motor", "Again", "000", "000", "01"))  # 학습 시편
     with pytest.raises(ValueError, match="both splits"):
         read_meta(write_jsons(tmp_path, meta))
 
@@ -275,7 +275,7 @@ def test_read_meta_rejects_bad_metadata(tmp_path):
         read_meta(tmp_path / "empty.zip")
 
 
-# ------------------------------------------------------------------------------------------ specimen order
+# ----------------------------------------------------------------------------------------------- 시편 순서
 
 
 # 기준 구현: 중복을 뺀 이름을 UTF-8 SHA-256 16진수 순으로 정렬한다(splits.path_key와 같은 방식이어야 함).
@@ -290,10 +290,10 @@ def test_folds_follow_the_sha256_rank():
     names = [f"{i:03d}" for i in range(0, 60, 2)]
     folds = specimen_folds(names)
     ordered = sha_order(names)
-    assert ordered != sorted(names)  # the hash order is not the name order
+    assert ordered != sorted(names)  # 해시 순서는 이름 순서와 다르다
     assert folds == {name: rank % 5 for rank, name in enumerate(ordered)}
     assert sorted(np.bincount(list(folds.values())).tolist()) == [6, 6, 6, 6, 6]
-    # The input order and repeated names (one per image) do not matter.
+    # 입력 순서와 반복된 이름(이미지마다 하나씩)은 결과를 바꾸지 않는다.
     assert specimen_folds(names[::-1] + names) == folds
 
 
@@ -306,8 +306,8 @@ def test_recal_specimens_are_the_first_in_the_same_order():
     assert recal_specimens(names, 8) == ordered[:8]
     assert recal_specimens(names[::-1], 30) == ordered
     assert recal_specimens(names, 0) == []
-    assert recal_specimens(names, 8) == recal_specimens(names, 30)[:8]  # nested
-    # The first eight specimens cover every fold.
+    assert recal_specimens(names, 8) == recal_specimens(names, 30)[:8]  # 중첩
+    # 앞 8개 시편이 모든 겹을 덮는다.
     folds = specimen_folds(names)
     assert [folds[s] for s in recal_specimens(names, 8)] == [0, 1, 2, 3, 4, 0, 1, 2]
     with pytest.raises(ValueError):
@@ -323,7 +323,7 @@ def test_specimen_names_must_be_strings():
         specimen_folds([1, 2, 3])
 
 
-# --------------------------------------------------------------------------------------------------- cache
+# ---------------------------------------------------------------------------------------------------- 캐시
 
 
 # 멤버 이름의 PNG를 VisA 캐시와 같은 리사이즈(cache.resize_image)로 줄인 기대 이미지.
@@ -371,8 +371,8 @@ def test_build_cache_follows_the_row_order_not_the_member_order(tmp_path, monkey
         with monkeypatch.context() as patch:
             patch.setattr(zipfile.ZipFile, "read", spying_read)
             build_cache(zip_dir, rows, SIZE, out, workers=3)
-        # Each zip is read front to back (sequential on an HDD), which is not the order of the names,
-        # and nothing but the wanted members is read, each of them once.
+        # 각 zip은 앞에서 뒤로(HDD에서 순차로) 읽고 그 순서는 이름 순서와 다르며, 원하는 멤버만 각각 한 번씩
+        # 읽는다.
         assert sorted(name for _, _, name in reads) == sorted(r.img_path for r in rows)
         for category in ("Motor", "Bird"):
             of_zip = [
@@ -387,7 +387,7 @@ def test_build_cache_follows_the_row_order_not_the_member_order(tmp_path, monkey
         assert arrays[-1].shape == (len(rows), SIZE, SIZE, 3) and arrays[-1].dtype == np.uint8
         assert not list(out.glob("*.part"))
     assert np.array_equal(arrays[0], arrays[1])
-    assert len(decoded) == 2 * len(rows)  # only the wanted members are decoded
+    assert len(decoded) == 2 * len(rows)  # 원하는 멤버만 디코딩한다
     for i in (0, 7, len(rows) - 1):
         assert np.array_equal(arrays[0][i], expected_image(rows[i].img_path))
     assert m2ad.cache_is_complete(tmp_path / "cache0", SIZE, rows)
@@ -467,7 +467,7 @@ def test_cache_names_a_missing_build(tmp_path):
         M2adCache(tmp_path, 24)
 
 
-# ----------------------------------------------------------------------------------------------------- CLI
+# --------------------------------------------------------------------------------------------- 명령줄(CLI)
 
 
 # 임시 장부의 줄들을 dict 목록으로 읽는다(파일이 없으면 빈 목록).
@@ -504,10 +504,10 @@ def test_main_records_the_read_before_it_builds(tmp_path, capsys, monkeypatch, t
     assert str(temporary_ledger) in out and f"({len(rows)}, {SIZE}, {SIZE}, 3)" in out
     assert m2ad.cache_is_complete(tmp_path / "cache", SIZE, rows)
 
-    # A complete cache is skipped: nothing is read, nothing is recorded.
+    # 완성된 캐시는 건너뛴다: 아무것도 읽지 않고 기록도 하지 않는다.
     assert m2ad.main(argv) == 0
     assert len(ledger_entries(temporary_ledger)) == 1 and recorded_before_build == [1]
-    # --force reads the images again, so there is a second line.
+    # --force는 이미지를 다시 읽으므로 두 번째 줄이 생긴다.
     assert m2ad.main([*argv, "--force"]) == 0
     assert len(ledger_entries(temporary_ledger)) == 2 and recorded_before_build == [1, 2]
 
@@ -525,18 +525,18 @@ def test_main_records_nothing_when_the_zips_cannot_be_read(tmp_path, monkeypatch
         raise AssertionError("nothing may be decoded")
 
     monkeypatch.setattr(cache, "_decode_image", no_decoding)
-    # No zips at all: no test image can be read, so the ledger gets no line.
+    # zip이 하나도 없으면 test 이미지를 읽을 수 없으므로 장부에 줄이 생기지 않는다.
     with pytest.raises(FileNotFoundError):
         m2ad.main([*argv, "--zips", str(tmp_path / "nowhere")])
     assert not temporary_ledger.exists()
-    # One wanted member is not in its zip: found in the central directory, before the ledger line.
+    # 원하는 멤버 하나가 zip에 없다: 장부 줄을 쓰기 전에 중앙 디렉터리에서 찾아낸다.
     gone = [r.img_path for r in rows if r.category == "Bird"][3]
     write_zips(tmp_path / "zips", rows, skip={gone})
     with pytest.raises(FileNotFoundError, match="1 images are not in"):
         m2ad.main([*argv, "--zips", str(tmp_path / "zips")])
     assert not temporary_ledger.exists()
     assert not (tmp_path / "cache").exists() or not list((tmp_path / "cache").iterdir())
-    # With the member back the same command builds the cache and records the read once.
+    # 멤버를 되돌리면 같은 명령이 캐시를 만들고 읽기를 한 번 기록한다.
     write_zips(tmp_path / "zips", rows)
     monkeypatch.setattr(cache, "_decode_image", lambda data, size: np.zeros((size, size, 3), dtype=np.uint8))
     assert m2ad.main([*argv, "--zips", str(tmp_path / "zips")]) == 0
@@ -548,7 +548,7 @@ def test_main_records_nothing_when_the_zips_cannot_be_read(tmp_path, monkeypatch
 def test_count_table_lists_every_label(tmp_path):
     rows = read_meta(write_jsons(tmp_path, make_meta()))
     table = m2ad.count_table(rows).splitlines()
-    # Motor test: 1 normal specimen (30 images); hole 30 + scratch 10 defects; scratch 20 + dent 30 excluded.
+    # Motor test: 정상 시편 1개(30장), 결함은 hole 30 + scratch 10장, 제외는 scratch 20 + dent 30장.
     assert table[1].split() == ["Motor", "train", "2", "60", "0", "0"]
     assert table[2].split() == ["Motor", "test", "4", "30", "40", "50"]
     assert table[4].split() == ["Bird", "test", "4", "30", "40", "50"]
@@ -565,6 +565,6 @@ def test_illumination_groups_follow_the_sha256_order_of_the_labels():
     a, b = m2ad.illumination_groups()
     ranked = sorted((f"{i:02d}" for i in range(2, 11)), key=lambda s: hashlib.sha256(s.encode()).hexdigest())
     assert a == tuple(sorted(ranked[:4])) and b == tuple(sorted(ranked[4:]))
-    # The registered split (docs/experiments.md, stage 7), written out.
+    # 등록한 분할(docs/experiments.md 7단계)을 그대로 적는다.
     assert a == ("03", "07", "08", "09") and b == ("02", "04", "05", "06", "10")
     assert m2ad.REFERENCE not in a + b and sorted(a + b) == [f"{i:02d}" for i in range(2, 11)]

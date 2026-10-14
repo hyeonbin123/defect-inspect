@@ -1,4 +1,4 @@
-"""PatchCore: patch features, a coreset memory bank and nearest-neighbour anomaly scores."""
+"""PatchCore: 패치 특징, 코어셋 메모리 뱅크, 최근접 이웃 거리로 매기는 이상 점수."""
 
 # [파일 역할] 직접 구현한 PatchCore의 핵심 계산(GPU, torch)이다. 정상 이미지의 패치 특징을
 # 모으고(collect_features), 탐욕적 k-center 코어셋으로 메모리 뱅크를 줄이고(build_bank), 테스트 이미지의 각
@@ -30,9 +30,8 @@ import torch.nn.functional as F
 from defect_inspect.backbones import to_tensor
 from defect_inspect.coreset import kcenter_greedy
 
-# Largest [query rows, bank rows] block built at once while searching the bank (2**27 fp32 = 512 MB).
-# 쿼리 패치 × 뱅크 행 거리 행렬을 한 번에 만들 수 있는 최대 원소 수. fp32로 512MB라 RTX 2080 Ti(11GB)에서
-# 뱅크가 커져도 한 블록이 이 크기를 넘지 않게 쿼리를 잘라 처리한다.
+# 뱅크를 탐색할 때 한 번에 만드는 [쿼리 행, 뱅크 행] 거리 블록의 최대 원소 수(2**27개, fp32로 512MB).
+# RTX 2080 Ti(11GB)에서 뱅크가 커져도 한 블록이 이 크기를 넘지 않게 쿼리를 잘라 처리한다.
 _MAX_DIST_ELEMS = 1 << 27
 
 
@@ -56,7 +55,7 @@ def _check_images(images: np.ndarray, batch_size: int) -> None:
 # CUDA에서는 fp16 autocast를 켜고 CPU에서는 아무것도 하지 않는 문맥을 돌려준다. RTX 2080 Ti에는 bf16이 없어
 # 혼합 정밀도는 fp16만 쓴다. P0 구성도 fp16 추론으로 정해져 있다(experiments.md 1단계).
 def _autocast(device: torch.device) -> contextlib.AbstractContextManager:
-    """fp16 autocast on CUDA, plain fp32 elsewhere."""
+    """CUDA에서는 fp16 autocast를 켜고, 그 밖의 장치에서는 그냥 fp32로 계산한다."""
     if device.type == "cuda":
         return torch.autocast("cuda", dtype=torch.float16)
     return contextlib.nullcontext()
@@ -66,11 +65,11 @@ def _autocast(device: torch.device) -> contextlib.AbstractContextManager:
 # 채점할 때 같은 반올림 값을 보게 한다.
 # fp16 범위를 넘어 inf/NaN이 생기면 조용히 이상한 점수가 나오지 않게 FloatingPointError로 멈춘다.
 def _patch_features(extractor: torch.nn.Module, images: np.ndarray, device: torch.device) -> torch.Tensor:
-    """One batch of uint8 images -> fp16 patch features [B, H, W, D] on the device."""
+    """uint8 이미지 한 배치 -> 장치 위의 fp16 패치 특징 [B, H, W, D]."""
     dtype = torch.float16 if device.type == "cuda" else torch.float32
     with _autocast(device):
         feats = extractor(to_tensor(images, device, dtype))
-    # Everything downstream (bank rows and queries alike) sees the same fp16-rounded values.
+    # 뒤의 모든 단계(뱅크 행이든 쿼리든)가 똑같이 fp16으로 반올림된 값을 보게 한다.
     feats = feats.to(torch.float16)
     if not bool(torch.isfinite(feats).all()):
         raise FloatingPointError("patch features overflowed fp16")
@@ -80,7 +79,7 @@ def _patch_features(extractor: torch.nn.Module, images: np.ndarray, device: torc
 # 정상 이미지들의 패치 특징을 모두 모아 CPU fp16 텐서 [N*H*W, D]로 돌려준다(뱅크 재료). 행 순서는 이미지 순,
 # 그 안에서 패치 격자의 행 우선 순이다.
 # 출력 텐서를 첫 배치에서 한 번만 할당하고 배치마다 채워 넣어, 리스트에 모았다가 이어 붙일 때 생기는 두 배
-# 메모리 정점을 피한다(주석 'peak stays at one copy').
+# 메모리 정점을 피한다(정점이 특징 한 벌 크기에 머문다).
 # 호출 위치: run_patchcore, run_grid, run_m2ad, run_m2ad_enrol, supervised(지도 학습 헤드의 고정 특징).
 @torch.no_grad()
 def collect_features(
@@ -90,9 +89,9 @@ def collect_features(
     batch_size: int = 32,
     device: str | torch.device = "cuda",
 ) -> tuple[torch.Tensor, tuple[int, int]]:
-    """uint8 images [N, S, S, 3] -> (CPU fp16 patch features [N * H * W, D], grid (H, W)).
+    """uint8 이미지 [N, S, S, 3] -> (CPU fp16 패치 특징 [N * H * W, D], 패치 격자 (H, W)).
 
-    Rows are ordered by image, then row-major over the patch grid.
+    행은 이미지 순서대로 놓이고, 한 이미지 안에서는 패치 격자의 행 우선 순서를 따른다.
     """
     _check_images(images, batch_size)
     device = torch.device(device)
@@ -108,7 +107,7 @@ def collect_features(
         feats = _patch_features(extractor, images[start : start + batch_size], device)
         b, h, w, dim = feats.shape
         if out is None:
-            # Allocated once, so the peak stays at one copy of the features.
+            # 한 번만 할당하므로 메모리 정점이 특징 한 벌 크기에 머문다.
             grid = (h, w)
             out = torch.empty((n * h * w, dim), dtype=torch.float16)
         out[pos : pos + b * h * w] = feats.reshape(b * h * w, dim).cpu()
@@ -126,9 +125,9 @@ def collect_features(
 def build_bank(
     features: torch.Tensor, ratio: float = 0.1, *, seed: int = 0, device: str | torch.device = "cuda"
 ) -> torch.Tensor:
-    """Greedy k-center coreset of `features` [N, D] as a CPU fp16 tensor in selection order.
+    """`features` [N, D]의 탐욕적 k-center 코어셋을 선택 순서대로 CPU fp16 텐서로 돌려준다.
 
-    Keeps `max(1, round(ratio * N))` rows (`ratio >= 1` keeps all). `bank[:m]` is the coreset of size m.
+    `max(1, round(ratio * N))`행을 남긴다(`ratio >= 1`이면 전부). `bank[:m]`이 곧 크기 m의 코어셋이다.
     """
     n = features.shape[0]
     # 남길 행 수: 비율 × 전체를 반올림하되 최소 1행. ratio가 1 이상이면 전부 남긴다.
@@ -141,7 +140,7 @@ def build_bank(
 # scipy.ndimage의 기본 truncate=4.0과 같은 크기 규칙이다. bench.py는 이 함수를 그대로 쓰고, CPU 서빙
 # 경로(inspector.py)는 같은 크기 규칙의 numpy 커널을 따로 두어 두 경로의 점수 맵이 맞게 한다.
 def gaussian_kernel1d(sigma: float) -> torch.Tensor:
-    """Normalised fp32 Gaussian kernel of size `2 * int(4 * sigma + 0.5) + 1` (a single 1 if sigma <= 0)."""
+    """합이 1인 fp32 가우시안 커널. 길이는 `2 * int(4 * sigma + 0.5) + 1`(sigma <= 0이면 1 하나)."""
     if sigma <= 0:
         return torch.ones(1, dtype=torch.float32)
     radius = int(4 * sigma + 0.5)
@@ -154,7 +153,7 @@ def gaussian_kernel1d(sigma: float) -> torch.Tensor:
 # 패딩으로 처리한다.
 # reflect 패딩은 패딩 폭이 맵 크기보다 작아야 하므로, 커널 반지름이 맵보다 크면 ValueError로 막는다.
 def _blur(maps: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
-    """Separable Gaussian blur of [B, 1, H, W] with reflect padding."""
+    """[B, 1, H, W] 맵에 reflect 패딩으로 분리형 가우시안 흐림을 준다."""
     pad = kernel.numel() // 2
     if pad == 0:
         return maps
@@ -168,15 +167,15 @@ def _blur(maps: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
 # 쿼리 패치마다 뱅크에서 가장 가까운 행과 그 유클리드 거리를 구한다(PatchCore의 패치 점수).
 # 방식: 전개식 ||q-b||² = ||q||² - 2q·b + ||b||²로 거리 행렬을 행렬곱(addmm) 한 번에 계산해 최근접 인덱스를
 # 찾고, 찾은 행과의 거리만 q - b로 다시 직접 계산한다. 전개식은 0 근처에서 큰 수끼리 빼며 정밀도를
-# 잃으므로(docstring의 cancellation), 순위는 전개식으로 빠르게, 실제 거리는 정확한 식으로 낸다.
+# 잃으므로(아래 docstring의 '0 근처 상쇄'), 순위는 전개식으로 빠르게, 실제 거리는 정확한 식으로 낸다.
 # 메모리: 블록 원소 수가 _MAX_DIST_ELEMS를 넘지 않도록 쿼리를 step개씩 자른다.
 def _nearest(
     query: torch.Tensor, bank: torch.Tensor, bank_sq: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Euclidean distance to, and index of, the nearest bank row for each query row (fp32, one device).
+    """쿼리 행마다 가장 가까운 뱅크 행까지의 유클리드 거리와 그 행 번호(fp32, 한 장치 위).
 
-    The search uses the expanded form in blocks of at most `_MAX_DIST_ELEMS` values; the distance to
-    the row it finds is then recomputed directly, so it does not suffer from cancellation near zero.
+    탐색은 원소 `_MAX_DIST_ELEMS`개 이하의 블록으로 나눠 전개식으로 한다. 찾은 행까지의 거리는 직접 다시
+    계산하므로, 거리가 0에 가까울 때 큰 수끼리 빼며 생기는 상쇄 오차를 겪지 않는다.
     """
     n_query = query.shape[0]
     step = max(1, _MAX_DIST_ELEMS // bank.shape[0])
@@ -184,9 +183,8 @@ def _nearest(
     index = torch.empty(n_query, dtype=torch.int64, device=query.device)
     for start in range(0, n_query, step):
         q = query[start : start + step]
-        # addmm(bank_sq, q, bank.T, alpha=-2)는 ||b||² - 2q·b를 계산한다. ||q||²는 쿼리 행마다 상수라 argmin
-        # 결과에 영향이 없어 빼고 계산한다.
-        # ||b||^2 - 2 q.b orders the bank rows like the squared distance (||q||^2 is constant per row).
+        # addmm(bank_sq, q, bank.T, alpha=-2)는 ||b||² - 2q·b를 계산한다. 이 값은 제곱 거리와 같은 순서로 뱅크
+        # 행을 줄 세운다. ||q||²는 쿼리 행마다 상수라 argmin 결과에 영향이 없어 빼고 계산한다.
         block = torch.addmm(bank_sq.unsqueeze(0), q, bank.T, alpha=-2.0)
         nearest = block.argmin(dim=1)
         # 큰 거리 블록을 바로 놓아 다음 블록을 만들 때 GPU 메모리 정점이 두 배가 되지 않게 한다.
@@ -210,9 +208,9 @@ def _image_scores(
     bank_sq: torch.Tensor,
     reweight_k: int,
 ) -> torch.Tensor:
-    """PatchCore image score: the largest patch score, re-weighted by its neighbourhood in the bank.
+    """PatchCore 이미지 점수: 가장 큰 패치 점수를 뱅크 안 이웃 분포로 재가중한 값.
 
-    `patch_scores` and `nearest` are [B, P]; `query` is [B, P, D].
+    `patch_scores`와 `nearest`는 [B, P], `query`는 [B, P, D] 모양이다.
     """
     s_star, p_star = patch_scores.max(dim=1)
     if reweight_k <= 1:
@@ -220,13 +218,13 @@ def _image_scores(
     # 뱅크 행 수가 k보다 적으면(아주 작은 뱅크) 있는 행만큼만 이웃으로 쓴다.
     k = min(reweight_k, bank.shape[0])
     rows = torch.arange(patch_scores.shape[0], device=patch_scores.device)
-    feat_star = query[rows, p_star]  # [B, D]: the most anomalous patch of each image
-    m_star = nearest[rows, p_star]  # [B]: its nearest bank row
+    feat_star = query[rows, p_star]  # [B, D]: 이미지마다 가장 이상한 패치
+    m_star = nearest[rows, p_star]  # [B]: 그 패치의 최근접 뱅크 행
     # m*와 뱅크 전체 행 사이의 (순위용) 전개식 거리 [B, R]. 같은 값의 중복 행이 있어도 m* 자신이 첫 번째
     # 이웃이 되도록 그 칸을 -inf로 둔다. 그래서 softmax의 0번 칸이 항상 m*다.
     block = torch.addmm(bank_sq.unsqueeze(0), bank[m_star], bank.T, alpha=-2.0)  # [B, R]
-    block[rows, m_star] = float("-inf")  # m* itself comes first, even if the bank has duplicates of it
-    support = block.topk(k, dim=1, largest=False).indices  # [B, k], nearest first
+    block[rows, m_star] = float("-inf")  # 뱅크에 m*와 같은 행이 있어도 m* 자신이 맨 앞에 온다
+    support = block.topk(k, dim=1, largest=False).indices  # [B, k], 가까운 순
     # 가중치에 쓰는 거리는 전개식이 아니라 가장 이상한 패치 feat_star와 이웃 행들 사이의 직접 거리다.
     dist = torch.linalg.vector_norm(feat_star.unsqueeze(1) - bank[support], dim=2)  # [B, k]
     weight = 1.0 - torch.softmax(dist, dim=1)[:, 0]
@@ -252,10 +250,10 @@ def score_images(
     sigma: float = 4.0,
     map_size: int = 256,
 ) -> ScoreResult:
-    """Score uint8 images [N, S, S, 3] against a memory bank [R, D].
+    """uint8 이미지 [N, S, S, 3]를 메모리 뱅크 [R, D]와 비교해 채점한다.
 
-    Patch score = Euclidean distance to the nearest bank row. Image score = re-weighted largest patch
-    score. Map = patch scores upsampled to S (bilinear), blurred (Gaussian `sigma`), resized to `map_size`.
+    패치 점수 = 가장 가까운 뱅크 행까지의 유클리드 거리. 이미지 점수 = 재가중한 가장 큰 패치 점수.
+    점수 맵 = 패치 점수를 S로 bilinear 확대하고 가우시안(`sigma`)으로 흐린 뒤 `map_size`로 크기를 맞춘 것.
     """
     _check_images(images, batch_size)
     if bank.ndim != 2 or bank.shape[0] == 0:
@@ -268,11 +266,9 @@ def score_images(
         return ScoreResult(image_scores, maps)
 
     extractor = extractor.to(device).eval()
-    # 뱅크를 fp32로 한 번 올리고 평균 벡터를 빼서 중심화한다. 모든 행과 쿼리에서 같은 벡터를 빼므로 거리는
-    # 그대로이고, ReLU 뒤 특징처럼 공통 오프셋이 큰 경우 전개식의 큰 수 뺄셈 오차를 줄인다(기존 영어 주석).
-    # 쿼리도 아래에서 같은 centre를 뺀다.
-    # One fp32 copy of the bank on the device. Centring leaves distances unchanged and keeps the
-    # expanded form used for the search accurate (post-ReLU features share a large common offset).
+    # 뱅크를 장치에 fp32 사본 하나로 올리고 평균 벡터를 빼서 중심화한다. 모든 행과 쿼리에서 같은 벡터를
+    # 빼므로 거리는 그대로이고, 탐색에 쓰는 전개식이 정확하게 유지된다(ReLU 뒤 특징은 모든 행이 큰 공통
+    # 오프셋을 가져 그대로 두면 큰 수 뺄셈 오차가 커진다). 쿼리도 아래에서 같은 centre를 뺀다.
     bank_dev = bank.to(device=device, dtype=torch.float32, copy=True)
     centre = bank_dev.mean(dim=0, keepdim=True)
     bank_dev -= centre

@@ -45,8 +45,8 @@ def test_names_follow_the_registered_table():
         ("blur-2", 448, 1.75),
         ("blur-3", 392, 1.5 * 392 / 256),
         ("shift-1", 256, 1),
-        ("shift-1", 448, 2),  # 1.75 rounds to 2
-        ("shift-2", 448, 4),  # 3.5 rounds half up
+        ("shift-1", 448, 2),  # 1.75를 반올림해 2
+        ("shift-2", 448, 4),  # 3.5는 0.5라 올림해 4
         ("shift-3", 448, 7),
         ("shift-1", 392, 2),  # 1.53
         ("shift-2", 392, 3),  # 3.06
@@ -76,10 +76,10 @@ def test_apply_matches_perturb_and_clean_is_a_copy():
     assert np.array_equal(clean, images) and clean is not images
     assert np.array_equal(conditions.apply_condition(images, "brightness-3"), perturb.brightness(images, 0.7))
     assert np.array_equal(conditions.apply_condition(images, "gamma-1"), perturb.gamma(images, 1.1))
-    # 64 px input: lengths shrink to a quarter of the 256-grid value.
+    # 64px 입력이라 길이(흐림 σ, 이동 거리)가 256 격자 값의 4분의 1로 준다.
     assert np.array_equal(conditions.apply_condition(images, "blur-2"), perturb.gaussian_blur(images, 0.25))
     assert np.array_equal(conditions.apply_condition(images, "shift-3"), perturb.shift(images, 1, 1))
-    assert np.array_equal(conditions.apply_condition(images, "shift-1"), images)  # 0.25 px rounds to no shift
+    assert np.array_equal(conditions.apply_condition(images, "shift-1"), images)  # 0.25px는 0으로 반올림
     assert np.array_equal(conditions.apply_condition(images, "jpeg-2"), perturb.jpeg(images, 70))
     assert np.array_equal(conditions.apply_condition(images[0], "gamma-2"), perturb.gamma(images[0], 1.25))
 

@@ -29,7 +29,7 @@ SIZE = 32
 # 실제 백본(WideResNet-50 등) 대신 쓰는 작은 특징 추출기: 4x4 칸마다 평균 색(3차원). 학습 가중치가 없어
 # 결정적이고 CPU에서 빠르다.
 class GridMean(torch.nn.Module):
-    """Tiny stand-in for a backbone: the mean colour of each cell of a 4x4 grid."""
+    """백본 대신 쓰는 작은 추출기: 4x4 격자의 칸마다 평균색을 낸다."""
 
     name = "gridmean"
     dim = 3
@@ -51,7 +51,7 @@ class FakeCache:
             img = rng.integers(100, 140, (SIZE, SIZE, 3), dtype=np.uint8)
             mask = np.zeros((256, 256), dtype=np.uint8)
             if row.label == "anomaly":
-                img[8:16, 8:16] = 255  # a bright square that no normal image has
+                img[8:16, 8:16] = 255  # 어떤 정상 이미지에도 없는 밝은 사각형
                 mask[64:128, 64:128] = 1
             self._images[row.image] = img
             self._masks[row.image] = mask
@@ -118,10 +118,10 @@ def test_dev_run_writes_every_score_set(tmp_path):
         assert z["eval_labels"].tolist() == [0] * 8 + [1] * 6
         assert set(z["pool_folds"].tolist()) == {1, 2, 3, 4}
         assert np.isfinite(z["pool_score_oof"]).all() and np.isfinite(z["pool_score_resub"]).all()
-        # Defects (a bright square) score far above the normals under both models.
+        # 결함(밝은 사각형)은 두 모델 모두에서 정상보다 훨씬 높게 채점된다.
         for key in ("eval_score_full", "eval_score_holdout"):
             assert z[key][8:].min() > z[key][:8].max()
-        # An image scored by a bank that contains its own patches looks more normal than when held out.
+        # 자기 패치가 든 뱅크로 채점한 이미지는 빼 두고 채점할 때보다 더 정상처럼 보인다.
         assert z["pool_score_resub"].mean() < z["pool_score_oof"].mean()
         assert float(z["pixel_auroc"]) > 0.9
         assert z["pro_components"].shape[0] == 6
@@ -161,7 +161,7 @@ def test_saved_bank_reproduces_the_scores(tmp_path):
     )
     with np.load(tmp_path / "toy.npz") as z:
         np.testing.assert_allclose(res.image_scores, z["eval_score_full"][8:], rtol=1e-5)
-    # Only the full bank is kept: no fold bank is written next to it.
+    # 전체 뱅크만 남기고 그 옆에 겹 뱅크는 쓰지 않는다.
     assert sorted(p.name for p in tmp_path.glob("*.npy")) == ["toy_bank.npy", "toy_maps.npy"]
 
 

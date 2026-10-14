@@ -1,11 +1,10 @@
-"""Train the supervised patch head for every (category, k, seed) and score the evaluation set.
+"""(범주, k, 시드)마다 지도 학습 패치 헤드를 학습하고 평가 세트를 채점한다.
 
-Features come from the frozen DINOv2 ViT-S/14 at 448 px and are extracted once per category. Every
-(k, seed) writes `<out>/k{k}-s{seed}/<category>.npz` (common stage 2 format plus the training defects and
-the selected epoch) and `<category>_maps.npy`; `<out>/run.json` lists every run and marks the whole
-invocation as finished. An output directory only ever holds the results of one invocation: a redo
-(`--overwrite`) first removes what the earlier one wrote. Rules: docs/experiments.md, section
-"2단계 / 지도 학습".
+특징은 고정한 DINOv2 ViT-S/14(448px)에서 나오며 범주마다 한 번만 뽑는다. (k, 시드)마다
+`<out>/k{k}-s{seed}/<category>.npz`(2단계 공통 형식 + 학습에 쓴 결함과 고른 에폭)와 `<category>_maps.npy`를
+쓴다. `<out>/run.json`은 모든 실행을 나열하고 호출 전체가 끝났음을 표시한다. 출력 폴더에는 늘 한 호출의
+결과만 있다: 다시 돌리면(`--overwrite`) 이전 호출이 쓴 것을 먼저 지운다. 규칙: docs/experiments.md의
+"2단계 / 지도 학습" 절.
 """
 
 # [파일 역할] 2단계 지도 학습의 실행기(python -m defect_inspect.run_supervised). 범주마다 DINOv2
@@ -60,10 +59,9 @@ def run_dir(out_dir: Path, k: int, seed: int) -> Path:
 # 세고 다른 파일은 건드리지 않는다.
 # 호출 위치: main(덮어쓰기 허락 검사), clear_previous_results.
 def previous_results(out_dir: Path) -> list[Path]:
-    """Files an earlier invocation left in the `k{k}-s{seed}` folders of `out_dir`, in sorted order.
+    """이전 호출이 `out_dir`의 `k{k}-s{seed}` 폴더들에 남긴 파일(정렬 순서).
 
-    Only what this module writes counts: `run.json`, `<category>.npz` and `<category>_maps.npy` directly
-    inside such a folder.
+    이 모듈이 쓰는 것만 센다: 그런 폴더 바로 안의 `run.json`, `<category>.npz`, `<category>_maps.npy`.
     """
     out_dir = Path(out_dir)
     if not out_dir.is_dir():
@@ -83,14 +81,13 @@ def previous_results(out_dir: Path) -> list[Path]:
 # 전부 읽으므로, 다른 커밋·다른 k·시드·범주로 돌린 예전 파일이 남아 있으면 새 결과와 섞여 분석된다(docstring).
 # 빈 폴더만 지우고 그 밖의 파일은 남긴다.
 def clear_previous_results(out_dir: Path) -> int:
-    """Remove `<out_dir>/run.json` and every file of `previous_results`; returns how many of the latter.
+    """`<out_dir>/run.json`과 `previous_results`의 모든 파일을 지우고, 뒤의 것의 개수를 돌려준다.
 
-    The analysis reads `k{k}-s{seed}/<category>.npz` without looking at a run.json, so results of an
-    earlier invocation (another commit, other ks, seeds or categories) must not stay next to the new
-    ones. Folders that are empty afterwards are removed; any other file is left alone.
+    분석은 run.json을 보지 않고 `k{k}-s{seed}/<category>.npz`를 읽으므로, 이전 호출(다른 커밋, 다른 k·시드·
+    범주)의 결과가 새 결과 옆에 남아 있으면 안 된다. 지운 뒤 빈 폴더는 지우고, 그 밖의 파일은 그대로 둔다.
     """
     out_dir = Path(out_dir)
-    # First, so that a directory that is being cleared or redone never looks finished.
+    # 맨 먼저 지워, 정리하거나 다시 돌리는 중인 폴더가 끝난 것처럼 보이는 순간이 없게 한다.
     (out_dir / "run.json").unlink(missing_ok=True)
     found = previous_results(out_dir)
     for path in found:
@@ -104,7 +101,7 @@ def clear_previous_results(out_dir: Path) -> int:
 # 범주의 라벨 풀(학습용 결함은 여기서만 뽑는다, 범주당 40장)을 매니페스트 순서로 돌려준다. 특징을 한 번에 뽑아
 # 두고 label_subset이 고른 이미지를 인덱스로 찾아 쓰기 위해 순서를 고정한다.
 def label_pool(manifest: list[ManifestRow], category: str) -> list[ManifestRow]:
-    """The category's label pool in manifest order (the only source of training defects)."""
+    """범주의 라벨 풀(학습용 결함은 여기서만 나온다). 매니페스트 순서다."""
     return [r for r in manifest if r.category == category and r.role == "label_pool"]
 
 
@@ -132,10 +129,10 @@ def run_category(
     seeds: tuple[int, ...] = SEEDS,
     train_cfg=None,
 ) -> tuple[dict, list[dict]]:
-    """Extract the features of one category once, then train and evaluate every (k, seed).
+    """범주 하나의 특징을 한 번 뽑고, 모든 (k, 시드)에 대해 학습하고 평가한다.
 
-    Returns the category info and one info dict per run. `train_cfg` (default `TrainConfig()`) is used
-    with its seed replaced by the run's seed.
+    범주 정보와 실행마다 정보 dict 하나씩을 돌려준다. `train_cfg`(기본값 `TrainConfig()`)는 seed만 그
+    실행의 시드로 바꿔 쓴다.
     """
     import torch
 
@@ -143,8 +140,7 @@ def run_category(
 
     base_cfg = supervised.TrainConfig() if train_cfg is None else train_cfg
     # 봉인 테스트 관문(select의 allow_test)을 가장 먼저 지나게 해서, 허락 없이 test를 부르면 특징 추출 같은
-    # 비싼 작업 전에 SealedTestError로 멈춘다.
-    # The evaluation parts come first: without permission the test protocol stops here, before any work.
+    # 비싼 작업 전에 SealedTestError로 멈춘다(평가 부분을 맨 먼저 고르는 이유).
     eval_normal = select(
         manifest, protocol=protocol, part="eval_normal", category=category, allow_test=allow_test
     )
@@ -155,8 +151,7 @@ def run_category(
     eval_labels = np.array([0] * len(eval_normal) + [1] * len(eval_defect), dtype=np.int8)
     # 학습·검증 세트는 절차와 관계없이 늘 dev 쪽에서 가져온다. 학습 정상 = 겹 1~4, 검증 = 겹 0 정상 + dev 결함
     # 20장(규칙의 검증 항목). test 절차에서 바뀌는 것은 평가 세트(봉인 테스트)뿐이다. 그래서 test 절차에서도
-    # 학습에 봉인 테스트가 섞일 수 없다.
-    # Training normals are folds 1-4 and validation is fold 0 + dev defects in BOTH protocols.
+    # 학습에 봉인 테스트가 섞일 수 없다. 두 절차 모두에서 학습 정상은 겹 1-4, 검증은 겹 0 + dev 결함이다.
     train_normal = select(manifest, protocol="dev", part="pool_normal", category=category)
     val_normal = select(manifest, protocol="dev", part="eval_normal", category=category)
     val_defect = select(manifest, protocol="dev", part="eval_defect", category=category)
@@ -227,12 +222,12 @@ def run_category(
             # 임계값 보정 점수(cal_score): test 절차에서는 헤드가 학습하지 않은 겹 0 정상의 점수로 임계값을
             # 정한다(규칙: 홀드아웃). dev 절차에서는 겹 0 정상이 평가 정상 자체이므로 보정 점수를 비워 둔다.
             if protocol == "test":
-                # Thresholds are fixed on the fold-0 normals, which the head was not trained on.
+                # 임계값은 헤드가 학습하지 않은 겹 0 정상으로 정한다.
                 cal_score = supervised.predict(
                     result.head, val_feats[: len(val_normal)], device=device
                 ).image_scores
             else:
-                # In dev the fold-0 normals are the evaluation normals themselves.
+                # dev에서는 겹 0 정상이 평가 정상 자체다.
                 cal_score = np.empty(0, dtype=np.float32)
             predict_s = time.perf_counter() - t0
 
@@ -250,7 +245,7 @@ def run_category(
             target_dir.mkdir(parents=True, exist_ok=True)
             # 검증하지 않은 에폭의 val_auroc(None)는 숫자 배열에 넣을 수 있게 NaN으로 바꾼다.
             val_auroc = [np.nan if h["val_auroc"] is None else h["val_auroc"] for h in result.history]
-            # Compressed: the PRO histograms are large and almost empty (read back with np.load as usual).
+            # 압축해서 저장한다: PRO 히스토그램이 크고 거의 비어 있다(읽을 때는 평소처럼 np.load로 읽는다).
             np.savez_compressed(
                 target_dir / f"{category}.npz",
                 eval_images=np.array([r.image for r in eval_rows]),
@@ -320,13 +315,13 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--protocol", choices=["dev", "test"], default="dev")
     parser.add_argument("--categories", nargs="+", default=list(CATEGORIES))
-    parser.add_argument("--ks", nargs="+", type=int, default=list(K_VALUES), help="training defects")
+    parser.add_argument("--ks", nargs="+", type=int, default=list(K_VALUES), help="범주당 학습 결함 장수 k")
     parser.add_argument("--seeds", nargs="+", type=int, default=list(SEEDS))
-    parser.add_argument("--out", type=Path, default=None, help="default: outputs/sup-<protocol>")
+    parser.add_argument("--out", type=Path, default=None, help="기본값: outputs/sup-<protocol>")
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--allow-test", action="store_true", help="read the sealed test set (logged)")
+    parser.add_argument("--allow-test", action="store_true", help="봉인 테스트 세트를 읽는다(장부에 기록)")
     parser.add_argument(
-        "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
+        "--stage", default="", help="봉인 테스트 장부에 남길 단계 이름(--allow-test와 함께 필수)"
     )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
@@ -364,12 +359,11 @@ def main(argv: list[str] | None = None) -> None:
 
     # 캐시 열기·백본 적재처럼 실패할 수 있는 일을 장부 기록보다 먼저 한다. 그래야 장부에 "봉인 테스트를
     # 읽었다"는 줄이 남았는데 실제로는 아무것도 재지 못한 경우가 줄어든다.
-    # Everything that can fail without touching the test set comes before the ledger entry.
     cache = ImageCache(paths.CACHE, IMG_SIZE)
     extractor = make_extractor(BACKBONE, img_size=IMG_SIZE).to(args.device).eval()
     out_dir.mkdir(parents=True, exist_ok=True)
-    # An interrupted redo must not look finished, and no file of the earlier invocation may be taken
-    # for a result of this one (the checks above only let this happen with --overwrite).
+    # 중간에 끊긴 재실행이 끝난 것처럼 보이면 안 되고, 이전 호출의 파일이 이번 결과로 오인되어서도 안 된다(위
+    # 검사 때문에 이 정리는 --overwrite일 때만 일어난다).
     removed = clear_previous_results(out_dir)
     if removed:
         print(json.dumps({"removed_previous_results": removed}), flush=True)
@@ -382,7 +376,7 @@ def main(argv: list[str] | None = None) -> None:
         "img_size": IMG_SIZE,
         "ks": list(args.ks),
         "seeds": list(args.seeds),
-        "train": asdict(TrainConfig()),  # "seed" is replaced by the seed of each run
+        "train": asdict(TrainConfig()),  # "seed"는 실행마다 그 실행의 시드로 바뀐다
     }
     # 봉인 테스트를 읽기 직전에 reports/test_ledger.jsonl에 한 줄(단계, 구성, k·시드·범주 수, 커밋)을 남긴다.
     if args.protocol == "test":
@@ -421,12 +415,12 @@ def main(argv: list[str] | None = None) -> None:
         "protocol": args.protocol,
         "commit": commit,
         "device": args.device,
-        # Training is bit-reproducible only on the CPU with the same number of threads; see `train_head`.
+        # 학습은 CPU에서 스레드 수가 같을 때만 비트 단위로 재현된다(`train_head` 참고).
         "torch_threads": torch_threads,
     }
     # (k, 시드) 폴더마다 자기 실행 정보만 담은 run.json을 쓴다. 마지막으로 out_dir/run.json(전체 요약)을 써서
     # 실행 전체가 끝났음을 표시한다. 이 파일이 맨 끝에 써지므로, 중간에 멈춘 실행은 끝난 것으로 보이지 않는다.
-    # Every k{k}-s{seed} directory is a run directory of the common format on its own.
+    # k{k}-s{seed} 폴더 하나하나가 그 자체로 공통 형식의 실행 폴더가 된다.
     for k in args.ks:
         for seed in args.seeds:
             own = [r for r in runs if r["k"] == k and r["seed"] == seed]

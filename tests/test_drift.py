@@ -27,7 +27,8 @@ def test_inductive_pvalues_count_larger_and_tied_calibration_scores():
     scores = np.array([[0.5, 2.0, 3.5]])
     theta = np.array([[1.0, 0.5, 0.25]])
     p = drift.inductive_pvalues(scores, cal, theta)
-    # 0.5: all four are larger, (4 + 1 * 1) / 5; 2.0: one larger, two tied, (1 + 0.5 * 3) / 5; 3.5: none.
+    # 0.5: 넷 모두 더 크다 → (4 + 1 * 1) / 5. 2.0: 하나가 크고 둘이 같다 → (1 + 0.5 * 3) / 5.
+    # 3.5: 더 크거나 같은 것이 없다 → (0 + 0.25 * 1) / 5.
     np.testing.assert_allclose(p, [[1.0, 0.5, 0.05]])
     with pytest.raises(ValueError):
         drift.inductive_pvalues(scores, np.array([]), theta)
@@ -38,7 +39,7 @@ def test_inductive_pvalues_count_larger_and_tied_calibration_scores():
 # 비교하므로 p = θ이며, 모든 값이 (0, 1]에 든다.
 def test_transductive_pvalues_rank_each_score_among_those_seen_so_far():
     rng = np.random.default_rng(0)
-    scores = rng.integers(0, 5, size=(7, 30)).astype(float)  # many ties
+    scores = rng.integers(0, 5, size=(7, 30)).astype(float)  # 동점이 많다
     theta = drift._theta(rng, scores.shape)
     p = drift.transductive_pvalues(scores, theta)
     for r in range(scores.shape[0]):
@@ -46,7 +47,7 @@ def test_transductive_pvalues_rank_each_score_among_those_seen_so_far():
             past = scores[r, : t + 1]
             expected = ((past > scores[r, t]).sum() + theta[r, t] * (past == scores[r, t]).sum()) / (t + 1)
             assert p[r, t] == pytest.approx(expected)
-    # The first observation is compared with itself only.
+    # 첫 관측은 자기 자신과만 비교하므로 p = θ다.
     np.testing.assert_allclose(p[:, 0], theta[:, 0])
     assert ((p > 0) & (p <= 1)).all()
 
@@ -67,7 +68,7 @@ def test_the_martingale_rarely_alarms_on_uniform_pvalues():
     rng = np.random.default_rng(2)
     p = drift._theta(rng, (3000, 400))
     alarm = drift.first_alarm(p)
-    # Ville: at most DELTA over an infinite stream.
+    # Ville 부등식: 무한한 스트림 전체에서도 경보 확률은 DELTA 이하다.
     assert (alarm >= 0).mean() <= drift.DELTA
 
 
@@ -81,7 +82,7 @@ def test_the_martingale_alarms_soon_after_the_pvalues_turn_small():
     p[1, 40:] = 0.03
     alarm = drift.first_alarm(p)
     assert 40 <= alarm[0] <= 43 and 40 <= alarm[1] <= 50
-    # Tiny p-values from the first step alarm within three steps; p = 0.5 throughout never alarms.
+    # 처음부터 p가 아주 작으면 세 장 안에 경보하고, 끝까지 p = 0.5면 경보하지 않는다.
     assert drift.first_alarm(np.full((1, 3), 1e-12))[0] in (0, 1, 2)
     assert drift.first_alarm(np.full((1, 100), 0.5))[0] == -1
     with pytest.raises(ValueError):
@@ -104,7 +105,7 @@ def test_the_alarm_follows_the_capital_by_hand():
         if capital.sum() >= 1 / drift.DELTA and reached < 0:
             reached = t
     assert reached >= 0 and drift.first_alarm(p)[0] == reached
-    assert drift.first_alarm(p, delta=1e-9)[0] == -1  # a much higher bar is not reached in four steps
+    assert drift.first_alarm(p, delta=1e-9)[0] == -1  # 훨씬 높은 문턱은 네 장 안에 닿지 않는다
 
 
 # 확인: 섞을 결함 수 = round(r / (1 − r) × 정상 수)이고 0.5는 올리며(10.53 → 11), 그 범주의 결함 수(VisA test
@@ -112,9 +113,9 @@ def test_the_alarm_follows_the_capital_by_hand():
 # 장수 정의).
 def test_n_mixed():
     assert drift.n_mixed(200, 0.0, 40) == 0
-    assert drift.n_mixed(200, 0.05, 40) == 11  # 10.53 rounds to 11
+    assert drift.n_mixed(200, 0.05, 40) == 11  # 10.53을 반올림해 11
     assert drift.n_mixed(200, 0.10, 40) == 22
-    assert drift.n_mixed(402, 0.10, 40) == 40  # capped by the defects there are
+    assert drift.n_mixed(402, 0.10, 40) == 40  # 있는 결함 수(40)가 상한
     assert drift.n_mixed(20, 0.05, 50) == 1 and drift.n_mixed(20, 0.10, 50) == 2
     with pytest.raises(ValueError):
         drift.n_mixed(10, 1.0, 5)
@@ -129,7 +130,7 @@ def test_false_alarm_streams_hold_every_normal_once():
     assert k == 2 and streams.shape == (5, 22)
     for row in streams:
         assert sorted(row[row < 100]) == list(normal) and (row >= 100).sum() == 2
-    assert len({tuple(row) for row in streams}) == 5  # each stream has its own order
+    assert len({tuple(row) for row in streams}) == 5  # 스트림마다 순서가 다르다
 
 
 # 확인: VisA 합성 교란 지연 스트림은 정상과 결함을 반씩 나눠 앞 절반은 교란 없는 점수, 뒤 절반은 교란 점수로
@@ -146,7 +147,7 @@ def test_split_change_streams_keep_images_apart():
     for row in streams:
         pre, post = row[:change], row[change:]
         assert (pre < 1000).all() and (post >= 1000).all()
-        assert not set(pre.astype(int)) & set((post - 1000).astype(int))  # no image on both sides
+        assert not set(pre.astype(int)) & set((post - 1000).astype(int))  # 양쪽에 같이 나온 이미지 없음
 
 
 # 확인: M2AD 지연 스트림(I01 구간 뒤에 새 조명 구간)의 변화 위치와 섞인 결함 수, 그리고 지연 정의를 본다.
@@ -174,7 +175,7 @@ def test_change_streams_and_delays():
 # 쓴다). 시드를 키로 정하는 것은 모듈 수준 난수를 쓰지 않고 결과를 결정적으로 만들기 위해서다.
 def test_detect_runs_both_detectors_on_the_same_streams():
     rng = drift.rng_for("x")
-    assert drift.rng_for("x").random() == rng.random()  # fixed seed per key
+    assert drift.rng_for("x").random() == rng.random()  # 키마다 시드가 고정된다
     scores = np.concatenate([np.zeros((50, 100)), np.full((50, 30), 5.0)], axis=1)
     scores += np.random.default_rng(6).normal(0, 0.1, scores.shape)
     found = drift.detect(scores, np.random.default_rng(7).normal(0, 0.1, 300), drift.rng_for("y"))

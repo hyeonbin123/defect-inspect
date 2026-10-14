@@ -1,4 +1,4 @@
-"""Anomaly detection for visual inspection, measured with pre-registered rules."""
+"""외관 검사를 위한 이상 탐지와, 그 성능을 미리 등록한 규칙으로 재는 코드를 담은 패키지."""
 
 # [파일 역할] defect_inspect 패키지의 입구다. 실제 기능은 하위 모듈(데이터 받기, PatchCore·Dinomaly 실행,
 # 분석, 검사 서비스)에 있고, 대부분 `python -m defect_inspect.<모듈>` 명령으로 따로 실행한다.

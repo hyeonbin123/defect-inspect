@@ -35,7 +35,7 @@ SIZE = 32
 # get_inputs/get_outputs가 없으므로 Inspector는 선언된 입출력 모양 검사(check_model_io)를 건너뛴다. 그 검사는
 # 아래 DescribedSession으로 따로 시험한다. calls는 호출 횟수를 세지만 이 파일의 테스트는 읽지 않는다.
 class FakeSession:
-    """Stand-in for an onnxruntime session: the mean colour of each grid cell as a 3-d patch feature."""
+    """onnxruntime 세션 대신 쓰는 가짜 모델: 격자 칸마다 평균 색을 3차원 패치 특징으로 낸다."""
 
     def __init__(self, grid=GRID):
         self.grid = grid
@@ -104,7 +104,7 @@ def test_preprocess_matches_the_definition():
     mean, std = np.array(inspector.IMAGENET_MEAN), np.array(inspector.IMAGENET_STD)
     expected = ((array / 255.0 - mean) / std).transpose(2, 0, 1)
     np.testing.assert_allclose(x[0], expected, rtol=1e-5, atol=1e-6)
-    # A PIL image of the right size gives the same tensor; another size is resized with BICUBIC.
+    # 크기가 맞는 PIL 이미지는 같은 텐서를 내고, 다른 크기는 BICUBIC으로 리사이즈한다.
     np.testing.assert_array_equal(inspector.preprocess(Image.fromarray(array), SIZE), x)
     big = Image.fromarray(rng.integers(0, 256, (90, 120, 3), dtype=np.uint8))
     resized = np.asarray(big.resize((SIZE, SIZE), Image.Resampling.BICUBIC))
@@ -143,7 +143,7 @@ def test_nearest_in_blocks_gives_the_same_result(monkeypatch):
     query = rng.normal(size=(33, 8)).astype(np.float32)
     sq = np.square(bank).sum(axis=1)
     whole = inspector.nearest(query, bank, sq)
-    monkeypatch.setattr(inspector, "_MAX_DIST_ELEMS", 50 * 4)  # four query rows per block
+    monkeypatch.setattr(inspector, "_MAX_DIST_ELEMS", 50 * 4)  # 블록마다 질의 4행
     blocks = inspector.nearest(query, bank, sq)
     np.testing.assert_array_equal(whole[1], blocks[1])
     np.testing.assert_allclose(whole[0], blocks[0], rtol=1e-6)
@@ -185,7 +185,7 @@ def test_image_score_puts_m_star_first_among_duplicates():
     dist = np.array([1.0], dtype=np.float32)
     for m in (0, 1):
         score = inspector.image_score(dist, np.array([m]), query, bank, sq, reweight_k=2)
-        # Support = the two duplicate rows, both at distance 1: weight 1 - 1/2.
+        # 지지 집합 = 두 중복 행이고 질의까지 거리가 둘 다 1이라 가중치는 1 - 1/2.
         assert score == pytest.approx(0.5)
 
 
@@ -197,10 +197,10 @@ def test_resize_bilinear_matches_the_align_corners_false_formula():
     a = np.arange(12, dtype=np.float32).reshape(3, 4)
     np.testing.assert_array_equal(inspector.resize_bilinear(a[:3, :3], 3), a[:3, :3])
     np.testing.assert_allclose(inspector.resize_bilinear(np.full((5, 5), 2.5, np.float32), 17), 2.5)
-    # 2 -> 4 along one axis: source positions -0.25 (clamped to 0), 0.25, 0.75, 1.25 (clamped to 1).
+    # 한 축으로 2 -> 4: 원본 좌표 -0.25(0으로 잘림), 0.25, 0.75, 1.25(1로 잘림).
     up = inspector.resize_bilinear(np.array([[0.0, 4.0], [0.0, 4.0]], dtype=np.float32), 4)
     np.testing.assert_allclose(up[0], [0.0, 1.0, 3.0, 4.0])
-    # Downsampling without antialiasing: 4 -> 2 samples at positions 0.5 and 2.5.
+    # 안티에일리어싱 없는 축소: 4 -> 2는 좌표 0.5와 2.5의 값을 뽑는다.
     down = inspector.resize_bilinear(np.tile(np.array([0.0, 1.0, 2.0, 3.0], dtype=np.float32), (4, 1)), 2)
     np.testing.assert_allclose(down[0], [0.5, 2.5])
 
@@ -211,7 +211,7 @@ def test_resize_bilinear_matches_the_align_corners_false_formula():
 # ValueError인지 확인한다. 마지막 검사는 torch의 reflect 패딩이 반경 < 맵 크기를 요구하는 것과 같은 조건이다.
 def test_gaussian_kernel_and_score_map():
     assert inspector.gaussian_kernel1d(4.0).shape == (33,)
-    assert inspector.gaussian_kernel1d(0.4).shape == (5,)  # int(4 * 0.4 + 0.5) = 2
+    assert inspector.gaussian_kernel1d(0.4).shape == (5,)  # 반경 int(4 * 0.4 + 0.5) = 2
     assert inspector.gaussian_kernel1d(0.0).tolist() == [1.0]
     assert inspector.gaussian_kernel1d(1.0).sum() == pytest.approx(1.0)
 
@@ -220,7 +220,7 @@ def test_gaussian_kernel_and_score_map():
     out = inspector.score_map(patch, SIZE, sigma=1.0, map_size=64)
     assert out.shape == (64, 64) and out.dtype == np.float32
     r, c = np.unravel_index(int(out.argmax()), out.shape)
-    assert 16 <= r < 32 and 32 <= c < 48  # the hot patch's cell on the 64 grid
+    assert 16 <= r < 32 and 32 <= c < 48  # 64 격자에서 뜨거운 패치의 칸
     np.testing.assert_allclose(
         inspector.score_map(np.full((4, 4), 3.0, np.float32), SIZE, 1.0, 64), 3.0, rtol=1e-5
     )
@@ -246,10 +246,10 @@ def test_inspector_scores_defects_above_normals_and_flags_them():
     assert result.is_defect and result.score > result.threshold
     assert result.heatmap.shape == (256, 256) and result.heatmap.dtype == np.float32
     r, c = np.unravel_index(int(result.heatmap.argmax()), result.heatmap.shape)
-    assert 48 <= r < 144 and 48 <= c < 144  # around the bright square (rows/cols 64..128 on the 256 grid)
+    assert 48 <= r < 144 and 48 <= c < 144  # 밝은 사각형(256 격자의 행·열 64..128) 근처
     clean = insp.inspect(_images(1, seed=8)[0], heatmap=False)
     assert not clean.is_defect and clean.heatmap is None
-    # A score exactly at the threshold is not a defect (rule: score > threshold).
+    # 임계값과 정확히 같은 점수는 결함이 아니다(규칙: score > threshold).
     insp.set_threshold(clean.score)
     assert not insp.inspect(_images(1, seed=8)[0], heatmap=False).is_defect
 
@@ -276,7 +276,7 @@ def test_calibrate_sets_the_conformal_threshold():
     normals = list(_images(40, seed=9))
     scores = np.sort(insp.scores(np.stack(normals)))
     value = insp.calibrate(normals, alpha=0.05)
-    assert value == pytest.approx(float(scores[38]))  # rank ceil(41 * 0.95) = 39
+    assert value == pytest.approx(float(scores[38]))  # 순위 ceil(41 * 0.95) = 39
     assert insp.threshold == value and insp.meta["threshold"] == value
     assert insp.meta["calibration"] == {"strategy": "holdout", "n": 40, "guaranteed": True}
     insp.calibrate(normals[:5], alpha=0.05)
@@ -314,7 +314,7 @@ def test_meta_and_bank_are_validated():
 # 첫 특징값 하나만 원하는 값(fp16 범위를 넘는 큰 값, NaN, inf)으로 바꿔 내는 가짜 모델. 모델 출력이 깨졌을
 # 때의 처리를 시험하려고 쓴다.
 class SpikeSession(FakeSession):
-    """A model whose first feature value is `value` (too large for fp16, or not finite)."""
+    """첫 특징값이 `value`(fp16 범위를 넘는 값, 또는 유한하지 않은 값)인 모델."""
 
     def __init__(self, value):
         super().__init__()
@@ -333,7 +333,7 @@ class SpikeSession(FakeSession):
 # 막는지)도 함께 보려는 것이다. 보정이 실패하면 임계값은 그대로여야 하고, 정확히 65504는 통과해야
 # 한다(경계값).
 def test_features_beyond_fp16_raise_like_the_torch_pipeline():
-    # patchcore._patch_features checks after the cast to fp16; so does the numpy path, without warnings.
+    # patchcore._patch_features는 fp16으로 바꾼 뒤 검사한다. numpy 경로도 경고 없이 같은 검사를 한다.
     insp = Inspector(SpikeSession(1e5), _bank(_images(4)), _meta())
     image = _images(1, seed=3)[0]
     with warnings.catch_warnings():
@@ -346,8 +346,8 @@ def test_features_beyond_fp16_raise_like_the_torch_pipeline():
         ):
             with pytest.raises(FloatingPointError, match="overflowed fp16"):
                 call()
-    assert insp.threshold == 0.5  # a failed calibration leaves the threshold alone
-    # The largest fp16 value still passes.
+    assert insp.threshold == 0.5  # 보정이 실패하면 임계값은 그대로다
+    # fp16 최댓값(65504)은 여전히 통과한다.
     assert np.isfinite(Inspector(SpikeSession(65504.0), _bank(_images(4)), _meta()).features(image)).all()
 
 
@@ -364,7 +364,7 @@ def test_non_finite_features_never_give_a_verdict(value):
             insp.inspect(image)
         with pytest.raises(FloatingPointError):
             insp.scores(image[None])
-        # Features handed in from elsewhere get the same treatment: NaN > threshold would read as "normal".
+        # 밖에서 받은 특징도 같은 검사를 받는다. 막지 않으면 NaN > threshold가 거짓이라 '정상'으로 읽힌다.
         feats = Inspector(FakeSession(), _bank(_images(4)), _meta()).features(image)
         feats[5, 1] = value
         with pytest.raises(FloatingPointError):
@@ -377,7 +377,7 @@ def test_non_finite_features_never_give_a_verdict(value):
 # 각 이미지마다 자기 점수를 임계값으로 두고 inspect하면 점수가 비트 단위로 같고 결함이 아니어야 한다. 보정
 # 결과도 float32 점수 중 하나와 정확히 같아야 한다.
 def test_inspect_scores_and_calibrate_use_the_same_float32_score():
-    """The threshold comes from float32 scores; the service must judge the same float32 value."""
+    """임계값은 float32 점수에서 나오므로, 서비스도 같은 float32 값으로 판정해야 한다."""
     insp = Inspector(FakeSession(), _bank(_images(10)), _meta(reweight_k=9))
     images = _images(40, seed=11)
     offline = insp.scores(images)
@@ -386,9 +386,9 @@ def test_inspect_scores_and_calibrate_use_the_same_float32_score():
         insp.set_threshold(float(score))
         served = insp.inspect(image, heatmap=False)
         assert served.score == float(score)
-        assert not served.is_defect  # rule: score > threshold, and this score is the threshold
+        assert not served.is_defect  # 규칙은 score > threshold이고, 이 점수가 곧 임계값이다
     value = insp.calibrate(list(images), alpha=0.05)
-    assert value == float(np.sort(offline)[38])  # exactly one of the float32 scores, rank ceil(41 * 0.95)
+    assert value == float(np.sort(offline)[38])  # float32 점수 중 정확히 하나, 순위 ceil(41 * 0.95)
     assert value == float(np.float32(value))
 
 
@@ -417,7 +417,7 @@ BAD_META = {
     "sigma NaN": {"sigma": float("nan")},
     "sigma negative": {"sigma": -1.0},
     "sigma text": {"sigma": "1"},
-    "sigma too large for the input": {"sigma": 8.0},  # blur radius 32 on a 32 px map
+    "sigma too large for the input": {"sigma": 8.0},  # 32px 맵에 흐림 반경 32
     "version as text": {"version": str(inspector.ARTIFACT_VERSION)},
 }
 
@@ -432,7 +432,7 @@ def test_bad_meta_values_are_refused_with_a_value_error(change, tmp_path):
         Inspector(FakeSession(), bank, _meta(**change))
     with pytest.raises(ValueError):
         inspector.check_meta(_meta(**change))
-    # Nothing invalid gets written either.
+    # 잘못된 meta는 디스크에도 쓰이지 않는다.
     model = tmp_path / "source.onnx"
     model.write_bytes(b"x")
     with pytest.raises(ValueError):
@@ -449,7 +449,7 @@ def test_valid_meta_variants_are_accepted():
         {"threshold": 0},
         {"threshold": -1.5},
         {"sigma": 0},
-        {"sigma": 7.8},  # blur radius int(31.7) = 31 < 32
+        {"sigma": 7.8},  # 흐림 반경 int(31.7) = 31 < 32
         {"reweight_k": 0},
         {"grid": (GRID, GRID)},
         {"img_size": np.int64(SIZE)},
@@ -477,7 +477,7 @@ def test_a_bank_with_non_finite_values_is_refused():
 # onnxruntime처럼 get_inputs/get_outputs로 입출력 이름과 모양(name, shape)을 선언하는 가짜 세션. 이 두
 # 메서드가 있으면 Inspector가 check_model_io로 meta와 맞춰 본다.
 class DescribedSession(FakeSession):
-    """A session that declares its input and output like onnxruntime does."""
+    """onnxruntime처럼 입력과 출력을 선언하는 가짜 세션."""
 
     def __init__(self, inputs, outputs):
         super().__init__()
@@ -499,7 +499,7 @@ def test_the_declared_model_shapes_must_fit_the_meta():
     bank = _bank(_images(4))
     image, features = ("image", [1, 3, SIZE, SIZE]), ("features", [1, GRID, GRID, 3])
     Inspector(DescribedSession([image], [features]), bank, _meta())
-    # Symbolic (str) or unknown (None) dimensions are not compared.
+    # 심볼릭(str)이나 알 수 없는(None) 차원은 비교하지 않는다.
     Inspector(
         DescribedSession([("image", ["batch", 3, SIZE, SIZE])], [("features", [None, GRID, GRID, 3])]),
         bank,
@@ -543,7 +543,7 @@ def test_load_turns_broken_files_into_value_errors(tmp_path):
     (art / "meta.json").write_text(json.dumps([1, 2]), encoding="utf-8")
     with pytest.raises(ValueError, match="meta.json"):
         Inspector.load(art)
-    # The meta is checked before the model is opened: the message names the bad value, not the model.
+    # meta는 모델을 열기 전에 검사하므로, 메시지는 모델이 아니라 잘못된 값을 가리킨다.
     (art / "meta.json").write_text(json.dumps(_meta(threshold=None)), encoding="utf-8")
     with pytest.raises(ValueError, match="threshold"):
         Inspector.load(art)

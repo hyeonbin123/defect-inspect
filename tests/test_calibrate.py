@@ -1,4 +1,4 @@
-"""Threshold calibration: exact rank arithmetic, and the theory claims checked by seeded simulation."""
+"""임계값 보정: 정확한 순위 산술, 그리고 seed를 고정한 모의로 확인하는 이론적 주장."""
 
 # [파일 역할] 임계값 보정 모듈(`defect_inspect.calibrate`)을 검증하는 테스트 묶음이다. 대상은 split-conformal
 # 순위 l = ceil((n+1)(1−α))의 정확한 계산, 그 순위로 고른 임계값(conformal_threshold), 실제 오검출률이 따르는
@@ -34,7 +34,7 @@ from defect_inspect.calibrate import (
 )
 
 # ---------------------------------------------------------------------------------------------------------
-# Rank arithmetic
+# 순위 산술
 # ---------------------------------------------------------------------------------------------------------
 
 
@@ -44,8 +44,8 @@ from defect_inspect.calibrate import (
 @pytest.mark.parametrize(
     ("n", "alpha", "expected"),
     [
-        (19, 0.05, 19),  # 20 * 0.95 is exactly 19: must not round up to 20
-        (99, 0.01, 99),  # 100 * 0.99 is exactly 99
+        (19, 0.05, 19),  # 20 * 0.95는 정확히 19: 20으로 올림하면 안 된다
+        (99, 0.01, 99),  # 100 * 0.99는 정확히 99
         (39, 0.05, 38),
         (199, 0.01, 198),
         (999, 0.001, 999),
@@ -53,7 +53,7 @@ from defect_inspect.calibrate import (
         (20, 0.05, 20),  # ceil(19.95)
         (50, 0.05, 49),  # ceil(48.45)
         (100, 0.05, 96),  # ceil(95.95)
-        (10, 0.05, 11),  # ceil(10.45) > n: not attainable
+        (10, 0.05, 11),  # ceil(10.45) > n: 도달할 수 없다
         (0, 0.05, 1),
     ],
 )
@@ -66,7 +66,7 @@ def test_conformal_rank_values(n: int, alpha: float, expected: int) -> None:
 # 확인: 부동소수로 곱하면 150 × 0.82가 123을 살짝 넘어 ceil이 124가 되는 경우에도 conformal_rank는 정확히
 # 123을 낸다. Fraction으로 계산하는 이유를 보여 주는 반례다.
 def test_conformal_rank_is_exact_where_float_ceil_is_not() -> None:
-    # 150 * 0.82 is exactly 123, but the float product lands just above it.
+    # 150 * 0.82는 정확히 123이지만, 부동소수 곱은 그보다 살짝 위에 떨어진다.
     assert math.ceil(150 * (1 - 0.18)) == 124
     assert conformal_rank(149, 0.18) == 123
     assert conformal_rank(249, 0.18) == 205
@@ -97,7 +97,7 @@ def test_conformal_rank_accepts_numpy_and_fraction_alpha() -> None:
     assert conformal_rank(19, Decimal("0.05")) == 19
     assert conformal_rank(19, "0.05") == 19
     assert conformal_rank(19, np.array(0.05)) == 19
-    # Lower precision floats are read in their own shortest decimal form (float32(0.01) is below 0.01).
+    # 정밀도가 낮은 float는 그 정밀도의 가장 짧은 십진 표기로 읽는다(float32(0.01)은 0.01보다 작다).
     assert float(np.float32(0.01)) < 0.01
     assert conformal_rank(99, np.float32(0.01)) == 99
     assert conformal_rank(19, np.float32(0.05)) == 19
@@ -109,7 +109,7 @@ def test_conformal_rank_accepts_numpy_and_fraction_alpha() -> None:
 @pytest.mark.parametrize(
     ("n", "alpha", "expected"),
     [
-        (19, 0.15 - 0.1, 19),  # 0.04999999999999999: must behave like 0.05, not give l = 20 > n
+        (19, 0.15 - 0.1, 19),  # 0.04999999999999999: l = 20 > n이 아니라 0.05처럼 동작해야 한다
         (39, 0.15 - 0.1, 38),
         (599, 0.15 - 0.1, 570),
         (19, 0.06 - 0.01, 19),
@@ -122,7 +122,7 @@ def test_conformal_rank_accepts_numpy_and_fraction_alpha() -> None:
     ],
 )
 def test_conformal_rank_tidies_computed_alphas(n: int, alpha: float, expected: int) -> None:
-    assert alpha not in (0.05, 0.1, 0.01)  # the float really is off its decimal value
+    assert alpha not in (0.05, 0.1, 0.01)  # 그 float는 정말로 십진값에서 벗어나 있다
     assert conformal_rank(n, alpha) == expected
 
 
@@ -139,17 +139,17 @@ def test_computed_alpha_keeps_the_guarantee_and_the_beta_law() -> None:
 # 0.0499나 0.05000001처럼 진짜로 다른 값은 0.05로 붙이지 않는다. 12번째 자리까지는 살리고 13번째 이후만
 # 부동소수 잡음으로 본다.
 def test_conformal_rank_keeps_exact_rationals_exact() -> None:
-    # 3 * (1 - 1/3) is exactly 2; a 12-digit decimal rendering of 1/3 would give 3.
+    # 3 * (1 - 1/3)은 정확히 2다. 1/3을 12자리 십진으로 적으면 3이 나온다.
     assert conformal_rank(2, Fraction(1, 3)) == 2
     assert conformal_rank(8, Fraction(1, 3)) == 6
     assert conformal_rank(6, Fraction(1, 7)) == 6
-    # A float that is close to but genuinely different from a round value is not snapped to it:
-    # twelve significant digits are kept, the thirteenth and beyond are treated as float noise.
+    # 둥근 값에 가깝지만 정말로 다른 float는 그 값으로 붙이지 않는다: 유효숫자 12자리는 살리고, 13번째 이후만
+    # 부동소수 잡음으로 본다.
     assert conformal_rank(19, 0.0499) == 20
     assert conformal_rank(10**6 - 1, 1e-6) == 10**6 - 1
-    assert conformal_rank(10**8 - 1, 0.05000001) == 94_999_999  # 0.05 would give 95_000_000
-    assert conformal_rank(10**13 - 1, 0.0500000000001) == 9_499_999_999_999  # 12 digits survive
-    assert conformal_rank(19, 0.05 - 1e-14) == 19  # 0.04999999999999: the 13th digit does not
+    assert conformal_rank(10**8 - 1, 0.05000001) == 94_999_999  # 0.05라면 95_000_000
+    assert conformal_rank(10**13 - 1, 0.0500000000001) == 9_499_999_999_999  # 12자리는 살아남는다
+    assert conformal_rank(19, 0.05 - 1e-14) == 19  # 0.04999999999999: 13번째 자리는 살아남지 않는다
 
 
 # 확인: α가 0, 1, 음수, 1 초과, NaN, 무한대, bool, None, 문자열 'x', 리스트면 모두 ValueError다. bool은 숫자로
@@ -168,11 +168,10 @@ def test_conformal_rank_rejects_negative_n() -> None:
         conformal_rank(-1, 0.05)
 
 
-# 확인: n이 19.5, 19.0, '19', None, numpy float이면 TypeError다. 예전에는 소수 개수가 조용히 잘렸다(기존
-# 주석). 개수 자리에 실수가 들어오는 것은 다른 값을 잘못 넘긴 신호이므로 거부한다.
+# 확인: n이 19.5, 19.0, '19', None, numpy float이면 TypeError다. 예전에는 소수 개수가 조용히 잘렸다. 개수
+# 자리에 실수가 들어오는 것은 다른 값을 잘못 넘긴 신호이므로 거부한다.
 @pytest.mark.parametrize("n", [19.5, 19.0, "19", None, np.float64(19.0)])
 def test_conformal_rank_rejects_non_integer_n(n: object) -> None:
-    # A fractional count used to be truncated silently.
     with pytest.raises(TypeError):
         conformal_rank(n, 0.05)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
@@ -188,11 +187,11 @@ def test_conformal_rank_rejects_non_integer_n(n: object) -> None:
 # 보정 점수 가운데 정확히 4개만 불량으로 표시된다. 반환값은 float이다.
 def test_threshold_is_the_lth_smallest_score() -> None:
     rng = np.random.default_rng(0)
-    scores = rng.permutation(np.arange(1, 101)).astype(np.float32)  # 1..100, shuffled
+    scores = rng.permutation(np.arange(1, 101)).astype(np.float32)  # 1..100을 섞음
     thr = conformal_threshold(scores, 0.05)
     assert thr == Threshold(value=96.0, rank=96, n=100, alpha=0.05, guaranteed=True)
     assert isinstance(thr.value, float)
-    # Decision rule is strictly greater: exactly 4 of the calibration scores are flagged.
+    # 판정 규칙은 엄격한 '보다 큼'이다: 보정 점수 가운데 정확히 4개가 표시된다.
     assert int((scores > thr.value).sum()) == 4
     assert conformal_threshold(scores, 0.2).value == 81.0  # ceil(101 * 0.8) = 81
 
@@ -200,7 +199,7 @@ def test_threshold_is_the_lth_smallest_score() -> None:
 # 확인: 순위가 정확히 정수로 떨어지는 경계(n = 19, α = 5% → l = 19는 최댓값이지만 보장됨, n = 99, α = 1% → l =
 # 99, n = 20 → l = 20)에서 올바른 값과 보장 여부가 나온다.
 def test_threshold_exact_integer_edges() -> None:
-    thr = conformal_threshold(np.arange(19, 0, -1), 0.05)  # n = 19: l = 19 (the maximum), still guaranteed
+    thr = conformal_threshold(np.arange(19, 0, -1), 0.05)  # n = 19: l = 19(최댓값)이지만 여전히 보장됨
     assert (thr.rank, thr.value, thr.guaranteed) == (19, 19.0, True)
     thr = conformal_threshold(np.arange(1, 100), 0.01)  # n = 99: l = 99
     assert (thr.rank, thr.value, thr.guaranteed) == (99, 99.0, True)
@@ -217,7 +216,7 @@ def test_threshold_not_guaranteed_uses_the_maximum() -> None:
     thr = conformal_threshold(scores, 0.05)  # n = 10: l = 11 > n
     assert thr == Threshold(value=0.9, rank=10, n=10, alpha=0.05, guaranteed=False)
     assert fpr_beta_params(10, 0.05) is None
-    # n = 18 is the largest n without a guarantee at alpha = 0.05, n = 98 at alpha = 0.01.
+    # 보장되지 않는 가장 큰 n은 alpha = 0.05에서 18, alpha = 0.01에서 98이다.
     assert not conformal_threshold(np.arange(18), 0.05).guaranteed
     assert conformal_threshold(np.arange(19), 0.05).guaranteed
     assert not conformal_threshold(np.arange(98), 0.01).guaranteed
@@ -232,7 +231,7 @@ def test_threshold_with_ties_and_input_is_untouched() -> None:
     thr = conformal_threshold(scores, 0.5)  # l = ceil(10 * 0.5) = 5 -> sorted[4] = 2.0
     assert (thr.rank, thr.value) == (5, 2.0)
     assert np.array_equal(scores, before)
-    # Ties only make the rule more conservative: the flagged fraction stays below alpha.
+    # 동점은 규칙을 더 보수적으로 만들 뿐이다: 표시 비율이 alpha 아래에 머문다.
     assert np.mean(scores > thr.value) <= 0.5
 
 
@@ -264,7 +263,7 @@ def test_fpr_beta_params() -> None:
 # 확인: 이론 평균 (n+1−l)/(n+1)이 모든 n과 α에서 (α − 1/(n+1), α] 안에 있다(분수로 정확히 비교). conformal
 # 임계값이 평균적으로 목표를 넘지 않고, 넘치는 쪽이 아니라 많아야 한 칸(1/(n+1)) 보수적이라는 성질이다.
 def test_theoretical_mean_is_within_one_step_below_alpha() -> None:
-    # E[FPR] = (n + 1 - l) / (n + 1) is in (alpha - 1/(n+1), alpha], exactly, whenever l <= n.
+    # l <= n이면 언제나 E[FPR] = (n + 1 - l) / (n + 1)은 정확히 (alpha - 1/(n+1), alpha] 안에 있다.
     for alpha in (0.01, 0.05, 0.1, 0.2):
         target = Fraction(str(alpha))
         for n in range(1, 700):
@@ -278,7 +277,7 @@ def test_theoretical_mean_is_within_one_step_below_alpha() -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Simulation with uniform scores
+# 균등분포 점수 모의
 # ---------------------------------------------------------------------------------------------------------
 
 
@@ -286,8 +285,7 @@ def test_theoretical_mean_is_within_one_step_below_alpha() -> None:
 # 비교할 수 있다. 반복마다 새 보정 점수 n개로 임계값을 정하고, 새 테스트 정상 m개 가운데 몇 개가 넘는지도
 # 센다.
 def _simulate(n: int, alpha: float, reps: int, m: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    """Per repetition: the exact conditional FPR (1 - threshold for U(0,1) scores) and the number of
-    false positives among m fresh test scores."""
+    """반복마다: 정확한 조건부 오검출률(U(0,1) 점수면 1 - 임계값)과, 새 테스트 점수 m개 가운데 오검출 수."""
     rng = np.random.default_rng(seed)
     conditional = np.empty(reps)
     false_pos = np.empty(reps, dtype=np.int64)
@@ -331,7 +329,7 @@ def test_conditional_fpr_follows_beta(n: int, alpha: float) -> None:
         assert abs(law.cdf(np.quantile(conditional, q)) - q) < tol, q
     assert stats.kstest(conditional, law.cdf).pvalue > 1e-3
 
-    # With real test scores the false positive count is BetaBinomial(m, n + 1 - l, l).
+    # 실제 테스트 점수에서 오검출 수는 BetaBinomial(m, n + 1 - l, l)을 따른다.
     counts = stats.betabinom(m, a, b)
     assert abs(false_pos.mean() - counts.mean()) < 4 * counts.std() / math.sqrt(reps)
     assert abs(false_pos.std(ddof=1) / counts.std() - 1) < 0.08
@@ -345,12 +343,12 @@ def test_conditional_fpr_follows_beta(n: int, alpha: float) -> None:
 # 확인: 보장 불가(n = 10, α = 5%)일 때 임계값은 10개의 최댓값이라 오검출률이 Beta(1, 10)을 따르고 평균 1/11 ≈
 # 9%로 목표를 넘는다. 보정 점수가 적은 범주에서 '보장 불가' 표시가 왜 필요한지 보여 준다.
 def test_not_guaranteed_fpr_follows_beta_1_n() -> None:
-    # n = 10, alpha = 0.05: the threshold is the maximum of 10 scores, whose FPR is Beta(1, 10).
+    # n = 10, alpha = 0.05: 임계값은 점수 10개의 최댓값이고, 그 오검출률은 Beta(1, 10)을 따른다.
     reps = 4000
     conditional, _ = _simulate(10, 0.05, reps, 1, seed=7)
     law = stats.beta(1, 10)
     assert abs(conditional.mean() - 1 / 11) < 4 * law.std() / math.sqrt(reps)
-    assert conditional.mean() > 0.05  # the target is missed on average
+    assert conditional.mean() > 0.05  # 평균적으로 목표를 넘는다
     assert stats.kstest(conditional, law.cdf).pvalue > 1e-3
 
 
@@ -365,7 +363,7 @@ def test_not_guaranteed_fpr_follows_beta_1_n() -> None:
 # 왜: 1단계 H2(홀드아웃 실제 오검출률이 이론 구간 안에 있다)의 기준이 이 함수다. README의 '유한표본 이론
 # 구간(3.6~6.3%)'이 여기서 나온다.
 def test_pooled_band_covers_direct_simulation() -> None:
-    n_cal = [60, 100, 241, 10]  # the last category has no guarantee at alpha = 0.05
+    n_cal = [60, 100, 241, 10]  # 마지막 범주는 alpha = 0.05에서 보장되지 않는다
     m_test = [200, 300, 402, 150]
     alpha = 0.05
     reps = 3000
@@ -394,7 +392,7 @@ def test_pooled_band_covers_direct_simulation() -> None:
 # 확인: 범주 하나에 테스트가 아주 많으면 이항 잡음이 사라져 구간이 Beta(5, 95)의 2.5·97.5% 분위수에
 # 가까워진다(모형의 극한 동작 점검).
 def test_pooled_band_single_category_approaches_beta_quantiles() -> None:
-    # With a huge test set the binomial noise vanishes and the band is the Beta interval.
+    # 테스트 세트가 아주 크면 이항 잡음이 사라져 구간이 Beta 구간이 된다.
     lo, hi, mean = pooled_fpr_band([99], [10_000_000], 0.05)
     law = stats.beta(5, 95)
     assert abs(lo - law.ppf(0.025)) < 1e-3
@@ -417,18 +415,16 @@ def test_pooled_band_is_deterministic_and_nested_in_conf() -> None:
 # 확인: 같은 크기의 범주 12개를 넣으면 구간 폭이 '범주별 BetaBinomial 분산의 합'으로 계산한 폭과 맞고, 범주
 # 하나짜리 구간보다 √12배 좁다.
 # 왜: 범주마다 같은 난수 흐름을 다시 쓰면(완전히 상관된 추출) 구간이 √12배 넓어지는데, 범주 크기가 다르면 이
-# 실수가 드러나지 않는다(기존 주석). 공통 규칙은 '범주별로 독립 추출한 합'으로 정했다.
+# 실수가 드러나지 않는다. 공통 규칙은 '범주별로 독립 추출한 합'으로 정했다.
 def test_pooled_band_draws_categories_independently() -> None:
-    # Twelve identical categories. Independent draws: the variance of the pooled count is the sum of the
-    # twelve BetaBinomial variances. Reusing one random stream for every category (perfectly correlated
-    # draws) would make the band sqrt(12) times wider, which categories of different sizes do not reveal.
+    # 똑같은 범주 12개. 독립 추출이면 합산 개수의 분산은 BetaBinomial 분산 12개의 합이다.
     k, n, m = 12, 100, 300
     lo, hi, mean = pooled_fpr_band([n] * k, [m] * k, 0.05)
     counts = stats.betabinom(m, 5, 96)  # l = ceil(101 * 0.95) = 96
     sd_independent = math.sqrt(k * counts.var()) / (k * m)
     assert abs(mean - 5 / 101) < 3e-4
     assert (hi - lo) / 2 == pytest.approx(1.96 * sd_independent, rel=0.10)
-    # The same twelve categories as one: the band of a single category is sqrt(12) times wider.
+    # 같은 12개 범주를 하나로 보면: 범주 하나의 구간이 sqrt(12)배 넓다.
     one_lo, one_hi, _ = pooled_fpr_band([n], [m], 0.05)
     assert (one_hi - one_lo) / (hi - lo) == pytest.approx(math.sqrt(k), rel=0.15)
 
@@ -457,7 +453,6 @@ def test_pooled_band_rejects_non_positive_n_sim(n_sim: int) -> None:
 # 확인: 개수(n_cal, m_test, n_sim)에 소수나 float 배열이 오면 TypeError다(예전에는 60.7이 60으로 조용히
 # 잘렸다). numpy 정수형·튜플은 받고 int와 같은 난수 흐름을 낸다.
 def test_pooled_band_rejects_fractional_counts() -> None:
-    # Counts used to be truncated silently (60.7 -> 60).
     with pytest.raises(TypeError):
         pooled_fpr_band([60.7], [200], 0.05, n_sim=100)  # type: ignore[list-item]
     with pytest.raises(TypeError):
@@ -466,7 +461,7 @@ def test_pooled_band_rejects_fractional_counts() -> None:
         pooled_fpr_band(np.array([60.0]), np.array([200.0]), 0.05, n_sim=100)
     with pytest.raises(TypeError):
         pooled_fpr_band([60], [200], 0.05, n_sim=100.0)  # type: ignore[arg-type]
-    # Integer types other than int are fine, and give the same stream.
+    # int가 아닌 정수형도 괜찮고, 같은 난수 흐름을 낸다.
     expected = pooled_fpr_band([60, 120], [200, 300], 0.05, n_sim=2000)
     assert pooled_fpr_band(np.array([60, 120]), np.array([200, 300]), 0.05, n_sim=2000) == expected
     assert pooled_fpr_band((60, 120), (np.int32(200), np.int64(300)), 0.05, n_sim=np.int64(2000)) == expected
@@ -486,8 +481,8 @@ _CURVE_KEYS = {"n", "pool", "m", "mean", "p5", "p95", "theory_mean", "theory_p5"
 def _replay_curve(
     cal: np.ndarray, test: np.ndarray, alpha: float, ns: tuple[int, ...], draws: int, seed: int
 ) -> list[tuple[int, float, float, float, bool]]:
-    """subsample_fpr_curve redone one subset at a time from the documented random stream: one generator
-    seeded once, then for each usable n in order ``draws`` calls of ``choice(len(cal), n, replace=False)``.
+    """문서화된 난수 흐름으로 subsample_fpr_curve를 부분집합 하나씩 다시 계산한다: 생성기 하나를 한 번만
+    seed하고, 쓸 수 있는 n마다 순서대로 ``choice(len(cal), n, replace=False)``를 ``draws``번 부른다.
     """
     cal = np.asarray(cal, dtype=np.float64)
     test = np.asarray(test, dtype=np.float64)
@@ -495,7 +490,7 @@ def _replay_curve(
     out = []
     for n in ns:
         if n > cal.size:
-            continue  # skipped sizes do not consume random numbers
+            continue  # 건너뛴 크기는 난수를 쓰지 않는다
         fpr = np.empty(draws)
         guaranteed = True
         for i in range(draws):
@@ -511,14 +506,14 @@ def _replay_curve(
 # 평균과 5·95% 분위가 Beta 이론과 몬테카를로 허용 범위 안에서 맞는다. 풀보다 큰 n(5000)은 건너뛰고, n = 10은
 # 보장 불가(Beta(1, 10))로 표시한다. 보정 표본이 많을수록 퍼짐이 좁다.
 def test_subsample_curve_matches_theory_on_exchangeable_scores() -> None:
-    # Both populations are fine regular grids on (0, 1), so that the only randomness left is which
-    # subset is drawn: the observed spread can then be held to Monte Carlo tolerances.
+    # 두 모집단 모두 (0, 1) 위의 촘촘한 등간격 격자라 남는 무작위성은 어느 부분집합을 뽑느냐뿐이다: 그래서
+    # 관측 퍼짐을 몬테카를로 허용 오차로 묶을 수 있다.
     cal = (np.arange(4000) + 0.5) / 4000
     test = (np.arange(5000) + 0.5) / 5000
     draws = 2000
     alpha = 0.05
     curve = subsample_fpr_curve(cal, test, alpha, ns=(10, 20, 50, 100, 200, 5000), draws=draws)
-    assert [row["n"] for row in curve] == [10, 20, 50, 100, 200]  # 5000 > len(cal) is skipped
+    assert [row["n"] for row in curve] == [10, 20, 50, 100, 200]  # 5000 > len(cal)은 건너뛴다
     assert [row["guaranteed"] for row in curve] == [False, True, True, True, True]
     for row in curve:
         assert set(row) == _CURVE_KEYS
@@ -543,7 +538,7 @@ def test_subsample_curve_matches_theory_on_exchangeable_scores() -> None:
     assert by_n[100]["theory_mean"] == pytest.approx(5 / 101)
     assert by_n[200]["theory_mean"] == pytest.approx(10 / 201)
     assert by_n[200]["theory_p5"] == pytest.approx(stats.beta(10, 191).ppf(0.05))
-    # More calibration scores -> a narrower spread around the target.
+    # 보정 점수가 많을수록 목표 주변의 퍼짐이 좁다.
     assert by_n[200]["p95"] - by_n[200]["p5"] < by_n[20]["p95"] - by_n[20]["p5"]
 
 
@@ -566,11 +561,11 @@ def _replay_inputs(kind: str) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(9)
     if kind == "continuous":
         return rng.normal(size=150), rng.normal(size=211)
-    if kind == "ties":  # twelve distinct values only
+    if kind == "ties":  # 서로 다른 값이 12개뿐
         return rng.integers(0, 12, size=150).astype(float), rng.integers(0, 12, size=211).astype(float)
     if kind == "float32":
         return rng.random(150).astype(np.float32), rng.random(97).astype(np.float32)
-    return rng.random(150), rng.random(1)  # a single test score
+    return rng.random(150), rng.random(1)  # 테스트 점수 하나
 
 
 # 확인: 구현 결과가 문서화된 난수 흐름을 다시 돌린 결과와 분포 허용 오차 없이 같다. 크기 순서를 섞고, 하나는
@@ -581,10 +576,7 @@ def _replay_inputs(kind: str) -> tuple[np.ndarray, np.ndarray]:
 @pytest.mark.parametrize("kind", ["continuous", "ties", "float32", "one_test"])
 @pytest.mark.parametrize("alpha", [0.05, 0.01, 0.2])
 def test_subsample_curve_replays_the_documented_stream(kind: str, alpha: float) -> None:
-    # Exact comparison (no distributional tolerance): the same generator, advanced the same way, must
-    # give the same subsets. The sizes are out of order, one of them is skipped (500 > 150) and one is
-    # the whole pool, so this also pins that a single generator runs through all of them: re-seeding per
-    # n, or drawing for a skipped n, would change every row after the first.
+    # 정확한 비교(분포 허용 오차 없음): 같은 생성기를 같은 방식으로 진행하면 같은 부분집합이 나와야 한다.
     cal, test = _replay_inputs(kind)
     ns, draws, seed = (40, 10, 500, 150, 120, 20), 60, 3
     curve = subsample_fpr_curve(cal, test, alpha, ns=ns, draws=draws, seed=seed)
@@ -602,17 +594,17 @@ def test_subsample_curve_replays_the_documented_stream(kind: str, alpha: float) 
 # 확인: 부분표본 곡선도 '점수 > 임계값' 규칙을 쓴다. 0..9에서 α = 50%의 임계값 5.0이면 6..9만 표시돼
 # 0.4이고(≥였다면 0.5), 점수가 모두 같으면 0이며, 보장 불가면 부분집합 최댓값과 같은 점수는 표시하지 않는다.
 def test_subsample_curve_uses_the_strict_rule_on_ties() -> None:
-    # cal = test = 0..9, alpha = 0.5: l = ceil(11 * 0.5) = 6, threshold 5.0. "score > 5" flags 6..9 (0.4);
-    # a ">=" rule would also flag the 5 (0.5). n == len(cal), so every draw is the same set.
+    # cal = test = 0..9, alpha = 0.5: l = ceil(11 * 0.5) = 6, 임계값 5.0. "score > 5"는 6..9를 표시하고(0.4),
+    # ">=" 규칙이면 5도 표시한다(0.5). n == len(cal)이라 모든 추출이 같은 집합이다.
     scores = np.arange(10.0)
     (row,) = subsample_fpr_curve(scores, scores, 0.5, ns=(10,), draws=7)
     for key in ("mean", "p5", "p95"):
         assert row[key] == pytest.approx(0.4, abs=1e-12, rel=0), key
     assert row["guaranteed"] is True
-    # All scores equal: nothing is ever above the threshold.
+    # 점수가 모두 같다: 임계값 위에 오는 것이 하나도 없다.
     (row,) = subsample_fpr_curve(np.ones(30), np.ones(12), 0.05, ns=(20,), draws=9)
     assert (row["mean"], row["p5"], row["p95"]) == (0.0, 0.0, 0.0)
-    # Not guaranteed (n = 5 < 19): the threshold is the subset maximum and ties with it are not flagged.
+    # 보장 안 됨(n = 5 < 19): 임계값은 부분집합의 최댓값이고 그와 같은 점수는 표시하지 않는다.
     (row,) = subsample_fpr_curve(np.arange(5.0), np.array([3.0, 4.0, 4.0, 5.0]), 0.05, ns=(5,), draws=3)
     assert row["mean"] == 0.25
     assert row["guaranteed"] is False
@@ -622,7 +614,7 @@ def test_subsample_curve_uses_the_strict_rule_on_ties() -> None:
 # pool·m은 파이썬 int이고 결과 전체가 JSON으로 그대로 저장된다(리포트에 쓰이므로).
 def test_subsample_curve_reports_pool_and_test_sizes() -> None:
     rng = np.random.default_rng(12)
-    cal, test = rng.random((6, 20)), rng.random(77)  # 2-D input is flattened: pool = 120
+    cal, test = rng.random((6, 20)), rng.random(77)  # 2차원 입력은 펼친다: pool = 120
     curve = subsample_fpr_curve(cal, test, 0.05, draws=20)
     assert [(row["n"], row["pool"], row["m"]) for row in curve] == [
         (20, 120, 77),
@@ -631,7 +623,7 @@ def test_subsample_curve_reports_pool_and_test_sizes() -> None:
     ]
     for row in curve:
         assert type(row["pool"]) is int and type(row["m"]) is int
-    assert json.loads(json.dumps(curve)) == curve  # plain Python values only
+    assert json.loads(json.dumps(curve)) == curve  # 평범한 파이썬 값만 있다
 
 
 # 확인(버그가 아니라 성질): 완전히 교환 가능한 균등 점수에서도 n이 풀의 큰 몫이면 관측 5~95% 폭이 Beta 폭보다
@@ -640,12 +632,10 @@ def test_subsample_curve_reports_pool_and_test_sizes() -> None:
 # 왜: 이 때문에 관측 곡선을 Beta 분위와 직접 비교하면 흔들림과 치우침을 가를 수 없다. 그래서 비교 기준을 같은
 # (pool, m, n)의 모의로 바꿨다(docs/experiments.md 규칙 변경 2). 이 테스트가 그 근거를 수치로 고정한다.
 def test_subsample_spread_is_narrower_than_beta_when_n_is_a_large_share_of_the_pool() -> None:
-    # Documents a property, not a bug: scores are iid uniform (perfectly exchangeable), yet the observed
-    # p5..p95 spread falls short of the Beta spread, because the subsets come without replacement from
-    # one fixed pool and are measured on one fixed test set. The shortfall grows with n / pool (roughly
-    # sqrt(1 - n / pool)), so the theory_* columns are only comparable to the observed ones through a
-    # reference simulation with the same (pool, m, n). Every bound below is at least four standard
-    # deviations (of the statistic across seeds) away from its typical value.
+    # 부분집합을 고정된 풀 하나에서 비복원으로 뽑고 고정된 테스트 세트 하나로 재기 때문에, 점수가 iid
+    # 균등이어도 관측 p5..p95 폭이 Beta 폭에 못 미친다. 그래서 theory_* 열은 같은 (pool, m, n)의 기준 모의를
+    # 거쳐서만 관측 열과 비교할 수 있다. 아래 경계는 모두 (seed 사이 통계량의) 표준편차 4배 이상 전형적인
+    # 값에서 떨어져 있다.
     pool, m, alpha, reals, draws = 300, 200, 0.05, 80, 200
     ns = (20, 100, 200, 300)  # n / pool = 0.07, 0.33, 0.67, 1
     rng = np.random.default_rng(21)
@@ -658,21 +648,21 @@ def test_subsample_spread_is_narrower_than_beta_when_n_is_a_large_share_of_the_p
             means[row["n"]].append(row["mean"] - row["theory_mean"])
     ratio = {n: float(np.mean(v)) for n, v in ratios.items()}
 
-    assert ratio[300] == 0.0  # the whole pool: one threshold, no spread at all, the Beta band unchanged
-    assert 0.35 < ratio[200] < 0.8  # n / pool = 0.67: about 0.58 of the Beta width (sqrt(1 / 3) = 0.58)
-    assert ratio[20] > 0.8  # n / pool = 0.07: about 0.95, close to the Beta width
-    assert ratio[200] < ratio[100] < ratio[20]  # n / pool = 0.33 sits in between (about 0.80)
+    assert ratio[300] == 0.0  # 풀 전체: 임계값 하나라 퍼짐이 전혀 없다(Beta 구간은 그대로)
+    assert 0.35 < ratio[200] < 0.8  # n / pool = 0.67: Beta 폭의 약 0.58배(sqrt(1 / 3) = 0.58)
+    assert ratio[20] > 0.8  # n / pool = 0.07: 약 0.95배로 Beta 폭에 가깝다
+    assert ratio[200] < ratio[100] < ratio[20]  # n / pool = 0.33은 그 사이(약 0.80)
     assert ratio[20] - ratio[200] > 0.15
 
-    # The per-category mean carries an error that belongs to this pool and this test set and does not
-    # shrink with more draws: about sqrt(alpha * (1 - alpha) * (1 / pool + 1 / m)) = 0.020 here, larger
-    # than the sd of the Beta law itself at n = 200 (0.015). It averages out over realisations.
+    # 범주별 평균에는 이 풀과 이 테스트 세트에 딸린 오차가 실리고, 추출을 늘려도 줄지 않는다: 여기서는 약
+    # sqrt(alpha * (1 - alpha) * (1 / pool + 1 / m)) = 0.020으로, n = 200의 Beta 법칙 자체의
+    # 표준편차(0.015)보다 크다. 이 오차는 실현을 여러 번 하면 평균에서 사라진다.
     fixed = math.sqrt(alpha * (1 - alpha) * (1 / pool + 1 / m))
     for n in (100, 200, 300):
         sd = float(np.std(means[n], ddof=1))
         assert 0.5 * fixed < sd < 1.6 * fixed, n
         assert abs(float(np.mean(means[n]))) < 4 * sd / math.sqrt(reals), n
-    monte_carlo_se = stats.beta(10, 191).std() / math.sqrt(draws)  # all that the draws alone would leave
+    monte_carlo_se = stats.beta(10, 191).std() / math.sqrt(draws)  # 추출만으로 남는 오차의 전부
     assert float(np.std(means[200], ddof=1)) > 8 * monte_carlo_se
 
 

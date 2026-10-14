@@ -1,22 +1,19 @@
-"""Write a HAR seed: real multipart requests for a DAST scan of the service (stackhawk.yml, zap/).
+"""검사 서비스의 DAST 스캔(stackhawk.yml, zap/)에 넣을 HAR 시드, 곧 실제 multipart 요청을 만든다.
 
-The OpenAPI request builder cannot render a valid image upload, so without these seeds every POST /inspect
-and POST /calibrate of a scan stops at form validation (422) and never reaches the handler. HAR bodies are
-text, so the images are 24-bit BMPs whose bytes are all below 0x80 (a PNG or JPEG would not survive the
-round trip through a JSON string). No token in here: the scan adds X-Admin-Token to every request.
+OpenAPI 명세로 요청을 만드는 스캐너는 올바른 이미지 업로드를 만들지 못한다. 그래서 이 시드가 없으면 스캔의
+POST /inspect와 POST /calibrate가 모두 폼 검증(422)에서 멈추고 처리 코드에 닿지 않는다. HAR의 요청 본문은
+텍스트(JSON 문자열)라서 이미지는 모든 바이트가 0x80 미만인 24비트 BMP로 만든다(PNG나 JPEG는 JSON 문자열을
+왕복하면서 깨진다). 관리자 토큰은 여기에 넣지 않는다. 스캔이 모든 요청에 X-Admin-Token 헤더를 붙인다.
 
-    uv run python hawk/make_seed_har.py                      # hawk/seed.har: category demo (offline app)
-    uv run python hawk/make_seed_har.py --category pcb1 --out hawk/seed-pcb1.har   # an artifact set
+    uv run python hawk/make_seed_har.py                      # hawk/seed.har: demo 범주(오프라인 앱)
+    uv run python hawk/make_seed_har.py --category pcb1 --out hawk/seed-pcb1.har   # 아티팩트 세트 하나
 """
 
 # [파일 역할] 검사 서비스의 DAST(동적 보안 스캔)에 넣을 HAR 시드 파일을 만드는 스크립트다. 실제 이미지가 든
 # multipart 요청 세 개(POST /inspect, POST /calibrate, DELETE /calibrate)를 HAR 형식 JSON으로 쓴다.
-# [왜 필요한가] 스캐너가 OpenAPI 명세만으로 만든 요청은 올바른 이미지 업로드를 만들지 못해, 2026-10-01 첫
-# HawkScan에서 업로드 요청이 전부 폼 검증(422)에서 멈추고 처리 코드에 닿지 않았다(docs/security.md). 진짜
-# 업로드 요청을 시드로 주면 스캐너가 이것을 바꿔 가며 처리 코드까지 공격해 본다.
-# [설계 이유] HAR의 요청 본문은 JSON 문자열(텍스트)이라 0x80 이상의 바이트는 왕복하며 깨진다. 그래서 PNG·JPEG
-# 대신 모든 바이트가 0x80 미만인 24비트 BMP를 만든다(서비스는 BMP도 받는다). 관리자 토큰은 파일에 넣지 않고
-# 스캔할 때 X-Admin-Token 헤더로 붙인다.
+# [왜 필요한가] 2026-10-01 첫 HawkScan에서 실제로 업로드 요청이 전부 폼 검증(422)에서 멈췄다
+# (docs/security.md). 진짜 업로드 요청을 시드로 주면 스캐너가 이것을 바꿔 가며 처리 코드까지 공격해 본다.
+# [설계 이유] 서비스는 BMP도 받으므로 7비트 BMP로 충분하다.
 # [연결] stackhawk.yml(HawkScan)과 zap/automation.yaml·zap/run_zap.sh(OWASP ZAP)가 이 파일이 만든
 # hawk/seed.har(오프라인 앱의 demo 범주)나 hawk/seed-pcb1.har(아티팩트 서비스의 pcb1 범주)를 읽는다.
 
@@ -33,16 +30,16 @@ BOUNDARY = "hawkseedboundary7d3a"
 OUT = Path(__file__).with_name("seed.har")
 
 
-# size×size 24비트 BMP 바이트를 만든다. 픽셀은 100~127의 회색 잡음이라 모든 바이트가 0x80 미만이다. 헤더의
-# 크기 값도 32px에서는 작아 같은 조건을 지킨다. 두 assert로 그 조건(행 패딩 없음, 7비트)이 깨지면 바로 멈춘다.
+# 픽셀은 100~127의 회색 잡음이고, 헤더의 크기 값도 32px에서는 작아 0x80 미만 조건을 지킨다. 두 assert로 그
+# 조건(행 패딩 없음, 7비트)이 깨지면 바로 멈춘다.
 def ascii_bmp(seed: int, size: int = 32) -> bytes:
-    """A size x size 24-bit BMP of mid grey noise; every byte of the file is below 0x80."""
+    """size×size 크기의 중간 회색 잡음 24비트 BMP 바이트를 만든다. 파일의 모든 바이트가 0x80 미만이다."""
     pixels = np.random.default_rng(seed).integers(100, 128, (size, size, 3), dtype=np.uint8)
     # BMP는 각 행을 4바이트 배수로 채워야 한다. 32px × 3바이트 = 96이라 패딩이 필요 없고, 패딩을 쓰지 않는
     # 간단한 구현을 assert로 보장한다.
     row = size * 3
     assert row % 4 == 0, "rows must need no padding"
-    body = pixels[::-1].tobytes()  # BMP rows run bottom-up
+    body = pixels[::-1].tobytes()  # BMP는 행을 아래에서 위 순서로 저장한다
     # 14바이트 파일 헤더("BM", 파일 크기, 픽셀 시작 위치 54)와 40바이트 BITMAPINFOHEADER(너비, 높이, 평면 1,
     # 24비트, 무압축, 본문 크기)를 리틀엔디언으로 묶는다.
     header = b"BM" + struct.pack("<IHHI", 54 + len(body), 0, 0, 54)
@@ -128,7 +125,7 @@ def build(host: str, category: str = "demo") -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--host", default="http://127.0.0.1:8093")
-    parser.add_argument("--category", default="demo", help="demo: the offline app; else a category folder")
+    parser.add_argument("--category", default="demo", help="demo는 오프라인 앱, 그 밖의 값은 범주 폴더 이름")
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args()
     har = build(args.host.rstrip("/"), args.category)

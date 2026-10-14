@@ -1,4 +1,4 @@
-"""Read the VisA split and annotation CSVs straight from the tar (no extraction, no image decoding)."""
+"""VisA 분할·주석 CSV를 tar에서 바로 읽는다(압축 풀기도, 이미지 디코딩도 하지 않는다)."""
 
 # [파일 역할] VisA 원본 tar(VisA_20220922.tar) 안에서 공식 분할 CSV(split_csv/*.csv)와 범주별 결함 유형
 # CSV(<범주>/image_anno.csv)만 꺼내 파이썬 객체로 돌려준다.
@@ -53,8 +53,8 @@ class VisaRow:
     category: str
     split: str  # "train" | "test"
     label: str  # "normal" | "anomaly"
-    image: str  # member name of the image, e.g. candle/Data/Images/Normal/0836.JPG
-    mask: str  # member name of the mask, "" for normal images
+    image: str  # 이미지의 tar 멤버 이름. 예: candle/Data/Images/Normal/0836.JPG
+    mask: str  # 마스크의 tar 멤버 이름. 정상 이미지는 ""
 
 
 # tar 멤버 이름 앞의 "./"를 떼어 CSV에 적힌 경로(예: split_csv/2cls_highshot.csv)와 같은 모양으로 맞춘다.
@@ -69,10 +69,10 @@ def _member_name(name: str) -> str:
 # 호출 위치: _csv_members에서만 부른다.
 @functools.lru_cache(maxsize=4)
 def _scan_csv_members(tar_path: str, size: int, mtime_ns: int) -> dict[str, str]:
-    """Text of every CSV member, from one pass over the tar headers.
+    """tar 헤더를 한 번 훑어 모은 모든 CSV 멤버의 텍스트.
 
-    The split CSVs sit at the very end of the real tar, so a pass is a full scan of ~12,000 headers.
-    The result is cached per (path, size, mtime) so that one process scans the tar only once.
+    실제 tar에서는 분할 CSV가 맨 끝에 있어서, 한 번 훑는 것이 곧 약 12,000개 헤더 전체를 보는 일이다. 결과를
+    (경로, 크기, mtime)마다 캐시해 한 프로세스가 tar를 한 번만 훑게 한다.
     """
     # 찾아야 할 CSV: 분할 CSV 3개와 범주별 image_anno.csv 12개. 이것을 다 모으면 남은 헤더를 보지 않고 멈춘다.
     wanted = {f"split_csv/{name}.csv" for name in SPLIT_NAMES} | {f"{c}/image_anno.csv" for c in CATEGORIES}
@@ -113,19 +113,19 @@ def _rows(text: str, header: list[str], member: str) -> list[dict[str, str]]:
 # 다른 역할로 섞이면 안 된다.
 # 호출 위치: splits.main(2cls_highshot), tests/test_visa.py.
 def read_split_csv(tar_path: Path, name: str = "2cls_highshot") -> list[VisaRow]:
-    """Rows of `split_csv/<name>.csv` in file order."""
+    """`split_csv/<name>.csv`의 행들(파일 순서)."""
     member = f"split_csv/{name}.csv"
     members = _csv_members(tar_path)
     if member not in members:
         raise KeyError(f"{member} not found in {tar_path}")
     rows = []
     for r in _rows(members[member], SPLIT_HEADER, member):
-        # csv.DictReader gives None for cells a short row lacks and files extra cells under the key None.
+        # csv.DictReader는 짧은 행에 없는 칸을 None으로 주고, 남는 칸은 키 None 아래에 모은다.
         if None in r or any(r[key] is None for key in SPLIT_HEADER[:-1]):
             raise ValueError(
                 f"{member}: expected {len(SPLIT_HEADER)} columns (the mask may be left out): {r}"
             )
-        # A normal row without its trailing comma has no mask cell at all: that is an empty mask.
+        # 끝 쉼표가 없는 정상 행은 마스크 칸이 아예 없다: 빈 마스크로 본다.
         row = VisaRow(r["object"], r["split"], r["label"], r["image"], r["mask"] or "")
         # split은 train/test, label은 normal/anomaly만 허용한다. 그 밖의 값은 분할 규칙이 다루지 않으므로
         # 멈춘다.
@@ -143,7 +143,7 @@ def read_split_csv(tar_path: Path, name: str = "2cls_highshot") -> list[VisaRow]
 # 비지도 방법을 비교하는 데 쓴다(docs/experiments.md 0단계, 39종).
 # 호출 위치: splits.main이 매니페스트의 defect_types 열을 채울 때 부른다.
 def read_defect_types(tar_path: Path) -> dict[str, tuple[str, ...]]:
-    """Image path -> sorted, distinct defect type names, for anomaly images (`<category>/image_anno.csv`)."""
+    """이상 이미지 경로 -> 중복 없이 정렬한 결함 유형 이름들(`<category>/image_anno.csv`에서)."""
     types: dict[str, tuple[str, ...]] = {}
     for member, text in _csv_members(tar_path).items():
         # 범주 폴더 바로 아래의 image_anno.csv만 읽는다(분할 CSV나 더 깊은 경로의 CSV는 건너뜀).

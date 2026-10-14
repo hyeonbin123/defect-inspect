@@ -47,7 +47,7 @@ NEVER_VISIBLE = "hole_1_001"
 # 실제 백본 대신 쓰는 작은 특징 추출기: 2x2 칸마다 평균 색(3차원). 학습 가중치가 없어 결정적이고 CPU에서
 # 빠르다.
 class GridMean(torch.nn.Module):
-    """Tiny stand-in for a backbone: the mean colour of each cell of a 2x2 grid."""
+    """백본 대신 쓰는 작은 추출기: 2x2 격자의 칸마다 평균색을 낸다."""
 
     name = "gridmean"
     dim = 3
@@ -80,7 +80,7 @@ def make_rows(categories=("Motor",)) -> list[M2adRow]:
 # M2adCache를 대신하는 가짜 캐시. splits에 읽은 분할 이름을 쌓아, 검증이 학습 이미지만 읽는지와 CLI가 허락
 # 전에 아무것도 읽지 않는지 확인한다.
 class FakeCache:
-    """Specimen noise, a uniform darkening per illumination, a cell of a specimen's own colour for defects."""
+    """시편별 잡음, 조명마다 고른 어두워짐, 결함에는 시편마다 다른 색의 칸."""
 
     size = SIZE
 
@@ -145,7 +145,7 @@ def pick(rows, view, split, light, category="Motor"):
     )
 
 
-# ---------------------------------------------------------------- arms
+# ---------------------------------------------------------------- 팔(arm) 구성
 
 
 # 후보별 팔 구성을 확인한다. E0·E1은 기준 조명 I01 하나(팔 ref), E2·E3는 I01 + 묶음 A, I01 + 묶음 B 두 팔이다.
@@ -159,7 +159,7 @@ def test_arms_and_enrolment():
     assert run_m2ad_enrol.arms("e2") == run_m2ad_enrol.arms("e3") == [("A", ("01", *a)), ("B", ("01", *b))]
     m = run_m2ad_enrol.enrolled_matrix("e2")
     assert m.shape == (2, 10) and m[:, 0].all()
-    # Every non-reference illumination is enrolled in exactly one arm, so it is unseen in the other one.
+    # 기준이 아닌 조명은 정확히 한 팔에만 등록되므로 다른 팔에서는 못 본 조명이다.
     assert (m[:, 1:].sum(axis=0) == 1).all()
     assert run_m2ad_enrol.enrolled_matrix("e0").tolist() == [[True] + [False] * 9]
     with pytest.raises(ValueError):
@@ -169,7 +169,7 @@ def test_arms_and_enrolment():
     assert run_m2ad_enrol.CANDIDATES == ("e0", "e1", "e2", "e3")
 
 
-# ---------------------------------------------------------------- validation
+# ---------------------------------------------------------------- 검증(validation)
 
 
 # E0, E1, E2의 검증을 Motor 000 검사기에서 한 번씩 돌려 모듈 안 테스트들이 나눠 쓴다(테스트마다 다시 돌리면
@@ -211,8 +211,8 @@ def test_validation_is_nested_over_specimen_folds(val_runs):
     assert z["arms"].tolist() == ["A", "B"] and z["lights"].tolist() == list(ILLUMINATIONS)
     assert z["scores"].shape == (2, 10, N_TRAIN) and z["thresholds"].shape == (2, 5)
     folds = z["folds"]
-    # Arm B, fold 2, rebuilt by hand: the enrolled images of the other specimens, a cross-fit over their
-    # four folds, and the held-out specimens scored by the bank of all of them.
+    # 팔 B, 겹 2를 손으로 다시 만든다: 다른 시편들의 등록 조명 이미지, 그 4겹의 교차 적합, 그리고 그
+    # 이미지 전부로 만든 뱅크로 채점한 빼 둔 시편들.
     _, enrolled = run_m2ad_enrol.arms("e2")[1]
     t = tools()
     keep = folds != 2
@@ -247,12 +247,12 @@ def test_enrolment_and_centring_remove_the_false_alarms_of_unseen_light(val_runs
         unseen = ~z["enrolled"][:, :, None].repeat(N_TRAIN, axis=2)
         return flagged[unseen].mean()
 
-    # A darker image is far from a bank of I01 patches; centring removes a uniform darkening entirely.
+    # 어두운 이미지는 I01 패치 뱅크에서 멀다. 중심화는 고른 어두워짐을 완전히 지운다.
     assert unseen_fpr("e0") == 1.0
     assert unseen_fpr("e1") <= 0.2
     z1 = load(out / "Motor_000_e1.npz")
     np.testing.assert_allclose(z1["scores"][0, 5], z1["scores"][0, 0], rtol=1e-4)
-    # A bank that holds the other specimens under an enrolled light covers that light for held-out ones.
+    # 등록한 조명에서 찍은 다른 시편들을 담은 뱅크는 빼 둔 시편의 그 조명 이미지도 덮는다.
     z0, z2 = load(out / "Motor_000_e0.npz"), load(out / "Motor_000_e2.npz")
     for a, light in ((0, "07"), (1, "05")):
         li = ILLUMINATIONS.index(light)
@@ -261,7 +261,7 @@ def test_enrolment_and_centring_remove_the_false_alarms_of_unseen_light(val_runs
         assert (z2["scores"][a, li] > z2["thresholds"][a, z2["folds"]]).mean() <= 0.2
 
 
-# ---------------------------------------------------------------- test
+# ---------------------------------------------------------------- 봉인 test
 
 
 # 봉인: allow_test=True 없이 test 채점(sealed_inspector)과 폐루프(loop_inspector)를 부르면 SealedTestError로
@@ -335,29 +335,29 @@ def test_closed_loop_drops_the_mixed_in_defects(tmp_path):
         entry = info["loop"][key]
         assert entry["batch"] == 20 and entry["defects_in_batch"] == k
         labels = z["labels"][keys.index(key)]
-        # The enrolled defect specimens (first k visible ones in SHA-256 order) leave the detection rate.
+        # 등록에 쓰인 불량 시편(SHA-256 순으로 보이는 것 앞 k개)은 검출률에서 빠진다.
         for i, name in enumerate(names):
             if name in visible[:k]:
                 assert labels[i] == -1
-        assert (labels == -1).sum() == k + 1  # plus the defect that is never visible
+        assert (labels == -1).sum() == k + 1  # 끝내 안 보이는 결함 하나를 더해
         if filt == "trim":
-            # The bright defect cells score highest within the batch, so the filter drops them first.
+            # 결함 칸은 묶음 안에서 점수가 가장 높으므로 거르기가 결함부터 버린다.
             assert entry["dropped_defects"] == k and entry["dropped_normals"] == 4 - k
             assert entry["enrolled"] == N_TRAIN + 16
         else:
             assert entry["dropped_defects"] == 0 and entry["enrolled"] == N_TRAIN + 20
-    # The normal part of the batch is the first 20 - k train specimens in SHA-256 order.
+    # 묶음의 정상 부분은 SHA-256 순 학습 시편 앞 20 - k개다(앞에서부터 자른 포함 관계).
     assert (
         recal_specimens([f"{2 * i:03d}" for i in range(N_TRAIN)], 18)
         == recal_specimens([f"{2 * i:03d}" for i in range(N_TRAIN)], 20)[:18]
     )
-    # Re-enrolment brings the normals under the new light back under the threshold.
+    # 재등록하면 새 조명의 정상이 임계값 아래로 돌아온다.
     j = keys.index("05:trim:2")
     normal = z["labels"][j] == 0
     assert (z["scores"][j][normal] <= z["thresholds"][j]).mean() >= 0.75
 
 
-# ---------------------------------------------------------------- CLI
+# ---------------------------------------------------------------- 명령줄(CLI)
 
 
 # CLI(main) 테스트 준비. 메타데이터·캐시·백본·구성을 가짜로 바꾸고, 검사기를 두 개로 줄이고, 출력 폴더를 임시
@@ -393,9 +393,9 @@ def test_cli_validation(project, tmp_path, temporary_ledger):
     ]
     assert set(project.splits) == {"train"} and not temporary_ledger.exists()
     with pytest.raises(SystemExit):
-        run_m2ad_enrol.main(["val", "--method", "p0", "--device", "cpu"])  # a finished run stays
+        run_m2ad_enrol.main(["val", "--method", "p0", "--device", "cpu"])  # 끝난 실행은 그대로 둔다
 
-    # The analysis reads the run as written and picks the candidate with fewer unseen false alarms.
+    # 분석은 쓰인 그대로의 실행을 읽고, 못 본 조명 오검출이 적은 후보를 고른다.
     report = analyze_m2ad_enrol.build_val_report({"p0": analyze_m2ad_enrol.load_val(out)}, n_boot=20)
     rows = report["methods"]["p0"]["candidates"]
     assert rows["e0"]["unseen"]["n_normal"] == rows["e3"]["unseen"]["n_normal"] == 9 * N_TRAIN * 2
@@ -411,9 +411,9 @@ def test_cli_test_records_the_read_and_runs_e0_and_the_pick(project, tmp_path, t
     val = tmp_path / "val.json"
     base = ["test", "--method", "p0", "--device", "cpu", "--pick-from", str(val)]
     with pytest.raises(SystemExit):
-        run_m2ad_enrol.main(base)  # no --allow-test
+        run_m2ad_enrol.main(base)  # --allow-test 없음
     with pytest.raises(SystemExit):
-        run_m2ad_enrol.main(base + ["--allow-test", "--stage", "7-m2ad"])  # no val report
+        run_m2ad_enrol.main(base + ["--allow-test", "--stage", "7-m2ad"])  # 검증 리포트 없음
     val.write_text(json.dumps({"methods": {"p0": {"pick": "e2"}}}), encoding="utf-8")
     assert project.splits == [] and not temporary_ledger.exists()
     run_m2ad_enrol.main(base + ["--allow-test", "--stage", "7-m2ad", "--loop"])

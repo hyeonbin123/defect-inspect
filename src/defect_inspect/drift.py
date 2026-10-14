@@ -1,25 +1,20 @@
-"""Label-free change detection on a stream of anomaly scores (stage 7, reported without a verdict).
+"""이상 점수 흐름에서 라벨 없이 변화를 감지한다(7단계, 판정 없이 보고).
 
-Each new image score becomes a conformal p-value: inductive (against a fixed set of calibration scores of
-normal images) or transductive (against the scores the stream has shown so far, itself included). The
-p-values feed a jumper test martingale with power betting functions; an alarm is raised when it reaches
-1/DELTA. With exchangeable scores the transductive p-values are independent and uniform, so Ville's
-inequality bounds the chance of any false alarm by DELTA over the whole stream. The inductive ones share
-the calibration set and do not carry that guarantee.
+새 이미지의 점수마다 conformal p-value를 만든다: 귀납형(정상 이미지의 고정된 보정 점수 집합과 비교) 또는
+전도형(스트림이 지금까지 보인 점수, 자기 포함과 비교). p-value를 거듭제곱 베팅 함수를 쓰는 jumper test
+martingale에 넣고, 자본이 1/DELTA에 닿으면 경보한다. 점수가 교환 가능하면 전도형 p-value는 서로 독립인
+균등분포라, Ville 부등식으로 스트림 전체에서 허위 경보가 한 번이라도 날 확률이 DELTA 이하로 묶인다.
+귀납형은 같은 보정 집합을 공유하므로 이 보장이 없다.
 
-`python -m defect_inspect.drift` reads saved scores only (no image, no GPU) and writes
-reports/stage7/drift.json. Rules: docs/experiments.md, stage 7.
+`python -m defect_inspect.drift`는 저장된 점수만 읽고(이미지·GPU 없음) reports/stage7/drift.json을 쓴다.
+규칙은 docs/experiments.md 7단계에 있다.
 """
 
 # [파일 역할] 7단계 "라벨 없는 변화 감지" 모듈이다. 검사기가 내는 이상 점수의 흐름만 보고, 촬영 조건이 바뀌어
 # 고정 임계값이 무너졌다는 것을 결함 라벨 없이 알아챌 수 있는지 잰다(판정 없음).
 # [왜 필요한가] 3-B에서 조명이 바뀌면 오검출률이 96.9%가 되고, 새 조명의 정상 8장으로 재보정하면 3.5%로
 # 돌아왔다(H12). 남은 문제는 "언제 재보정해야 하는지"를 라벨 없이 아는 장치다(docs/experiments.md 7단계 도입).
-# [방법] 새 점수마다 conformal p-value를 만들고(귀납형: 정상 보정 점수와 비교, 전도형: 스트림 자신의 지난
-# 점수와 비교), 거듭제곱 베팅 함수를 쓰는 jumper test martingale에 넣어 자본이 1/δ(= 100)에 닿으면
-# 경보한다(Vovk et al. 2021). 점수가 교환 가능하면 전도형 p-value는 서로 독립인 균등분포라, Ville 부등식으로
-# 스트림 전체에서 허위 경보가 한 번이라도 날 확률이 δ = 1% 이하다. 귀납형은 같은 보정 집합을 공유해 이 보장을
-# 받지 못한다.
+# [방법] 위 docstring의 방법이다. δ = 1%라 자본이 1/δ = 100에 닿으면 경보한다(Vovk et al. 2021).
 # [흐름] 저장된 점수만 읽는다(이미지·GPU 없음, 봉인 테스트를 다시 읽지 않아 장부 줄도 없음). (1) VisA 봉인
 # test 정상 스트림의 허위 경보율(결함 0/5/10% 섞음), (2) VisA 합성 교란 전후 스트림의 경보 지연, (3) M2AD 실제
 # 조명 I01 → 다른 조명 스트림의 경보 지연을 계산해 reports/stage7/drift.json에 쓴다.
@@ -47,41 +42,39 @@ from .splits import path_key
 #   이 집합은 4~7장이었다.
 # - JUMP(J = 0.01): 매 베팅 전에 전체 자본의 1%를 함수들에 고르게 다시 나눈다.
 # - DELTA(δ = 1%): 자본이 1/δ = 100에 닿으면 경보. 허위 경보율의 설계 목표다.
-EPSILONS = (1.0, 0.5, 0.2, 0.05)  # power betting eps * p**(eps - 1); eps = 1 is "no bet"
+EPSILONS = (1.0, 0.5, 0.2, 0.05)
 JUMP = 0.01
 DELTA = 0.01
 # RATES: 스트림에 섞는 결함 비율(0/5/10%). 결함이 섞인 스트림의 경보는 "결함이 이어서 나오는 것도 변화로
 # 잡는다"는 한계를 보여 준다. 스트림 수: 허위 경보는 범주마다 1,000개, VisA 지연은 범주마다 200개, M2AD 지연은
 # 검사기마다 1,000개(규칙). _CHUNK: 전도형 p-value의 쌍 비교를 스트림 100개씩 나눠 [100, T, T] 크기 배열로
 # 메모리를 묶는다.
-RATES = (0.0, 0.05, 0.10)  # share of defect images mixed into a stream
+RATES = (0.0, 0.05, 0.10)
 DETECTORS = ("inductive", "transductive")
 N_FA_STREAMS = 1000
 N_DELAY_STREAMS = 200
 N_M2AD_STREAMS = 1000
-_CHUNK = 100  # streams per block of the pairwise comparison in transductive_pvalues
+_CHUNK = 100
 
 
-# 설정 문자열(예: "fa|p0|candle|0.05")의 SHA-256 앞 16자리로 시드를 정한 생성기. 스트림 순서, 섞을 결함, θ가
-# 모두 이 생성기에서 나와 결과가 결정적이고, 설정마다 시드가 달라 서로 겹치지 않는다.
+# 설정 문자열은 예를 들어 "fa|p0|candle|0.05"이고, 그 SHA-256 앞 16자리를 시드로 쓴다. 스트림 순서, 섞을 결함,
+# θ가 모두 이 생성기에서 나와 결과가 결정적이고, 설정마다 시드가 달라 서로 겹치지 않는다.
 def rng_for(key: str) -> np.random.Generator:
-    """A generator seeded by the SHA-256 of `key`: every stream set has its own fixed seed."""
+    """`key`의 SHA-256으로 시드를 정한 생성기. 스트림 묶음마다 고정된 자기 시드를 가진다."""
     return np.random.default_rng(int(path_key(key)[:16], 16))
 
 
-# 동점을 무작위로 쪼개는 θ ~ U(0, 1]. 0을 빼서 p-value가 정확히 0이 되지 않게 한다(베팅 함수의 p^(ε−1)이
-# 무한대가 되는 것을 막음).
+# θ는 동점을 무작위로 쪼개는 데 쓴다. 0을 빼서 베팅 함수의 p^(ε−1)이 무한대가 되는 것을 막는다.
 def _theta(rng: np.random.Generator, shape) -> np.ndarray:
-    """Uniform on (0, 1]: a p-value is never exactly 0."""
+    """(0, 1] 위의 균등분포 θ를 뽑는다: p-value가 정확히 0이 되지 않는다."""
     return 1.0 - rng.random(shape)
 
 
-# 귀납형 conformal p-value. 새 점수 s보다 큰 보정 점수 수에 동점 몫(θ × (같은 수 + 1))을 더해 (n + 1)로
-# 나눈다. 점수가 클수록 이상하므로 큰 점수일수록 p가 작다. 보정 점수는 그 검사기의 임계값을 정한 바로 그
-# 점수다(P0·D-S: 학습 풀 교차 적합, DM·DMS: 겹 0 홀드아웃, M2AD: 학습 시편 30장의 교차 적합). 정렬한 보정
-# 점수에 searchsorted 두 번으로 "큰 수"와 "같은 수"를 한꺼번에 센다.
+# 귀납형 conformal p-value. 점수가 클수록 이상하므로 큰 점수일수록 p가 작다. 보정 점수는 그 검사기의 임계값을
+# 정한 바로 그 점수다(P0·D-S: 학습 풀 교차 적합, DM·DMS: 겹 0 홀드아웃, M2AD: 학습 시편 30장의 교차 적합).
+# 정렬한 보정 점수에 searchsorted 두 번으로 "큰 수"와 "같은 수"를 한꺼번에 센다.
 def inductive_pvalues(scores: np.ndarray, cal: np.ndarray, theta: np.ndarray) -> np.ndarray:
-    """p = (#{cal > s} + theta * (#{cal = s} + 1)) / (n + 1), for every entry of `scores`."""
+    """`scores`의 원소마다 p = (#{cal > s} + theta * (#{cal = s} + 1)) / (n + 1)을 계산한다."""
     cal = np.sort(np.asarray(cal, dtype=np.float64))
     if cal.size == 0:
         raise ValueError("inductive p-values need calibration scores")
@@ -91,12 +84,15 @@ def inductive_pvalues(scores: np.ndarray, cal: np.ndarray, theta: np.ndarray) ->
     return ((cal.size - right) + theta * (right - left + 1)) / (cal.size + 1)
 
 
-# 전도형 conformal p-value. t번째 점수를 그때까지 본 점수(자기 포함)의 순위로 바꾼다. 보정 집합이 필요 없지만
+# 전도형 conformal p-value. 보정 집합이 필요 없지만
 # 변화 전 기준 구간이 길어야 한다(M2AD처럼 변화 전 20장뿐이면 늦다).
 # 구현: 하삼각 행렬(past[t, i] = i ≤ t)로 모든 (t, i) 쌍을 한 번에 비교해 "지난 점수 중 큰 수"와 "같은 수"를
 # 센다. 스트림 100개씩 나눠 메모리를 묶는다.
 def transductive_pvalues(scores: np.ndarray, theta: np.ndarray) -> np.ndarray:
-    """p_t = (#{i <= t: s_i > s_t} + theta_t * #{i <= t: s_i = s_t}) / t (1-based t), per stream (row)."""
+    """스트림(행)마다 p_t = (#{i <= t: s_i > s_t} + theta_t * #{i <= t: s_i = s_t}) / t (t는 1부터).
+
+    t번째 점수를 그때까지 본 점수(자기 포함) 가운데의 순위로 바꾸는 것이다.
+    """
     s = np.asarray(scores, dtype=np.float64)
     if s.ndim != 2:
         raise ValueError(f"expected scores [streams, time], got {s.shape}")
@@ -114,18 +110,16 @@ def transductive_pvalues(scores: np.ndarray, theta: np.ndarray) -> np.ndarray:
     return out
 
 
-# p-value 스트림마다 jumper 마팅게일이 1/δ에 처음 닿는 위치(0부터, 끝내 닿지 않으면 -1)를 돌려준다. 자본은
-# 베팅 함수들에 고르게 1/k씩으로 시작하고, 매 관측 전에 J만큼 고르게 다시 나눈 뒤(오래 조용한 동안 잃은 함수도
-# 변화 뒤에 빨리 다시 이길 수 있게 함) 각 함수의 배수를 곱한다. 행(스트림)마다 독립이고, 모든 스트림을 배열로
-# 한꺼번에 갱신한다.
+# 위치는 0부터 센다. 자본은 베팅 함수들에 1/k씩 고르게 나눠 시작하고, 매 관측 전에 J만큼 다시 고르게 나눈 뒤
+# 각 함수의 배수를 곱한다. 모든 스트림을 배열로 한꺼번에 갱신한다.
 def first_alarm(
     pvalues: np.ndarray, epsilons: Sequence[float] = EPSILONS, jump: float = JUMP, delta: float = DELTA
 ) -> np.ndarray:
-    """Index of the first observation at which the jumper martingale reaches 1/delta (-1 if never).
+    """jumper 마팅게일이 1/delta에 처음 닿는 관측의 위치를 돌려준다(끝내 닿지 않으면 -1).
 
-    Capital starts split evenly over the betting functions eps * p**(eps - 1). Before each bet a share
-    `jump` of the total is spread evenly again (Vovk et al. 2021, Simple Jumper), so a function that lost
-    during a long quiet stretch can still win quickly after a change. Rows are independent streams.
+    자본은 베팅 함수 eps * p**(eps - 1)들에 고르게 나눠 시작한다. 매 베팅 전에 전체의 `jump` 몫을 다시
+    고르게 나눈다(Vovk et al. 2021, Simple Jumper). 그래서 오래 조용한 동안 잃은 함수도 변화 뒤에 빨리
+    다시 이길 수 있다. 행은 서로 독립인 스트림이다.
     """
     p = np.asarray(pvalues, dtype=np.float64)
     if p.ndim != 2:
@@ -145,31 +139,30 @@ def first_alarm(
     for t in range(p.shape[1]):
         if not live.any():
             break
-        # 아직 경보가 나지 않은 스트림만 갱신한다. 경보가 난 스트림은 live에서 빠져 첫 경보만 센다.
+        # 아직 경보가 나지 않은 스트림만 갱신한다. 경보가 난 스트림은 live에서 빠져 첫 경보만 세고, 그 행의
+        # 자본은 더 갱신하지 않는다.
         c = capital[live]
         c = (1.0 - jump) * c + jump * c.sum(axis=1, keepdims=True) / k
         c = c * eps * p[live, t : t + 1] ** (eps - 1.0)
         capital[live] = c
         hit = np.flatnonzero(live)[c.sum(axis=1) >= threshold]
         alarm[hit] = t
-        live[hit] = False  # only the first alarm counts; the capital of those rows is no longer updated
+        live[hit] = False
     return alarm
 
 
-# 정상 n장에 섞을 결함 수: 결함이 스트림의 rate가 되도록 round(rate / (1 − rate) × n). 그 범주의 결함 수(VisA
-# test는 40장)를 넘으면 그 수로 자른다. 그래서 결함 10%는 실제로 10%보다 조금 낮은 범주가 있다(7단계 결과 표
-# 아래 설명).
+# 계산은 round(rate / (1 − rate) × n)이다. 그 범주의 결함 수(VisA test는 40장)를 넘으면 그 수로 자른다. 그래서
+# 결함 10%는 실제로 10%보다 조금 낮은 범주가 있다(7단계 결과 표 아래 설명).
 def n_mixed(n_normal: int, rate: float, available: int) -> int:
-    """Defect images to mix into `n_normal` normal ones so that they make `rate` of the stream (capped)."""
+    """정상 `n_normal`장에 섞을 결함 수: 결함이 스트림의 `rate`가 되게 한다(있는 결함 수로 상한)."""
     if not 0.0 <= rate < 1.0:
         raise ValueError(f"rate must be in [0, 1), got {rate}")
     want = math.floor(rate / (1.0 - rate) * n_normal + 0.5)
     return min(want, int(available))
 
 
-# 정상 점수 전부와 결함 점수 k개를 무작위로 골라 섞은 한 구간. 결함 위치도 함께 돌려준다.
 def _segment(rng: np.random.Generator, normal: np.ndarray, defect: np.ndarray, k: int) -> tuple:
-    """All `normal` scores and k of the `defect` ones, in a random order: (scores, is_defect)."""
+    """`normal` 점수 전부와 `defect` 점수 k개를 무작위 순서로 섞은 한 구간: (점수, 결함 여부)."""
     chosen = rng.permutation(defect.size)[:k]
     scores = np.concatenate([normal, defect[chosen]])
     is_defect = np.concatenate([np.zeros(normal.size, bool), np.ones(k, bool)])
@@ -177,10 +170,10 @@ def _segment(rng: np.random.Generator, normal: np.ndarray, defect: np.ndarray, k
     return scores[order], is_defect[order]
 
 
-# 두 감지기를 같은 스트림, 같은 θ로 돌린다. 둘의 차이가 p-value 방식에서만 나오게 하려는 것이다(규칙). 보정
-# 점수가 없으면 전도형만 돈다.
+# 같은 스트림, 같은 θ를 쓰는 것은 둘의 차이가 p-value 방식에서만 나오게 하려는 것이다(규칙). 보정 점수가
+# 없으면 전도형만 돈다.
 def detect(scores: np.ndarray, cal: np.ndarray | None, rng: np.random.Generator) -> dict[str, np.ndarray]:
-    """First alarm of both detectors on the same streams and the same randomisation."""
+    """같은 스트림과 같은 무작위화로 두 감지기의 첫 경보 위치를 구한다."""
     theta = _theta(rng, scores.shape)
     out = {"transductive": first_alarm(transductive_pvalues(scores, theta))}
     if cal is not None:
@@ -188,21 +181,19 @@ def detect(scores: np.ndarray, cal: np.ndarray | None, rng: np.random.Generator)
     return out
 
 
-# 허위 경보용 스트림: 범주의 test 정상 점수를 모두 한 번씩, 결함 k개와 함께 스트림마다 다른 무작위 순서로
-# 늘어놓는다. 정상만 있으면 변화가 없는 스트림이므로, 여기서 나는 경보는 모두 허위 경보다.
+# 정상만 있으면 변화가 없는 스트림이므로, 여기서 나는 경보는 모두 허위 경보다.
 def false_alarm_streams(
     normal: np.ndarray, defect: np.ndarray, rate: float, n_streams: int, rng: np.random.Generator
 ) -> tuple[np.ndarray, int]:
-    """[n_streams, T]: every normal score once plus k defect scores, each stream in its own random order."""
+    """허위 경보용 [n_streams, T]: 범주의 정상 점수 전부 한 번씩 + 결함 k개, 스트림마다 다른 무작위 순서."""
     normal, defect = np.asarray(normal, np.float64), np.asarray(defect, np.float64)
     k = n_mixed(normal.size, rate, defect.size)
     rows = [_segment(rng, normal, defect, k)[0] for _ in range(n_streams)]
     return np.stack(rows), k
 
 
-# 변화 지연용 스트림(M2AD): 변화 전 구간(I01의 정상 + 결함)을 섞어 놓고, 이어서 변화 뒤 구간(새 조명의 정상 +
-# 결함)을 섞어 붙인다. 변화 뒤 첫 관측의 위치와 구간별 섞은 결함 수를 같이 돌려준다. 같은 시편이 두 조명에서
-# 한 번씩 나온다.
+# M2AD에서는 변화 전 구간이 I01의 정상 + 결함, 변화 뒤 구간이 새 조명의 정상 + 결함이다. 같은 시편이 두
+# 조명에서 한 번씩 나온다.
 def change_streams(
     pre: tuple[np.ndarray, np.ndarray],
     post: tuple[np.ndarray, np.ndarray],
@@ -210,9 +201,9 @@ def change_streams(
     n_streams: int,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, int, tuple[int, int]]:
-    """[n_streams, T]: a pre-change segment then a post-change one, each (normals, defects) shuffled.
+    """변화 지연용 [n_streams, T]: 변화 전 구간 뒤에 변화 뒤 구간을 붙인다. 각 구간은 (정상, 결함)을 섞는다.
 
-    Returns the streams, the index of the first post-change observation, and the defects mixed (pre, post).
+    스트림, 변화 뒤 첫 관측의 위치, 구간별로 섞은 결함 수 (전, 후)를 돌려준다.
     """
     (pre_n, pre_d), (post_n, post_d) = [
         (np.asarray(a, np.float64), np.asarray(b, np.float64)) for a, b in (pre, post)
@@ -226,9 +217,8 @@ def change_streams(
     return np.stack(rows), pre_n.size + k_pre, (k_pre, k_post)
 
 
-# 변화 지연용 스트림(VisA 합성 교란): 같은 이미지 집합에서 스트림마다 정상과 결함을 무작위로 반씩 나눠, 앞
-# 절반은 교란 없는 점수로, 뒤 절반은 교란 조건의 점수로 늘어놓는다. 같은 이미지가 양쪽에 나오지 않아 "교란
-# 전후의 같은 사진"이 감지를 쉽게 만드는 일이 없다.
+# VisA 합성 교란용이다. 같은 이미지가 양쪽에 나오지 않아 "교란 전후의 같은 사진"이 감지를 쉽게 만드는 일이
+# 없다.
 def split_change_streams(
     clean: np.ndarray,
     changed: np.ndarray,
@@ -237,10 +227,10 @@ def split_change_streams(
     n_streams: int,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, int]:
-    """Streams from one image set: per stream a random half of the normals (and of the defects) comes
-    before the change with its clean scores, the other half after it with its changed scores.
+    """이미지 집합 하나로 변화 지연용 스트림을 만든다: 스트림마다 정상(과 결함)을 무작위로 반씩 나눠, 한
+    절반은 변화 전에 교란 없는 점수로, 나머지 절반은 변화 뒤에 교란 조건의 점수로 늘어놓는다.
 
-    No image appears in both segments. Returns the streams and the index of the first post-change one.
+    어떤 이미지도 두 구간에 함께 나오지 않는다. 스트림과 변화 뒤 첫 관측의 위치를 돌려준다.
     """
     clean, changed = np.asarray(clean, np.float64), np.asarray(changed, np.float64)
     normal, defect = np.flatnonzero(labels == 0), np.flatnonzero(labels == 1)
@@ -261,26 +251,24 @@ def summarise_fa(alarm: np.ndarray) -> dict:
     return {"streams": int(alarm.size), "alarms": int((alarm >= 0).sum()), "rate": float((alarm >= 0).mean())}
 
 
-# 변화 전에 난 경보(조기 경보) 수와, 나머지 스트림의 지연. 지연은 경보가 난 장까지 포함한 변화 뒤 관측 수(1 =
-# 변화 뒤 첫 장에서 경보)이고, 변화 뒤에 끝내 경보가 없으면 무한대다.
 def delays(alarm: np.ndarray, change: int) -> tuple[int, np.ndarray]:
-    """(early alarms, delays of the other streams): the delay counts post-change images up to and
-    including the alarm (1 = the first one); a stream without an alarm after the change gets inf."""
+    """(변화 전에 난 조기 경보 수, 나머지 스트림의 지연)을 돌려준다.
+
+    지연은 경보가 난 장까지 포함한 변화 뒤 관측 수다(1 = 변화 뒤 첫 장에서 경보). 변화 뒤에 끝내 경보가
+    없는 스트림은 무한대다."""
     alarm = np.asarray(alarm)
     early = (alarm >= 0) & (alarm < change)
     rest = alarm[~early]
     return int(early.sum()), np.where(rest >= change, rest - change + 1, np.inf).astype(np.float64)
 
 
-# 여러 범주·검사기의 지연을 합쳐 요약한다: 조기 경보 비율, 변화 뒤 구간 안에서 경보한 비율, 지연의 중앙값과
-# 90백분위. 경보 없는 스트림을 무한히 늦은 것으로 세므로, 절반 넘게 경보가 없으면 중앙값이 무한대가 되어
-# None으로 적는다(README 표의 "-"). 백분위는 method="higher"로 실제 스트림 값 하나를 고르게 해, 무한대와
+# 요약 칸: 조기 경보 비율, 변화 뒤 구간 안에서 경보한 비율, 지연의 중앙값과 90백분위. 절반 넘게 경보가 없으면
+# 중앙값이 None이 된다(README 표의 "-"). 백분위는 method="higher"로 실제 스트림 값 하나를 고르게 해, 무한대와
 # 유한값 사이를 보간하지 않는다.
 def pool_delays(parts: Sequence[tuple[np.ndarray, int]]) -> dict:
-    """Delay summary over the streams of several categories or inspectors, each with its change index.
+    """여러 범주·검사기의 스트림(각자 변화 위치를 가짐)을 합쳐 지연을 요약한다.
 
-    The median and the 90th percentile count streams without an alarm as infinitely late; they are None
-    when they fall on such a stream.
+    중앙값과 90백분위는 경보 없는 스트림을 무한히 늦은 것으로 센다. 값이 그런 스트림에 떨어지면 None이다.
     """
     early, rest = 0, []
     for alarm, change in parts:
@@ -302,7 +290,7 @@ def pool_delays(parts: Sequence[tuple[np.ndarray, int]]) -> dict:
     }
 
 
-# ---------------------------------------------------------------- saved scores
+# ---------------------------------------------------------------- 저장된 점수
 
 
 # 저장된 점수의 출처(봉인 test 실행 폴더, 테스트 점수 키, 보정 점수 키). P0·D-S는 전체 뱅크
@@ -310,7 +298,7 @@ def pool_delays(parts: Sequence[tuple[np.ndarray, int]]) -> dict:
 # 홀드아웃 점수를 쓴다. 각 검사기의 임계값을 정한 그 점수가 귀납형의 보정 집합이다. 교란 지연은 3-A 실행이
 # 있는 세 방법, M2AD 지연은 3-B의 두 방법만 잰다.
 VISA_SOURCES = {
-    # method: (run directory, test score key, calibration score key)
+    # 방법: (실행 폴더, 테스트 점수 키, 보정 점수 키)
     "p0": ("p0-test", "eval_score_full", "pool_score_oof"),
     "d-s": ("d-s-test", "eval_score_full", "pool_score_oof"),
     "dm": ("dm-test", "eval_score", "cal_score"),
@@ -335,11 +323,11 @@ def load_visa(method: str, outputs: Path) -> dict[str, dict[str, np.ndarray]]:
     return out
 
 
-# 허위 경보 표: 결함 비율 × 범주마다 스트림 1,000개를 만들어 두 감지기를 돌리고, 12개 범주를 합친 허위
-# 경보율과 범주별 값, 섞은 결함 수를 적는다. 귀납형의 DM·DMS 허위 경보가 결함 0%에서도 1.5~1.8%로 목표를
+# 결함 비율 × 범주마다 스트림 1,000개를 만들고, 12개 범주를 합친 허위 경보율과 범주별 값, 섞은 결함 수를
+# 적는다. 귀납형의 DM·DMS 허위 경보가 결함 0%에서도 1.5~1.8%로 목표를
 # 넘었고 대부분 pcb1에서 나왔다(7단계 결과).
 def fa_table(method: str, outputs: Path, n_streams: int = N_FA_STREAMS) -> dict:
-    """False alarms on streams of a method's saved VisA test scores, per detector and defect share."""
+    """허위 경보 표: 한 방법의 저장된 VisA test 점수로 만든 스트림에서 감지기·결함 비율별 허위 경보."""
     cats = load_visa(method, outputs)
     table: dict = {}
     for rate in RATES:
@@ -364,10 +352,10 @@ def fa_table(method: str, outputs: Path, n_streams: int = N_FA_STREAMS) -> dict:
     return table
 
 
-# VisA 합성 교란 15조건마다 경보 지연 표(3-A의 test 교란 실행 `perturb-<방법>-test`의 점수). 조건 목록의 첫
-# 항목(clean)은 기준이라 빼고, 범주마다 200개 스트림을 split_change_streams로 만든다.
+# 점수는 3-A의 test 교란 실행 `perturb-<방법>-test`에서 읽는다. 조건 목록의 첫 항목(clean)은 기준이라 빼고,
+# 범주마다 200개 스트림을 split_change_streams로 만든다.
 def perturb_delay_table(method: str, outputs: Path, n_streams: int = N_DELAY_STREAMS) -> dict:
-    """Alarm delay after a switch from clean scores to the scores of each synthetic condition (VisA test)."""
+    """교란 없는 점수에서 합성 교란 15조건 각각의 점수로 바뀐 뒤의 경보 지연 표(VisA test)."""
     run = Path(outputs) / f"perturb-{method}-test"
     cats = {}
     for path in sorted(run.glob("*.npz")):
@@ -399,11 +387,11 @@ def perturb_delay_table(method: str, outputs: Path, n_streams: int = N_DELAY_STR
     return table
 
 
-# M2AD 실제 조명마다 경보 지연 표(3-B 실행 `m2ad-<방법>`의 점수). 조건 이름이 "S"(기준 조명 I01)와
+# 점수는 3-B 실행 `m2ad-<방법>`에서 읽는다. 조건 이름이 "S"(기준 조명 I01)와
 # "R:<조명>"(실제 조명)으로 저장되어 있어, 검사기마다 S 구간 뒤에 R 구간을 이어 붙인다. 보정 점수는 그
 # 검사기의 학습 시편 교차 적합 점수다.
 def m2ad_delay_table(method: str, outputs: Path, n_streams: int = N_M2AD_STREAMS) -> dict:
-    """Alarm delay after a switch from I01 to each other real illumination (stage 3-B saved scores)."""
+    """I01에서 다른 실제 조명 각각으로 바뀐 뒤의 경보 지연 표(3-B 저장 점수)."""
     run = Path(outputs) / f"m2ad-{method}"
     with open(run / "run.json", encoding="utf-8") as f:
         meta = json.load(f)

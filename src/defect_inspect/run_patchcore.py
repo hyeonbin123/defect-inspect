@@ -1,8 +1,8 @@
-"""Build PatchCore memory banks for one protocol and score every set the analysis needs.
+"""한 절차(dev/test)의 PatchCore 메모리 뱅크를 만들고 분석에 필요한 모든 세트를 채점한다.
 
-Per category this writes `<out>/<category>.npz` (image scores under the full bank, the hold-out bank,
-resubstitution and cross-fitting, plus pixel metrics and PRO histograms) and `<out>/<category>_maps.npy`
-(score maps of the evaluation set under the full bank). Tables are made by `defect_inspect.analyze`.
+범주마다 `<out>/<category>.npz`(전체 뱅크·홀드아웃 뱅크·재대입·교차 적합에서의 이미지 점수, 픽셀 지표, PRO
+히스토그램)와 `<out>/<category>_maps.npy`(전체 뱅크로 낸 평가 세트의 점수 맵)를 쓴다. 표는
+`defect_inspect.analyze`가 만든다.
 """
 
 # [파일 역할] PatchCore 실행기(python -m defect_inspect.run_patchcore). 구성 하나(p0, d-s, p0-c 등)와
@@ -116,10 +116,9 @@ def run_category(
     resub = score(full_bank, pool_images).image_scores
     timing["resub_score_s"] = time.perf_counter() - t0
 
-    # Cross-fitting: every pool image is scored by a bank that never saw its fold.
     t0 = time.perf_counter()
-    # 교차 적합 점수(out-of-fold)를 NaN으로 채워 시작하고 겹마다 채운다. 끝난 뒤 NaN이 남았는지로 모든
-    # 이미지가 채점됐는지 확인한다.
+    # 교차 적합: 풀 이미지마다 자기 겹을 한 번도 보지 않은 뱅크로 채점한다. 교차 적합 점수(out-of-fold)를
+    # NaN으로 채워 시작하고 겹마다 채운다. 끝난 뒤 NaN이 남았는지로 모든 이미지가 채점됐는지 확인한다.
     oof = np.full(len(pool), np.nan, dtype=np.float32)
     holdout_bank = None
     bank_rows = {"full": int(full_bank.shape[0])}
@@ -183,7 +182,7 @@ def run_category(
     )
     np.save(out_dir / f"{category}_maps.npy", res_full.maps)
     if save_bank:
-        # The full bank in selection order (fp16): later stages score new conditions against it.
+        # 선택 순서대로 저장한 전체 뱅크(fp16). 뒤 단계(run_perturb)가 새 조건의 이미지를 이 뱅크로 채점한다.
         np.save(out_dir / f"{category}_bank.npy", full_bank.numpy())
     return {
         "category": category,
@@ -205,15 +204,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", default="p0")
     parser.add_argument("--protocol", choices=["dev", "test"], default="dev")
     parser.add_argument("--categories", nargs="*", default=list(CATEGORIES))
-    parser.add_argument("--out", type=Path, default=None, help="default: outputs/<config>-<protocol>")
+    parser.add_argument("--out", type=Path, default=None, help="기본값: outputs/<config>-<protocol>")
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--allow-test", action="store_true", help="read the sealed test set (logged)")
+    parser.add_argument("--allow-test", action="store_true", help="봉인 테스트 세트를 읽는다(장부에 기록)")
     parser.add_argument(
-        "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
+        "--stage", default="", help="봉인 테스트 장부에 남길 단계 이름(--allow-test와 함께 필수)"
     )
     parser.add_argument("--note", default="")
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--save-bank", action="store_true", help="keep each category's full memory bank")
+    parser.add_argument(
+        "--save-bank", action="store_true", help="범주마다 전체 메모리 뱅크를 <category>_bank.npy로 남긴다"
+    )
     args = parser.parse_args(argv)
 
     from .backbones import make_extractor
@@ -267,8 +268,8 @@ def main(argv: list[str] | None = None) -> None:
         "config": asdict(cfg),
         "protocol": args.protocol,
         "commit": commit,
-        # Coreset selection differs between devices at float rounding level,
-        # so banks that are compared must be built on the same device.
+        # 코어셋 선택은 장치에 따라 부동소수 반올림 수준으로 달라지므로, 서로 비교하는 뱅크는 같은 장치에서
+        # 만들어야 한다.
         "device": args.device,
         "categories": summaries,
         "total_s": round(time.perf_counter() - started, 1),

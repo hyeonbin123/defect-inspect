@@ -28,8 +28,8 @@ CATEGORIES = ("alpha", "beta", "gamma")
 #   상황을 흉내)
 # - 점수 맵: 무작위 맵에서 결함 이미지의 4×4 영역만 0.5 높여 픽셀 지표가 의미 있는 값을 갖게 한다
 def _write_category(run_dir, name, rng, *, resub_shift=-2.0, n_pool=200, n_neg=120, n_pos=30):
-    """One synthetic category: normal scores ~ N(0, 1), defects ~ N(2.5, 1), resubstitution scores too low."""
-    folds = np.arange(n_pool) % 4 + 1  # dev protocol: folds 1..4
+    """합성 범주 하나: 정상 점수 ~ N(0, 1), 결함 ~ N(2.5, 1), 재대입 점수는 지나치게 낮다."""
+    folds = np.arange(n_pool) % 4 + 1  # dev 절차: 겹 1..4
     labels = np.array([0] * n_neg + [1] * n_pos, dtype=np.int8)
     eval_full = np.concatenate([rng.normal(0, 1, n_neg), rng.normal(2.5, 1, n_pos)]).astype(np.float32)
     eval_holdout = eval_full + rng.normal(0, 0.05, n_neg + n_pos).astype(np.float32)
@@ -107,7 +107,7 @@ def test_report_structure_and_ranges(run_dir, monkeypatch):
             assert v["fpr"] == v["fp"] / v["n_normal"]
             assert v["fpr_ci"][0] <= v["fpr"] <= v["fpr_ci"][1]
             assert v["fpr_clopper_pearson"][0] <= v["fpr"] <= v["fpr_clopper_pearson"][1]
-        # The hold-out strategy calibrates on one fold only.
+        # 홀드아웃 방식은 한 겹만으로 보정한다.
         assert cal["holdout"]["n_cal_total"] == 150 and cal["crossfit"]["n_cal_total"] == 600
     text = analyze.format_report(report)
     assert "resubstitution" in text and "H1" in text
@@ -129,7 +129,7 @@ def test_calibration_matches_a_direct_computation(run_dir, monkeypatch):
         fp += int((full[cat["eval_labels"] == 0] > threshold).sum())
         tp += int((full[cat["eval_labels"] == 1] > threshold).sum())
     assert cal["crossfit"]["fp"] == fp and cal["crossfit"]["tp"] == tp
-    # Hold-out thresholds come from fold 1 (dev protocol) and apply to the hold-out model's scores.
+    # 홀드아웃 임계값은 겹 1(dev 절차)에서 정하고 홀드아웃 모델의 점수에 적용한다.
     cat = cats["alpha"]
     held = np.sort(cat["pool_score_oof"][cat["pool_folds"] == 1])
     rank = int(np.ceil((len(held) + 1) * 0.95))
@@ -141,7 +141,7 @@ def test_calibration_matches_a_direct_computation(run_dir, monkeypatch):
 def test_resubstitution_with_too_low_scores_supports_h1(run_dir, monkeypatch):
     monkeypatch.setattr(analyze, "N_BOOT", 200)
     report = analyze.build_report(run_dir)
-    # Calibration scores two standard deviations below the test normals: almost everything is flagged.
+    # 보정 점수가 평가 정상보다 2 표준편차 낮다: 거의 모든 것이 불량으로 표시된다.
     assert report["calibration"]["0.05"]["resubstitution"]["fpr"] > 0.3
     assert report["hypotheses"]["H1"] == "지지"
 
@@ -215,9 +215,9 @@ def test_finite_sample_reference_covers_exchangeable_scores(run_dir, monkeypatch
     for r in rows:
         lo, hi = r["reference_interval"]
         assert lo < r["reference_mean"] < hi
-        # Exchangeable simulation: its mean sits at the marginal rate of the conformal rule.
+        # 교환 가능한 모의: 그 평균은 conformal 규칙의 주변(marginal) 비율에 놓인다.
         assert r["reference_mean"] == pytest.approx(r["theory_mean"], abs=0.006)
-    # The fixture's cross-fitted scores and test normals come from the same distribution.
+    # 픽스처의 교차 적합 점수와 평가 정상은 같은 분포에서 나온다.
     assert sum(r["within_reference"] for r in rows) >= 3
 
 
@@ -229,6 +229,6 @@ def test_finite_sample_flags_a_conservative_shift(run_dir):
     for cat in cats.values():
         cat["pool_score_oof"] = (
             cat["pool_score_oof"] + 1.0
-        )  # calibration scores too high: thresholds too strict
+        )  # 보정 점수가 너무 높다: 임계값이 지나치게 엄격해진다
     rows = analyze.finite_sample(cats, 0.05)
     assert all(not r["within_reference"] and r["mean"] < r["reference_interval"][0] for r in rows)

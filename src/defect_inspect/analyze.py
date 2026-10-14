@@ -1,7 +1,7 @@
-"""Tables for a PatchCore run: accuracy, threshold calibration strategies, finite-sample curve.
+"""PatchCore 실행 하나의 표를 만든다: 정확도, 임계값 보정 방식 비교, 유한 표본 곡선.
 
-Reads the per-category files written by `run_patchcore` and writes a JSON report plus a per-image score
-CSV, so that every number can be recomputed without the images.
+`run_patchcore`가 범주마다 쓴 파일을 읽어 JSON 리포트와 이미지별 점수 CSV를 쓴다. 점수 CSV가 있으므로
+모든 수치를 이미지 없이 다시 계산할 수 있다.
 """
 
 # [파일 역할] PatchCore 실행 하나(run_patchcore의 출력 폴더)를 읽어 1단계 표를 만드는 분석 모듈이다(`python -m
@@ -42,12 +42,11 @@ from .stats import (
 # N_BOOT·SEED: 부트스트랩 2,000번, seed 0(공통 규칙). ALPHAS: 목표 오검출률 5%(주)와 1%(판정에 쓰지 않는
 # 참고). STRATEGIES: 임계값 보정 방식 세 가지(1단계 표).
 # REF_REALISATIONS·REF_DRAWS: 표본 수 곡선의 기준 모의를 100번 실현하고, 실현마다 300번 추출한다(1단계 규칙,
-# 규칙 변경 2).
+# 규칙 변경 2). 기준 모의는 실제와 같은 풀·테스트 크기를 가진 교환 가능한 점수로 같은 절차를 돌린 것이다.
 N_BOOT = 2000
 SEED = 0
 ALPHAS = (0.05, 0.01)
 STRATEGIES = ("resubstitution", "holdout", "crossfit")
-# Reference simulation for the finite-sample curve: exchangeable scores with the same pool/test sizes.
 REF_REALISATIONS = 100
 REF_DRAWS = 300
 
@@ -89,7 +88,7 @@ def _histograms(cat: dict[str, np.ndarray]) -> ProHistograms:
 # 단순 평균을 대표값으로, FPR@TPR95는 범주별 오검출 수를 합쳐 정상 전체로 나눈 합산 값으로 낸다(공통 규칙
 # "지표").
 def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_score_full") -> dict:
-    """Image AUROC, AUPRO, pixel AUROC per category and their macro averages; pooled FPR at 95% TPR."""
+    """범주별 이미지 AUROC·AUPRO·픽셀 AUROC와 그 범주 평균, 그리고 TPR 95%에서의 합산 FPR을 낸다."""
     names = list(cats)
     neg = [_split(cats[c], score_key)[0] for c in names]
     pos = [_split(cats[c], score_key)[1] for c in names]
@@ -114,7 +113,7 @@ def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_scor
     # 평균 AUROC의 구간. 아래 다른 통계도 같은 크기·같은 시드의 층화 추출을 써서 같은 재표집을 공유한다.
     auroc_boot = macro_auroc_bootstrap(neg, pos, n_boot=N_BOOT, seed=SEED)
 
-    # Same stratified draws (normals then defects of each category) for the other statistics.
+    # 다른 통계에 쓸 층화 추출이다. 범주마다 정상, 그다음 결함 순서로 크기를 늘어놓는다.
     sizes = [s for n, p in zip(neg, pos, strict=True) for s in (len(n), len(p))]
     draws = stratified_indices(sizes, n_boot=N_BOOT, seed=SEED)
     aupro_boot = np.zeros(N_BOOT)
@@ -127,7 +126,7 @@ def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_scor
         # aupro_binned는 히스토그램으로 다시 계산한 AUPRO다. 저장된 정확한 AUPRO와 나란히 적어, 구간 계산에
         # 쓰는 히스토그램 근사가 점 추정값과 얼마나 다른지 확인할 수 있게 한다.
         aupro_binned.append(aupro_from_histograms(hist))
-        # counts[b, j] = how often evaluation image j (normals first, then defects) is drawn in resample b
+        # counts[b, j] = 재표집 b에서 평가 이미지 j(정상 먼저, 그다음 결함)가 뽑힌 횟수
         counts = np.zeros((N_BOOT, n_neg + n_pos), dtype=np.int64)
         rows = np.arange(N_BOOT)[:, None]
         np.add.at(counts, (rows, neg_idx), 1)
@@ -156,7 +155,7 @@ def accuracy(cats: dict[str, dict[str, np.ndarray]], score_key: str = "eval_scor
 # - 교차 적합: 겹마다 그 겹을 뺀 뱅크로 매긴 점수를 모두 모은 것(pool_score_oof) + 전체 뱅크.
 # 보정 점수와 평가 점수가 같은 모델에서 나와야 임계값이 그 모델의 운영 오검출률을 맞춘다.
 def _strategy_inputs(cat: dict[str, np.ndarray], strategy: str, protocol: str) -> tuple[np.ndarray, str]:
-    """Calibration scores and the evaluation score column the strategy's deployed model produces."""
+    """보정 점수와, 그 방식으로 실제 운영할 모델이 내는 평가 점수 열의 이름을 돌려준다."""
     if strategy == "resubstitution":
         return cat["pool_score_resub"], "eval_score_full"
     if strategy == "holdout":
@@ -171,7 +170,7 @@ def _strategy_inputs(cat: dict[str, np.ndarray], strategy: str, protocol: str) -
 # 정확 구간, 그리고 교환 가능할 때의 이론 구간(pooled_fpr_band, Beta-Binomial 모의). 결과: 재대입 86.0%,
 # 홀드아웃 5.56%(이론 구간 3.56~6.34 안), 교차 적합 3.98%(README).
 def calibration(cats: dict[str, dict[str, np.ndarray]], protocol: str, alpha: float) -> dict:
-    """Actual pooled false positive and detection rates of thresholds fixed from normal scores only."""
+    """정상 점수만으로 고정한 임계값의 실제 합산 오검출률과 검출률을 낸다."""
     out: dict[str, dict] = {}
     flags: dict[str, tuple[list[np.ndarray], list[np.ndarray]]] = {}
     for strategy in STRATEGIES:
@@ -219,9 +218,8 @@ def calibration(cats: dict[str, dict[str, np.ndarray]], protocol: str, alpha: fl
         }
         flags[strategy] = (fp_flags, tp_flags)
 
-    # H4용: 교차 적합 − 홀드아웃의 검출률 차이. 두 호출이 같은 결함 수, 같은 시드라 같은 재표집을 쓰므로
+    # H4용: 교차 적합 − 홀드아웃의 검출률 차이. 두 호출이 같은 결함 이미지에 같은 시드로 같은 재표집을 쓰므로
     # 짝지은 차이가 된다.
-    # Paired difference (same images, same draws): cross-fitting minus hold-out detection rate.
     diff = pooled_rate_bootstrap(flags["crossfit"][1], n_boot=N_BOOT, seed=SEED) - pooled_rate_bootstrap(
         flags["holdout"][1], n_boot=N_BOOT, seed=SEED
     )
@@ -239,7 +237,7 @@ def calibration(cats: dict[str, dict[str, np.ndarray]], protocol: str, alpha: fl
 # - H4 교차 적합 검출률이 홀드아웃보다 낮지 않음: 차이 하한 > −2.0%p면 지지, 상한 < −2.0%p면 기각(결과: 판정
 #   불가).
 def hypotheses(cal: dict, alpha: float = 0.05) -> dict[str, str]:
-    """Verdicts of stage 1 H1-H4 exactly as registered in docs/experiments.md."""
+    """1단계 가설 H1~H4를 docs/experiments.md에 등록한 문장 그대로 판정한다."""
 
     def three_way(support: bool, reject: bool) -> str:
         return "지지" if support else "기각" if reject else "판정 불가"
@@ -261,9 +259,8 @@ def hypotheses(cal: dict, alpha: float = 0.05) -> dict[str, str]:
     }
 
 
-# 범주별 곡선들을 n마다 범주 평균으로 합친다(각 범주 평균의 단순 평균).
 def _curve_means(curves: list[list[dict]]) -> dict[int, float]:
-    """Mean over categories of each category's mean false positive rate, per calibration size n."""
+    """범주별 곡선을 보정 표본 수 n마다 합친다: 각 범주의 평균 오검출률을 범주에 걸쳐 단순 평균한다."""
     by_n: dict[int, list[float]] = {}
     for curve in curves:
         for r in curve:
@@ -273,19 +270,15 @@ def _curve_means(curves: list[list[dict]]) -> dict[int, float]:
 
 # 보정 표본 수 n(20, 50, 100, 200)에 따른 실제 오검출률. 범주마다 교차 적합 점수에서 n개를 뽑아 임계값을
 # 정하고 그 범주의 평가 정상에 적용한다.
-# 왜 기준 모의인가(docstring, 규칙 변경 2): 관측값은 크기가 정해진 풀에서 비복원으로 뽑고 고정된 테스트 집합에
-# 적용한 것이라, Beta 이론의 폭·평균과 그대로 비교할 수 없다. 그래서 같은 (풀 크기, 평가 정상 수)의 균등 난수
-# 점수(교환 가능)로 같은 절차를 100번 돌려 범주 평균의 2.5~97.5 백분위를 기준 구간으로 삼는다. 관측 평균이 이
-# 구간 밖이면 표본 흔들림을 넘는 치우침이다. 결과: 목표 5%에서 n ≥ 100이면 관측이 기준 구간보다 낮아, 교차
-# 적합 점수가 보수 쪽으로 치우쳐 있음을 보였다.
+# 기준 모의(규칙 변경 2)는 100번 돌려 범주 평균의 2.5~97.5 백분위를 기준 구간으로 삼는다. 결과: 목표 5%에서
+# n ≥ 100이면 관측이 기준 구간보다 낮아, 교차 적합 점수가 보수 쪽으로 치우쳐 있음을 보였다.
 def finite_sample(cats: dict[str, dict[str, np.ndarray]], alpha: float) -> list[dict]:
-    """Test false positive rate against calibration size n, averaged over categories.
+    """보정 표본 수 n에 따른 테스트 오검출률을 범주에 걸쳐 평균해 낸다.
 
-    Each category's curve subsamples its cross-fitted scores (a finite pool) and applies the thresholds
-    to its evaluation normals (a finite set), so the Beta law of the theory does not describe its spread
-    or its mean exactly. The comparable reference is a simulation of the same procedure on exchangeable
-    (iid uniform) scores with the same pool and evaluation sizes: if the observed mean over categories
-    falls outside the reference interval, the deviation is more than finite-sample wobble.
+    범주마다 곡선은 교차 적합 점수(크기가 정해진 풀)에서 부분표본을 뽑아 임계값을 정하고, 그 범주의 평가
+    정상(고정된 집합)에 적용해 얻는다. 그래서 이론의 Beta 분포가 곡선의 퍼짐이나 평균을 정확히 설명하지
+    못한다. 비교할 수 있는 기준은 같은 풀 크기·평가 크기를 가진 교환 가능한 점수(iid 균등 난수)에 같은 절차를
+    돌린 모의다. 범주 평균한 관측값이 이 기준 구간 밖이면, 그 벗어남은 유한 표본의 흔들림보다 크다.
     """
     observed, sizes = [], []
     for cat in cats.values():
@@ -490,12 +483,12 @@ def format_report(report: dict) -> str:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("run_dir", type=Path)
-    parser.add_argument("--stage", default="stage1", help="sub-folder of reports/ to write to")
-    parser.add_argument("--no-write", action="store_true", help="print only")
+    parser.add_argument("--stage", default="stage1", help="리포트를 쓸 reports/ 아래 하위 폴더")
+    parser.add_argument("--no-write", action="store_true", help="파일을 쓰지 않고 표만 출력한다")
     args = parser.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")  # Korean verdict words on a cp949 console
+        sys.stdout.reconfigure(encoding="utf-8")  # cp949 콘솔에서도 한국어 판정 문구가 깨지지 않게 한다
     report = build_report(args.run_dir)
     print(format_report(report))
     if args.no_write:

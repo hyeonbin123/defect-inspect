@@ -1,15 +1,13 @@
-"""Dinomaly with anomalib's model code and a plain training loop: one model for all categories.
+"""anomalib 모델 코드와 직접 쓴 학습 루프로 돌리는 Dinomaly: 모든 범주를 한 모델로 학습·평가한다.
 
-`train` fits the bottleneck and the decoder on the normal pool of the dev protocol (folds 1-4) and writes
-`model.pt`, `train_log.jsonl` and `train.json`. `eval` scores the evaluation set of a protocol with that
-model and writes the common run format: `run.json`, `<category>.npz` and `<category>_maps.npy`. It scores
-in the precision the model was trained in (fp16 autocast or fp32) unless `--amp` / `--no-amp` says
-otherwise, and records the precision that really ran in `run.json`.
+`train`은 dev 절차의 정상 풀(겹 1-4)로 병목과 디코더를 학습하고 `model.pt`, `train_log.jsonl`,
+`train.json`을 쓴다. `eval`은 그 모델로 한 절차의 평가 세트를 채점해 공통 실행 결과 형식(`run.json`,
+`<category>.npz`, `<category>_maps.npy`)으로 쓴다. `--amp` / `--no-amp`로 따로 정하지 않으면 모델을 학습한
+정밀도(fp16 autocast 또는 fp32) 그대로 채점하고, 실제로 돈 정밀도를 `run.json`에 남긴다.
 
-`--config` picks a registered configuration: `dm` (stage 2, the default) or one of the ViT-S models of
-stage 6 (`dms-<size>`, `dms-<size>-car`). `parity` and `gate` are the two checks of the stage 6 fp16
-gate: the scaled attention against the original in fp32 (any device), and fp16 training against fp32
-for 60 steps (CUDA only).
+`--config`는 등록된 구성 하나를 고른다: `dm`(2단계, 기본값) 또는 6단계의 ViT-S 모델(`dms-<size>`,
+`dms-<size>-car`). `parity`와 `gate`는 6단계 fp16 관문의 두 검사다. 앞의 것은 패치(scaled) 어텐션을 원본과
+fp32로 대조하고(장치 무관), 뒤의 것은 fp16 학습을 fp32 학습과 60스텝 동안 대조한다(CUDA 전용).
 """
 
 # [파일 역할] Dinomaly 학습·평가 스크립트. anomalib 2.6.2의 모델 코드(DinomalyModel)만 쓰고 학습 루프는 직접
@@ -18,7 +16,7 @@ for 60 steps (CUDA only).
 # 곡선을 내는지).
 # [왜 필요한가] 2단계에서 비지도 방법 중 가장 강한 기준(DM, ViT-B 392px)이 필요했고(README: AUROC 96.8),
 # 6단계에서는 CPU 서빙을 위해 인코더를 ViT-S로 줄인 모델(dms-*)을 같은 코드로 학습·평가해야 했다. 모델 구현은
-# anomalib 것을 쓰되 학습 루프는 직접 써서(docstring), 배치 순서·정밀도·관문 검사를 직접 통제하고,
+# anomalib 것을 쓰되 학습 루프는 직접 써서(모듈 docstring), 배치 순서·정밀도·관문 검사를 직접 통제하고,
 # 옵티마이저·스케줄러·클리핑은 anomalib Lightning 모듈의 설정과 맞춘다.
 # [주요 구성] 구성 표(DinomalyConfig, CONFIGS) → 결정적 배치 순서(batch_order) → 모델 만들기(build_model) →
 # 학습(train)·채점(predict) → 저장·불러오기(save_model, load_model) → 관문 검사(attention_parity,
@@ -68,23 +66,20 @@ ENCODER_S = "vit_small_patch14_reg4_dinov2"
 IMG_SIZE = 392
 STEPS = 5000
 BATCH = 16
-# anomalib Lightning 모듈의 학습 설정을 그대로 옮긴 값: StableAdamW 학습률 2e-3에서 2e-4로(warmup 100),
-# gradient clip 0.1. 테스트가 anomalib 값과 같은지 확인한다(기존 영어 주석).
-# The values of anomalib's TRAINING_CONFIG (dinomaly/lightning_model.py); a test keeps them in step.
+# anomalib Lightning 모듈의 TRAINING_CONFIG(dinomaly/lightning_model.py)를 그대로 옮긴 값: StableAdamW
+# 학습률 2e-3에서 2e-4로(warmup 100), gradient clip 0.1. 테스트가 anomalib 값과 계속 같은지 확인한다.
 OPTIMIZER = {"lr": 2e-3, "betas": (0.9, 0.999), "weight_decay": 1e-4, "amsgrad": True, "eps": 1e-8}
 SCHEDULER = {"base_value": 2e-3, "final_value": 2e-4, "warmup_iters": 100}
 GRAD_CLIP = 0.1
 PRO_BINS = 2000
 # 2단계 구성 이름이자 장부의 config 값. ATTENTION_MODES: 디코더 선형 어텐션 방식. original(anomalib 그대로),
 # scaled(키를 토큰 수 N으로 나누는 fp16용 패치), fp32(어텐션만 fp32로 계산하는 대안).
-NAME = "dm"  # method name in docs/experiments.md; also the config label in the test ledger
-ATTENTION_MODES = ("original", "scaled", "fp32")  # see dinomaly_model.py
-# 6단계 관문 2의 기준값(experiments.md 6단계 '관문 2'): (가) 패치 어텐션과 원본의 fp32 출력·손실 차이가 1e-5
-# 이하, (나) fp16 60스텝이 모두 유한하고 건너뛴 스텝이 0이며 10스텝 구간 평균 손실이 fp32 기준과 상대 3% 이내.
+NAME = "dm"  # docs/experiments.md의 방법 이름이자 봉인 테스트 장부의 config 값
+ATTENTION_MODES = ("original", "scaled", "fp32")  # dinomaly_model.py 참고
+# 6단계 fp16 관문 2의 기준값(experiments.md 6단계 '관문 2'): (가) 패치 어텐션이 원본과 fp32에서 PARITY_TOL
+# (1e-5) 안으로 맞아야 한다. (나) fp16 학습 GATE_STEPS(60)스텝이 모두 유한하고 건너뛴 스텝이 0이며, 모든
+# GATE_WINDOW(10)스텝 구간 평균 손실이 fp32 실행과 상대 GATE_RTOL(3%) 이내여야 한다.
 # 한 스텝 단위가 아니라 10스텝 구간 평균으로 정한 것은 배치마다 손실이 흔들리기 때문이다.
-# Stage 6 fp16 gate (docs/experiments.md): the scaled attention must match the original in fp32 within
-# PARITY_TOL; fp16 training must stay finite, skip no step and keep every GATE_WINDOW-step mean loss
-# within GATE_RTOL of the fp32 run.
 PARITY_TOL = 1e-5
 GATE_STEPS = 60
 GATE_WINDOW = 10
@@ -96,7 +91,7 @@ GATE_RTOL = 0.03
 # 않는다.
 @dataclass(frozen=True)
 class DinomalyConfig:
-    """A registered Dinomaly configuration (docs/experiments.md: `dm` in stage 2, `dms-*` in stage 6)."""
+    """등록된 Dinomaly 구성 하나(docs/experiments.md: 2단계의 `dm`, 6단계의 `dms-*`)."""
 
     name: str
     encoder: str
@@ -107,16 +102,16 @@ class DinomalyConfig:
     # 출력은 쓰이지 않는다(출력이 같음을 테스트로 확인, experiments.md 6단계). fixed_size: 위치 임베딩을
     # img_size로 한 번만 보간해 둔다. context_recentering: Dinomaly2의 CAR(인코더 특징에서 클래스 토큰을 빼고
     # 복원).
-    encoder_blocks: int | None = None  # keep the first blocks of the encoder only (None: all)
-    fixed_size: bool = False  # resample the position embedding once, for img_size
-    context_recentering: bool = False  # Dinomaly2's Context-Aware Recentering (CAR)
-    attention: str = "original"  # decoder attention unless the command line or the gate says otherwise
+    encoder_blocks: int | None = None  # 인코더 앞쪽 블록만 남긴다(None: 전부)
+    fixed_size: bool = False  # 위치 임베딩을 img_size에 맞춰 한 번만 다시 보간한다
+    context_recentering: bool = False  # Dinomaly2의 Context-Aware Recentering(CAR)
+    attention: str = "original"  # 디코더 어텐션. 명령줄이나 관문이 따로 정하지 않으면 이 값을 쓴다
 
     # 이 구성으로 build_model에 넘길 키워드 인자를 만든다(dm은 빈 dict). attention을 주면 구성의 기본 어텐션
     # 대신 그것을 쓴다(관문 검사와 --precision-from이 쓴다). 저장 파일에 이 dict를 그대로 남겨 load_model이
     # 같은 모델을 다시 만든다.
     def build_options(self, attention: str | None = None) -> dict:
-        """Keyword arguments of `build_model` beyond the encoder name (empty for `dm`)."""
+        """인코더 이름 말고 `build_model`에 더 넘길 키워드 인자(`dm`이면 비어 있다)."""
         options: dict = {}
         # 옵션은 기본값과 다를 때만 넣는다. 그래서 dm은 빈 dict라 anomalib 원래 모델 그대로 만들어진다.
         if self.fixed_size:
@@ -169,7 +164,7 @@ CONFIGS: dict[str, DinomalyConfig] = {
 # perm 앞쪽 head칸에 들어 있는 blocked 원소를, 뒤쪽에서 처음 나오는 blocked가 아닌 원소와 자리 바꿈한다(제자리
 # 수정). batch_order가 에폭 경계의 배치에서 같은 이미지가 두 번 들어가지 않게 할 때 쓴다.
 def _keep_out(perm: np.ndarray, blocked: np.ndarray, head: int) -> None:
-    """Swap every member of `blocked` out of `perm[:head]` (in place) with the first later free entries."""
+    """`perm[:head]`에 든 `blocked` 원소를 그 뒤에서 처음 나오는 자유 원소와 맞바꾼다(제자리 수정)."""
     is_blocked = np.isin(perm, blocked)
     clash = np.flatnonzero(is_blocked[:head])
     free = np.flatnonzero(~is_blocked[head:])[: len(clash)] + head
@@ -183,12 +178,11 @@ def _keep_out(perm: np.ndarray, blocked: np.ndarray, head: int) -> None:
 # 시작한다(experiments.md 관문 2 (나): '실제 학습과 같은 배치 순서').
 # numpy Generator(seed)만 써서 결정적이다.
 def batch_order(n_images: int, steps: int, batch_size: int, seed: int) -> np.ndarray:
-    """Image indices of every training batch, int64 [steps, batch_size].
+    """모든 학습 배치의 이미지 인덱스, int64 [steps, batch_size].
 
-    Epochs of seeded permutations of all images are concatenated and cut into batches. Where a batch
-    spans two epochs, images that the old epoch ended with are swapped further back in the new one, so
-    that a batch never holds the same image twice (unless there are fewer images than a batch holds).
-    The first rows do not depend on `steps`.
+    seed로 만든 전체 이미지의 순열(에폭)들을 이어 붙여 배치로 자른다. 한 배치가 두 에폭에 걸치면 이전
+    에폭의 끝에 있던 이미지를 새 에폭에서 더 뒤로 바꿔 보내, 한 배치에 같은 이미지가 두 번 들어가지 않게
+    한다(이미지 수가 배치 크기보다 적으면 피할 수 없다). 앞쪽 행은 `steps`에 의존하지 않는다.
     """
     if n_images < 1 or batch_size < 1 or steps < 0:
         raise ValueError(
@@ -204,7 +198,7 @@ def batch_order(n_images: int, steps: int, batch_size: int, seed: int) -> np.nda
         # carried: 열려 있는 배치에 이미 들어간 이전 에폭 이미지 수. 그 이미지들이 새 에폭 앞부분(배치의
         # 나머지 칸)에 다시 나오지 않게 뒤로 보낸다. 이미지 수가 배치보다 적으면 중복을 피할 수 없으므로 하지
         # 않는다.
-        carried = pos % batch_size  # images of the previous epoch that are already in the open batch
+        carried = pos % batch_size
         if carried and n_images >= batch_size:
             _keep_out(perm, stream[pos - carried : pos], batch_size - carried)
         # 마지막 에폭은 남은 칸만큼만 잘라 쓴다.
@@ -216,7 +210,7 @@ def batch_order(n_images: int, steps: int, batch_size: int, seed: int) -> np.nda
 
 # anomalib DinomalyModel을 Lightning 모듈과 같은 방식으로 준비한다: fp32, 인코더 고정, 병목과 디코더만 학습.
 # 선형층은 절단 정규분포(std 0.01, ±0.03), 편향 0, LayerNorm은 가중치 1·편향 0으로 초기화한다. 초기값은 전역
-# torch 난수를 쓰므로 호출 전에 torch.manual_seed로 고정한다(docstring).
+# torch 난수를 쓰므로 호출 전에 torch.manual_seed로 고정한다.
 # 6단계 옵션(입력 크기 고정·인코더 블록 줄이기·CAR·어텐션 방식)은 dinomaly_model.fix_encoder와
 # set_attention으로 적용하며, 이 옵션들은 난수를 쓰지 않아 같은 seed면 같은 초기값이 된다.
 # 호출 위치: _train_command, load_model, _builder(관문), dinomaly_serving(--untrained 내보내기).
@@ -228,15 +222,15 @@ def build_model(
     context_recentering: bool = False,
     attention: str = "original",
 ) -> torch.nn.Module:
-    """anomalib's DinomalyModel, set up as its Lightning module does: fp32, frozen encoder, fresh decoder.
+    """anomalib DinomalyModel을 그 Lightning 모듈처럼 준비한다: fp32, 인코더 고정, 새로 초기화한 디코더.
 
-    Only the bottleneck and the decoder train. Their Linear layers start from a truncated normal (std
-    0.01, cut at +-0.03) with zero bias, their LayerNorms from weight 1 and bias 0. These weights come
-    from the global torch generator: call `torch.manual_seed` first to fix them.
+    병목과 디코더만 학습한다. 그 안의 Linear 층은 절단 정규분포(std 0.01, ±0.03에서 자름)와 편향 0에서,
+    LayerNorm은 가중치 1·편향 0에서 시작한다. 이 초기값은 전역 torch 난수 생성기에서 나오므로, 고정하려면
+    먼저 `torch.manual_seed`를 부른다.
 
-    The keyword options are those of the stage 6 configurations (`DinomalyConfig.build_options`): a
-    fixed input size and fewer encoder blocks (`dinomaly_model.fix_encoder`), Context-Aware Recentering,
-    and the decoder attention mode. None of them draws from the torch generator.
+    키워드 옵션은 6단계 구성의 것이다(`DinomalyConfig.build_options`): 고정 입력 크기와 인코더 블록
+    줄이기(`dinomaly_model.fix_encoder`), Context-Aware Recentering, 디코더 어텐션 방식. 어느 것도 torch
+    난수 생성기를 쓰지 않는다.
     """
     import torch
     from anomalib.models.image.dinomaly.torch_model import DinomalyModel
@@ -280,7 +274,7 @@ def _check_images(images: np.ndarray, batch_size: int) -> None:
 # amp 플래그가 실제로 fp16으로 도는지: autocast는 CUDA에서만 쓰므로 CPU에서는 항상 False다. 기록(run.json,
 # train.json)에는 플래그가 아니라 실제로 돈 정밀도를 남긴다.
 def amp_applied(amp: bool, device: str | torch.device) -> bool:
-    """Whether `amp` really runs fp16 on `device`: autocast is only used on CUDA, the CPU stays fp32."""
+    """`amp`가 `device`에서 실제로 fp16으로 도는지: autocast는 CUDA에서만 쓰고 CPU는 fp32로 남는다."""
     import torch
 
     return bool(amp) and torch.device(device).type == "cuda"
@@ -288,7 +282,7 @@ def amp_applied(amp: bool, device: str | torch.device) -> bool:
 
 # CUDA이고 amp면 fp16 autocast, 아니면 아무것도 하지 않는 문맥. RTX 2080 Ti에는 bf16이 없어 fp16만 쓴다.
 def _autocast(device: torch.device, amp: bool) -> contextlib.AbstractContextManager:
-    """fp16 autocast on CUDA when `amp` (this GPU has no bf16), plain fp32 otherwise."""
+    """`amp`이고 CUDA면 fp16 autocast(이 GPU에는 bf16이 없다), 아니면 그냥 fp32."""
     import torch
 
     if amp_applied(amp, device):
@@ -315,13 +309,13 @@ def train(
     log_every: int = 50,
     log_path: Path | None = None,
 ) -> list[dict]:
-    """Train the parameters of `model` that require gradients on uint8 images [N, S, S, 3].
+    """`model`에서 기울기가 필요한 파라미터를 uint8 이미지 [N, S, S, 3]로 학습한다.
 
-    Follows anomalib's Lightning module: loss = `model(batch, global_step=step)` in training mode,
-    StableAdamW, warm-up + cosine schedule stepped every iteration, gradient norm clipped to 0.1. `amp`
-    (CUDA only) runs the forward pass under fp16 autocast with a GradScaler. A non-finite loss raises
-    FloatingPointError. Returns one entry per `log_every` steps (and for the last step) and, with
-    `log_path`, appends the same entries as JSON lines, flushed one by one.
+    anomalib Lightning 모듈을 따른다: 학습 모드에서 손실 = `model(batch, global_step=step)`, StableAdamW,
+    매 반복마다 한 칸씩 나아가는 warm-up + cosine 스케줄, gradient norm 0.1로 자르기. `amp`(CUDA 전용)면
+    순전파를 fp16 autocast와 GradScaler로 돌린다. 손실이 유한하지 않으면 FloatingPointError를 낸다.
+    `log_every` 스텝마다(그리고 마지막 스텝) 기록 하나씩을 돌려주고, `log_path`가 있으면 같은 기록을 JSON
+    줄로 하나씩 flush하며 덧붙인다.
     """
     import torch
     from anomalib.models.image.dinomaly.components import StableAdamW, WarmCosineScheduler
@@ -336,7 +330,7 @@ def train(
     # 배치 순서는 학습 전에 한 번에 정한다. 병목 dropout 마스크는 torch 난수라 seed로 따로 고정한다.
     order = batch_order(len(images), steps, batch_size, seed)
 
-    torch.manual_seed(seed)  # dropout masks of the bottleneck
+    torch.manual_seed(seed)  # 병목 dropout 마스크용
     # 학습 모드(병목 dropout 켬)로 장치에 올리고, requires_grad인 파라미터(병목·디코더)만 옵티마이저에 넘긴다.
     model = model.to(dev).train()
     params = [p for p in model.parameters() if p.requires_grad]
@@ -383,9 +377,8 @@ def train(
             scale = scaler.get_scale()
             scaler.step(optimizer)
             scaler.update()
-            # GradScaler는 기울기에 inf/NaN이 있으면 그 스텝의 가중치 갱신을 건너뛰고 스케일을 낮춘다.
+            # GradScaler는 기울기에 inf/NaN이 있으면 그 스텝의 가중치를 건드리지 않고 스케일만 낮춘다.
             # 스케일이 줄었는지로 건너뛴 스텝을 세어 관문 (나)의 '건너뛴 스텝 0' 조건에 쓴다.
-            # The scaler leaves the weights alone and lowers its scale when a gradient is not finite.
             skipped += int(scaler.get_scale() < scale)
             # 이번 스텝에 실제로 쓴 학습률을 기록한 뒤 스케줄러를 한 칸 진행한다.
             lr = float(optimizer.param_groups[0]["lr"])
@@ -427,14 +420,14 @@ def predict(
     amp: bool = True,
     map_size: int = 256,
 ) -> ScoreResult:
-    """Score uint8 images [N, S, S, 3] with the model in eval mode.
+    """uint8 이미지 [N, S, S, 3]를 평가 모드의 모델로 채점한다.
 
-    Image score = `pred_score` of the model's inference output; map = its `anomaly_map`, resized
-    bilinearly to `map_size` when it has another size. Non-finite scores or maps raise FloatingPointError.
+    이미지 점수 = 모델 추론 출력의 `pred_score`. 맵 = 그 출력의 `anomaly_map`이며, 크기가 다르면
+    `map_size`로 bilinear 크기 조정한다. 점수나 맵이 유한하지 않으면 FloatingPointError를 낸다.
 
-    With `amp` on CUDA the model smooths and averages its score map in fp16, so the image scores come
-    out rounded to fp16 (steps of 1.2e-4 between 0.125 and 0.25) and many images tie. They are stored
-    as float32 either way; `amp=False` gives scores with fp32 precision.
+    CUDA에서 `amp`면 모델이 점수 맵을 fp16으로 흐리고 평균 내므로, 이미지 점수가 fp16으로 반올림되어
+    나오고(0.125~0.25 사이에서 1.2e-4 간격) 많은 이미지가 동점이 된다. 어느 쪽이든 float32로 저장하며,
+    `amp=False`면 fp32 정밀도의 점수가 나온다.
     """
     import torch
     import torch.nn.functional as F
@@ -487,7 +480,7 @@ def predict(
 # 학습되는 파라미터(병목과 디코더)만 이름별 CPU 복사본으로 모은다. 고정 인코더는 사전학습 가중치에서 다시 만들
 # 수 있으므로 저장하지 않아 파일이 작다.
 def trainable_state(model: torch.nn.Module) -> dict[str, torch.Tensor]:
-    """CPU copies of the parameters that train (for Dinomaly: the bottleneck and the decoder), by name."""
+    """학습되는 파라미터(Dinomaly에서는 병목과 디코더)의 CPU 복사본을 이름별로 모은다."""
     return {name: p.detach().cpu().clone() for name, p in model.named_parameters() if p.requires_grad}
 
 
@@ -503,11 +496,11 @@ def save_model(
     config: str | None = None,
     options: dict | None = None,
 ) -> None:
-    """Write the trainable state with the encoder name and step count (the frozen encoder is not stored).
+    """학습 상태를 인코더 이름·스텝 수와 함께 쓴다(고정 인코더는 저장하지 않는다).
 
-    `amp` is the precision the training really ran in (True: fp16 autocast); `eval` scores in the same
-    precision unless told otherwise. `config` (a CONFIGS name) and `options` (the `build_model` keyword
-    arguments) are stored when given, so that `load_model` rebuilds the same model.
+    `amp`는 학습이 실제로 돈 정밀도다(True: fp16 autocast). `eval`은 따로 정하지 않으면 같은 정밀도로
+    채점한다. `config`(CONFIGS의 이름)와 `options`(`build_model` 키워드 인자)는 주어졌을 때 저장해,
+    `load_model`이 같은 모델을 다시 만들게 한다.
     """
     import torch
 
@@ -527,10 +520,10 @@ def save_model(
 # amp가 기록되지 않은 옛 파일은 None을 돌려줘, eval이 --amp/--no-amp를 요구하게 한다.
 # 호출 위치: _eval_command, dinomaly_serving(학습한 모델을 ONNX로 내보낼 때).
 def load_model(path: Path) -> tuple[torch.nn.Module, dict]:
-    """Rebuild the model of a `save_model` file on the CPU: (model in eval mode, {"encoder", "steps", "amp"}).
+    """`save_model` 파일의 모델을 CPU에서 다시 만든다: (평가 모드 모델, {"encoder", "steps", "amp"}).
 
-    "amp" is None for a file that does not record the precision it was trained in. Files that record a
-    configuration add "config" and "options" to the dictionary; the model is built with those options.
+    학습 정밀도를 기록하지 않은 파일이면 "amp"가 None이다. 구성을 기록한 파일이면 사전에 "config"와
+    "options"가 더해지고, 모델은 그 옵션으로 만든다.
     """
     import torch
 
@@ -556,7 +549,7 @@ def load_model(path: Path) -> tuple[torch.nn.Module, dict]:
     return model.eval(), meta
 
 
-# ---------------------------------------------------------------- the stage 6 fp16 gate
+# ---------------------------------------------------------------- 6단계 fp16 관문
 
 
 # 관문 2 (가): 같은 초기값에서 만든 패치 어텐션(scaled) 모델과 원본 모델을 fp32로 비교한다. 첫 배치의 추론
@@ -574,12 +567,12 @@ def attention_parity(
     device: str = "cpu",
     seed: int = 0,
 ) -> dict:
-    """Gate 2a: the scaled attention against the original, both fp32, from the same initial weights.
+    """관문 2 (가): 같은 초기 가중치에서 패치(scaled) 어텐션을 원본과 둘 다 fp32로 대조한다.
 
-    `build(attention)` must return a fresh model; it is called right after `torch.manual_seed(seed)`.
-    Compares the eval-mode scores and maps on the first batch of `batch_order`, then the losses of
-    `steps` training steps (fp32, the batches of `batch_order`). Passes when every relative loss and
-    score difference and every absolute map difference is at most PARITY_TOL.
+    `build(attention)`은 새 모델을 돌려줘야 하며, `torch.manual_seed(seed)` 바로 뒤에 불린다.
+    `batch_order`의 첫 배치에서 평가 모드 점수와 맵을 비교하고, 이어서 `steps`번의 학습 스텝(fp32,
+    `batch_order`의 배치) 손실을 비교한다. 손실·점수의 상대 차이와 맵의 절대 차이가 모두 PARITY_TOL
+    이하이면 통과한다.
     """
     import torch
 
@@ -638,11 +631,10 @@ def gate_verdict(
     window: int = GATE_WINDOW,
     rtol: float = GATE_RTOL,
 ) -> dict:
-    """Gate 2b on per-step losses: fp16 (`losses`) against fp32 (`reference`) over the same batches.
+    """스텝별 손실로 보는 관문 2 (나): 같은 배치에서 fp16(`losses`)을 fp32(`reference`)와 대조한다.
 
-    Passes when there are as many fp16 losses as reference losses, all finite, no step was skipped by
-    the gradient scaler, and the mean loss of every `window` consecutive steps is within `rtol` of the
-    reference's mean over the same steps.
+    fp16 손실 수가 기준 손실 수와 같고, 모두 유한하고, GradScaler가 건너뛴 스텝이 없고, 연속한 `window`
+    스텝마다의 평균 손실이 같은 스텝 기준 평균과 상대 `rtol` 이내이면 통과한다.
     """
     # 기준 손실 수가 구간 크기의 배수여야 구간 평균을 낼 수 있다.
     if not reference or len(reference) % window:
@@ -719,9 +711,9 @@ def run_gate(
     device: str = "cuda",
     seed: int = 0,
 ) -> dict:
-    """Gate 2b: fp32 with the original attention, then fp16 with the scaled attention, then (only if that
-    fails) fp16 with the attention in fp32. The first fp16 variant that passes is the choice; when none
-    passes, training runs in fp32 with the original attention.
+    """관문 2 (나): fp32 + 원본 어텐션, 이어서 fp16 + 패치(scaled) 어텐션, (그것이 실패할 때만) fp16 +
+    어텐션만 fp32 순서로 학습해 본다. 처음 통과한 fp16 변형을 고르고, 하나도 통과하지 못하면 fp32 + 원본
+    어텐션으로 학습한다.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     common = {"steps": steps, "batch_size": batch_size, "device": device, "seed": seed}
@@ -764,7 +756,7 @@ def eval_category(
     batch_size: int = 32,
     amp: bool = True,
 ) -> dict:
-    """Score one category's evaluation set and write `<category>.npz` and `<category>_maps.npy`."""
+    """범주 하나의 평가 세트를 채점하고 `<category>.npz`와 `<category>_maps.npy`를 쓴다."""
     import torch
 
     eval_normal = select(
@@ -778,9 +770,7 @@ def eval_category(
     # 임계값은 학습에 쓰지 않은 겹 0 정상의 점수로 정한다(홀드아웃, experiments.md 2단계). Dinomaly는 학습이
     # 비싸 겹 1~4로 한 번만 학습하므로 PatchCore처럼 교차 적합을 할 수 없다. test 절차에서는 dev의
     # eval_normal(= 겹 0 정상)을 보정용으로 따로 채점하고, dev 절차에서는 겹 0 정상이 곧 평가 정상이라 따로
-    # 채점하지 않는다.
-    # Thresholds come from the fold-0 normals, which the model never trained on. In the dev protocol
-    # those are the evaluation normals themselves, so there is nothing left to calibrate on.
+    # 채점하지 않는다(모델이 학습하지 않은 겹 0 정상이 평가 정상 자체라 보정에 쓸 것이 따로 남지 않는다).
     cal_rows: list[ManifestRow] = []
     if protocol == "test":
         cal_rows = select(manifest, protocol="dev", part="eval_normal", category=category)
@@ -850,7 +840,7 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 # --categories가 매니페스트에 있는 범주인지, 비어 있지 않은지, 중복이 없는지 확인한다. 중복이 있으면 학습은 그
-# 이미지를 두 번 보고 평가는 범주를 두 번 적게 된다(기존 주석).
+# 이미지를 두 번 보고 평가는 범주를 두 번 적게 된다.
 def _check_categories(
     parser: argparse.ArgumentParser, manifest: list[ManifestRow], wanted: list[str]
 ) -> None:
@@ -859,14 +849,14 @@ def _check_categories(
     if unknown or not wanted:
         parser.error(f"unknown or missing categories {unknown}; the manifest has {sorted(known)}")
     repeated = sorted({c for c in wanted if wanted.count(c) > 1})
-    if repeated:  # training would see those images twice, evaluation would list the category twice
+    if repeated:  # 학습은 그 이미지를 두 번 보고, 평가는 그 범주를 두 번 적게 된다
         parser.error(f"categories named more than once: {repeated}")
 
 
 # 평가 폴더에 남는 결과 파일 목록(run.json, *.npz, *_maps.npy). 다시 돌릴 때 지우거나, 끝나지 않은 실행의
 # 흔적이 있는지 볼 때 쓴다.
 def _result_files(out_dir: Path) -> list[Path]:
-    """What an evaluation leaves in its folder: run.json, `<category>.npz` and `<category>_maps.npy`."""
+    """평가가 폴더에 남기는 파일: run.json, `<category>.npz`, `<category>_maps.npy`."""
     if not out_dir.is_dir():
         return []
     found = [out_dir / "run.json", *out_dir.glob("*.npz"), *out_dir.glob("*_maps.npy")]
@@ -876,7 +866,7 @@ def _result_files(out_dir: Path) -> list[Path]:
 # 학습 이미지: 범주마다 dev 절차의 정상 풀(겹 1~4, 모두 4,615장)을 모은다. 겹 0은 임계값용으로 남긴다. 범주별
 # 장수도 함께 돌려준다.
 def _dev_pool(manifest: list[ManifestRow], categories: list[str]) -> tuple[list[ManifestRow], dict[str, int]]:
-    """The normal pool of the dev protocol (folds 1-4) of `categories`: fold 0 stays out for thresholds."""
+    """`categories`의 dev 절차 정상 풀(겹 1-4). 겹 0은 임계값용으로 빼 둔다."""
     counts = {}
     rows: list[ManifestRow] = []
     for category in categories:
@@ -889,7 +879,7 @@ def _dev_pool(manifest: list[ManifestRow], categories: list[str]) -> tuple[list[
 # gate.json에서 학습할 정밀도(amp)와 어텐션을 읽고, 파일 경로·sha256·구성을 기록용으로 묶는다. 학습 기록에
 # 관문 파일의 해시가 남아 어느 관문 결과로 학습했는지 추적된다.
 def _read_gate(parser: argparse.ArgumentParser, path: Path) -> tuple[dict, dict]:
-    """(choice, record) of a `gate` result file: the precision and attention to train with."""
+    """`gate` 결과 파일의 (choice, record): 학습에 쓸 정밀도와 어텐션, 그리고 기록용 정보."""
     try:
         with open(path, encoding="utf-8") as f:
             gate = json.load(f)
@@ -941,15 +931,15 @@ def _train_command(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
 
     out_dir.mkdir(parents=True, exist_ok=True)
     # 이전·중단된 실행의 파일을 지운다. train.json은 끝에 쓰므로 이것이 있으면 완성된 학습이다.
-    for name in ("train.json", "train_log.jsonl", "model.pt"):  # leftovers of an earlier or broken run
+    for name in ("train.json", "train_log.jsonl", "model.pt"):  # 이전 실행이나 끊긴 실행이 남긴 것
         (out_dir / name).unlink(missing_ok=True)
 
     started = time.perf_counter()
     # 학습 이미지 전체를 한 번 메모리로 읽어 두고 배치마다 인덱스로 꺼낸다.
     images = cache.images(rows)
     # 기록할 정밀도는 실제로 돌 정밀도(CPU면 fp32)다. 초기 가중치는 seed로 고정한 뒤 모델을 만든다.
-    amp = amp_applied(want_amp, args.device)  # what really runs: there is no fp16 on the CPU
-    torch.manual_seed(args.seed)  # initial weights of the bottleneck and the decoder
+    amp = amp_applied(want_amp, args.device)  # 실제로 도는 정밀도: CPU에는 fp16이 없다
+    torch.manual_seed(args.seed)  # 병목과 디코더의 초기 가중치
     model = build_model(encoder, **options)
     log = train(
         model,
@@ -1024,29 +1014,26 @@ def _eval_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     manifest = read_manifest(paths.VISA_MANIFEST)
     _check_categories(parser, manifest, args.categories)
     model, saved = load_model(model_path)
-    # 모델 파일의 구성과 --config가 다르면(예: dms 모델을 dm 설정의 입력 크기 캐시로 채점) 멈춘다.
-    # A file without a config is a stage 2 model (dm).
+    # 모델 파일의 구성과 --config가 다르면(예: dms 모델을 dm 설정의 입력 크기 캐시로 채점) 멈춘다. 구성을
+    # 기록하지 않은 파일은 2단계 모델(dm)로 본다.
     if saved.get("config", NAME) != cfg.name:
         parser.error(f"{model_path} holds a {saved.get('config', NAME)!r} model: pass --config to match it")
     cache = ImageCache(paths.CACHE, cfg.img_size)
-    # 기본은 학습 정밀도대로 채점하지만, fp16 채점은 점수를 반올림해 임계값을 정하는 정상 점수에 동점을
-    # 만든다(기존 영어 주석). 6단계는 그래서 --no-amp로 fp32 채점을 했다.
-    # Score in the precision the model was trained in unless a flag says otherwise: fp16 autocast
-    # rounds the image scores to fp16, which makes ties among the normals that fix the thresholds.
+    # 플래그로 따로 정하지 않으면 모델이 학습된 정밀도로 채점한다. 단 fp16 autocast는 이미지 점수를 fp16으로
+    # 반올림해, 임계값을 정하는 정상 점수끼리 동점을 만든다. 6단계는 그래서 --no-amp로 fp32 채점을 했다.
     want_amp = saved["amp"] if args.amp is None else args.amp
     if want_amp is None:
         parser.error(f"{model_path} does not record the precision it was trained in: pass --amp or --no-amp")
     amp = amp_applied(want_amp, args.device)
     model = model.to(args.device)
     out_dir.mkdir(parents=True, exist_ok=True)
-    # 읽는 쪽은 폴더의 모든 *.npz를 이 실행의 일부로 보므로 이전 결과를 남김없이 지운다. run.json(완성 표시)은
-    # 마지막에 다시 쓴다.
-    # Nothing of an earlier run may stay: readers take every *.npz of the folder as part of this run,
-    # and a redo that breaks off must not look finished.
+    # 이전 실행의 흔적이 하나도 남으면 안 된다: 읽는 쪽은 폴더의 모든 *.npz를 이 실행의 일부로 보고, 다시
+    # 돌리다 끊긴 실행이 끝난 것처럼 보여서도 안 된다. 그래서 이전 결과를 남김없이 지우고, run.json(완성
+    # 표시)은 마지막에 다시 쓴다.
     for path in _result_files(out_dir):
         path.unlink()
     if args.protocol == "test":
-        # Everything that can fail without the test images has been done: the read starts here.
+        # 테스트 이미지 없이 실패할 수 있는 일은 모두 끝났다. 봉인 테스트 읽기는 여기서 시작한다.
         record_test_access(
             paths.TEST_LEDGER, stage=args.stage, config=cfg.name, note=args.note, commit=commit
         )
@@ -1082,7 +1069,7 @@ def _eval_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         "model": str(model_path),
         "model_sha256": sha256_file(model_path),
         "train_amp": saved["amp"],
-        "amp": amp,  # what really ran (fp16 autocast exists on CUDA only), not the flag
+        "amp": amp,  # 플래그가 아니라 실제로 돈 정밀도(fp16 autocast는 CUDA에만 있다)
         "score_precision": "fp16" if amp else "fp32",
         "batch_size": args.batch_size,
         "map_size": 256,
@@ -1104,7 +1091,7 @@ def _eval_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
 
 # 관문 검사용 build(attention): 구성은 그대로 두고 디코더 어텐션만 바꾼 새 모델을 만드는 함수를 돌려준다.
 def _builder(cfg: DinomalyConfig) -> Callable[[str], torch.nn.Module]:
-    """`build(attention)` for the gate checks: a fresh model of `cfg` with that decoder attention."""
+    """관문 검사용 `build(attention)`: 디코더 어텐션만 그 방식으로 바꾼 `cfg`의 새 모델을 만든다."""
 
     def build(attention: str) -> torch.nn.Module:
         return build_model(cfg.encoder, **cfg.build_options(attention))
@@ -1207,33 +1194,33 @@ def main(argv: list[str] | None = None) -> None:
 
     # train 인자: 구성, 스텝·배치(기본은 구성 값), 정밀도(--no-amp 또는 --precision-from), 어텐션, seed(초기
     # 가중치·배치 순서·dropout을 모두 정함).
-    fit = commands.add_parser("train", help="train one model on the dev normal pool of all categories")
+    fit = commands.add_parser("train", help="모든 범주의 dev 정상 풀로 모델 하나를 학습한다")
     fit.add_argument("--config", choices=sorted(CONFIGS), default=NAME, help=config_help)
-    fit.add_argument("--steps", type=int, default=None, help="default: the config's")
-    fit.add_argument("--batch-size", type=int, default=None, help="default: the config's")
-    fit.add_argument("--no-amp", action="store_true", help="train in fp32 instead of fp16 autocast")
-    fit.add_argument("--attention", choices=ATTENTION_MODES, default=None, help="default: the config's")
+    fit.add_argument("--steps", type=int, default=None, help="학습 스텝 수. 기본값: 구성의 값")
+    fit.add_argument("--batch-size", type=int, default=None, help="배치 크기. 기본값: 구성의 값")
+    fit.add_argument("--no-amp", action="store_true", help="fp16 autocast 대신 fp32로 학습한다")
+    fit.add_argument("--attention", choices=ATTENTION_MODES, default=None, help="기본값: 구성의 값")
     fit.add_argument(
         "--precision-from",
         type=Path,
         default=None,
-        help="gate.json whose choice sets precision and attention",
+        help="gate.json 파일. 그 choice가 학습 정밀도와 어텐션을 정한다(--no-amp/--attention과 함께 못 씀)",
     )
-    fit.add_argument("--encoder", default=None, help="timm name of the DINOv2 encoder (dm only)")
-    fit.add_argument("--out", type=Path, default=None, help="default: outputs/<config>")
+    fit.add_argument("--encoder", default=None, help="DINOv2 인코더의 timm 이름(dm 구성에서만 바꿀 수 있다)")
+    fit.add_argument("--out", type=Path, default=None, help="출력 폴더. 기본값: outputs/<config>")
     fit.add_argument("--categories", nargs="*", default=list(CATEGORIES))
     fit.add_argument("--device", default="cuda")
-    fit.add_argument("--seed", type=int, default=0, help="initial weights, batch order and dropout")
+    fit.add_argument("--seed", type=int, default=0, help="초기 가중치, 배치 순서, dropout을 정하는 seed")
     fit.add_argument("--log-every", type=int, default=50)
     fit.add_argument("--overwrite", action="store_true")
 
     # eval 인자: --amp/--no-amp를 주지 않으면 모델이 학습된 정밀도로 채점한다. test 절차는 --allow-test와
     # --stage가 필요하다.
-    score = commands.add_parser("eval", help="score the evaluation set of a protocol")
+    score = commands.add_parser("eval", help="한 절차(dev/test)의 평가 세트를 채점한다")
     score.add_argument("--config", choices=sorted(CONFIGS), default=NAME, help=config_help)
     score.add_argument("--protocol", choices=["dev", "test"], required=True)
-    score.add_argument("--model", type=Path, default=None, help="default: outputs/<config>/model.pt")
-    score.add_argument("--out", type=Path, default=None, help="default: outputs/<config>-<protocol>")
+    score.add_argument("--model", type=Path, default=None, help="기본값: outputs/<config>/model.pt")
+    score.add_argument("--out", type=Path, default=None, help="기본값: outputs/<config>-<protocol>")
     score.add_argument("--categories", nargs="*", default=list(CATEGORIES))
     score.add_argument("--device", default="cuda")
     score.add_argument("--batch-size", type=int, default=32)
@@ -1241,34 +1228,34 @@ def main(argv: list[str] | None = None) -> None:
         "--amp",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="score under fp16 autocast (--amp) or in fp32 (--no-amp); default: as the model was trained",
+        help="fp16 autocast(--amp) 또는 fp32(--no-amp)로 채점한다. 기본값: 모델을 학습한 정밀도",
     )
-    score.add_argument("--allow-test", action="store_true", help="read the sealed test set (logged)")
+    score.add_argument("--allow-test", action="store_true", help="봉인 테스트 세트를 읽는다(장부에 기록된다)")
     score.add_argument(
-        "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
+        "--stage", default="", help="봉인 테스트 장부에 남길 단계 이름(--allow-test와 함께 필수)"
     )
     score.add_argument("--note", default="")
     score.add_argument("--overwrite", action="store_true")
 
     # parity 기본값은 관문 2 (가) 규칙 그대로다: dms-280, 3스텝, 배치 8, CPU.
-    parity = commands.add_parser("parity", help="gate 2a: scaled against original attention in fp32")
+    parity = commands.add_parser("parity", help="관문 2 (가): 패치(scaled) 어텐션을 원본과 fp32로 대조한다")
     parity.add_argument("--config", choices=sorted(CONFIGS), default="dms-280", help=config_help)
     parity.add_argument("--steps", type=int, default=3)
     parity.add_argument("--batch-size", type=int, default=8)
     parity.add_argument("--device", default="cpu")
     parity.add_argument("--seed", type=int, default=0)
     parity.add_argument("--categories", nargs="*", default=list(CATEGORIES))
-    parity.add_argument("--out", type=Path, default=None, help="default: outputs/gate-<config>/parity.json")
+    parity.add_argument("--out", type=Path, default=None, help="기본값: outputs/gate-<config>/parity.json")
 
     # gate 기본값은 관문 2 (나) 규칙 그대로다: dms-280, 60스텝, 배치 16, CUDA.
-    gate = commands.add_parser("gate", help="gate 2b: fp16 training against fp32 (CUDA)")
+    gate = commands.add_parser("gate", help="관문 2 (나): fp16 학습을 fp32 학습과 대조한다(CUDA 전용)")
     gate.add_argument("--config", choices=sorted(CONFIGS), default="dms-280", help=config_help)
     gate.add_argument("--steps", type=int, default=GATE_STEPS)
     gate.add_argument("--batch-size", type=int, default=BATCH)
     gate.add_argument("--device", default="cuda")
     gate.add_argument("--seed", type=int, default=0)
     gate.add_argument("--categories", nargs="*", default=list(CATEGORIES))
-    gate.add_argument("--out", type=Path, default=None, help="default: outputs/gate-<config>")
+    gate.add_argument("--out", type=Path, default=None, help="기본값: outputs/gate-<config>")
     gate.add_argument("--overwrite", action="store_true")
 
     args = parser.parse_args(argv)

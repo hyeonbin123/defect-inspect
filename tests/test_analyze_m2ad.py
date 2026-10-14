@@ -49,7 +49,7 @@ def _meta(categories):
 # 제외)로 둔다. Bird_240 검사기는 결함 이미지를 한 장만 남겨, 그 시편이 빠진 재표본에서는 이 검사기의 AUROC가
 # 정의되지 않는 경우를 일부러 만든다. 범주마다 정상·불량 시편 수가 다르다.
 def random_run(seed=0, sizes=(("Motor", 5, 8), ("Bird", 4, 7))) -> dict:
-    """Random scores with ties, excluded images and one inspector that has a single defect image."""
+    """동점, 제외 이미지, 결함 이미지가 한 장뿐인 검사기 하나를 넣은 무작위 점수."""
     rng = np.random.default_rng(seed)
     inspectors = {}
     for category, n_normal, n_anomalous in sizes:
@@ -70,7 +70,7 @@ def random_run(seed=0, sizes=(("Motor", 5, 8), ("Bird", 4, 7))) -> dict:
             recal_scores, recal_labels = draw(len(RECAL_KEYS))
             if (category, view) == ("Bird", "240"):
                 labels[:, n_normal:] = -1
-                labels[:, n_normal + 2] = 1  # resamples without this specimen have no defect image here
+                labels[:, n_normal + 2] = 1  # 이 시편이 빠진 재표본에는 여기 결함 이미지가 없다
             inspectors[f"{category}_{view}"] = {
                 "category": category,
                 "view": view,
@@ -93,7 +93,7 @@ def random_run(seed=0, sizes=(("Motor", 5, 8), ("Bird", 4, 7))) -> dict:
 # 20개·불량 50개로 실제 M2AD와 같은 크기라 조건마다 정상 이미지 120장(20 × 검사기 6)이다. 아래 flag로 원하는
 # 정상만 임계값 위로 올려 오검출률을 정확히 만든다.
 def flat_run(n_normal=20, n_anomalous=50, categories=("Motor", "Bird")) -> dict:
-    """Threshold 0.5; every normal image scores 0 and every defect image 1, whatever the condition."""
+    """임계값 0.5. 조건과 관계없이 정상 이미지는 모두 0점, 결함 이미지는 모두 1점."""
     inspectors = {}
     object_anomaly = np.array([0] * n_normal + [1] * n_anomalous, dtype=np.int8)
     specimens = np.array([f"{i:03d}" for i in range(n_normal)] + [f"hole_{i}" for i in range(n_anomalous)])
@@ -120,7 +120,7 @@ def flat_run(n_normal=20, n_anomalous=50, categories=("Motor", "Bird")) -> dict:
 # 지정한 조건(또는 재보정 키)에서 지정한 정상 시편의 점수를 1.0으로 올려 임계값을 넘게 한다. 시점·범주를 골라
 # 일부 검사기에만 줄 수 있다.
 def flag(run, names, specimens, views=VIEWS, key="scores", categories=("Motor", "Bird")):
-    """Raise the normal specimens `specimens` above the threshold under the conditions `names`."""
+    """조건 `names`에서 정상 시편 `specimens`의 점수를 임계값 위로 올린다."""
     index_key = "conditions" if key == "scores" else "recal_keys"
     for arr in run["inspectors"].values():
         if arr["view"] not in views or arr["category"] not in categories:
@@ -133,10 +133,10 @@ def flag(run, names, specimens, views=VIEWS, key="scores", categories=("Motor", 
 # stratified_indices 순서), 뽑힌 시편의 모든 시점 이미지를 모아 오검출·정상·검출·결함 수와 검사기 AUROC 평균을
 # 센다. 느리지만 틀릴 여지가 적어, 행렬 곱으로 계산하는 ClusterBootstrap의 기준이 된다.
 def direct_counts(run, cell, n_boot, seed=0, with_auroc=True) -> np.ndarray:
-    """Literal resampling: draw specimens, take their images from every view, count.
+    """문자 그대로의 재표본 추출: 시편을 뽑고, 그 시편의 모든 시점 이미지를 모아 센다.
 
-    Returns [n_boot, 5]: false positives, normal images, detected defects, defect images, and the mean
-    inspector AUROC of the resample (nan when `with_auroc` is off).
+    [n_boot, 5]를 돌려준다: 오검출 수, 정상 이미지 수, 검출한 결함 수, 결함 이미지 수, 재표본의 검사기 AUROC
+    평균(`with_auroc`가 꺼져 있으면 nan).
     """
     inspectors = list(run["inspectors"].values())
     categories = list(dict.fromkeys(arr["category"] for arr in inspectors))
@@ -169,13 +169,13 @@ def direct_counts(run, cell, n_boot, seed=0, with_auroc=True) -> np.ndarray:
 # direct_counts를 비율(합산 오검출률, 합산 검출률, 평균 AUROC)로 바꾼다. direct_pooled는 여러 Cell(예: 아홉
 # 조명)을 합친 비율이다.
 def direct_samples(run, cell, n_boot, seed=0) -> np.ndarray:
-    """[n_boot, 3] from the literal loop: pooled FPR, pooled detection rate, mean inspector AUROC."""
+    """문자 그대로의 반복문에서 낸 [n_boot, 3]: 합산 오검출률, 합산 검출률, 검사기 AUROC 평균."""
     counts = direct_counts(run, cell, n_boot, seed)
     return np.stack([counts[:, 0] / counts[:, 1], counts[:, 2] / counts[:, 3], counts[:, 4]], axis=1)
 
 
 def direct_pooled(run, cells, n_boot) -> tuple[np.ndarray, np.ndarray]:
-    """Pooled FPR and detection rate samples over several cells, from the literal loop."""
+    """여러 Cell을 합친 오검출률·검출률 재표본(문자 그대로의 반복문에서)."""
     counts = sum(direct_counts(run, cell, n_boot, with_auroc=False)[:, :4] for cell in cells)
     return counts[:, 0] / counts[:, 1], counts[:, 2] / counts[:, 3]
 
@@ -188,7 +188,7 @@ def write_run(run: dict, path) -> None:
     (path / "run.json").write_text(json.dumps(run["meta"]), encoding="utf-8")
 
 
-# ------------------------------------------------------------------------------------------ the bootstrap
+# ------------------------------------------------------------------------------------------ 부트스트랩
 
 
 # 등록한 상수(부트스트랩 2,000번, seed 0, H12의 n = 30과 한계 10%, 판정 방법 P0)와, 횟수를 주지 않으면
@@ -196,7 +196,7 @@ def write_run(run: dict, path) -> None:
 def test_registered_resampling_constants():
     assert analyze_m2ad.N_BOOT == 2000 and analyze_m2ad.SEED == 0
     assert (analyze_m2ad.H12_N, analyze_m2ad.H12_LIMIT, analyze_m2ad.JUDGED_METHOD) == (30, 0.10, "p0")
-    # Without an explicit number the bootstrap takes the registered 2,000 resamples with seed 0.
+    # 횟수를 따로 주지 않으면 부트스트랩은 등록한 2,000번, seed 0으로 뽑는다.
     run = random_run()
     boot = ClusterBootstrap(run)
     assert boot.n_boot == 2000 and boot.weights["Motor"].shape == (2000, 13)
@@ -219,7 +219,7 @@ def test_cluster_bootstrap_matches_a_direct_loop():
         np.testing.assert_allclose(samples[:, 2] / samples[:, 3], direct[:, 1], rtol=0, atol=1e-12)
         value, auroc_samples = boot.auroc(cell)
         np.testing.assert_allclose(auroc_samples, direct[:, 2], rtol=0, atol=1e-12)
-        # Observed values: plain counts and the mean of the inspectors' AUROC.
+        # 관측값: 단순 합계와 검사기 AUROC의 평균.
         flags = [(s.astype(np.float64) > t, lab) for s, lab, t in cell]
         assert point.tolist() == [
             sum(int((f & (lab == 0)).sum()) for f, lab in flags),
@@ -230,7 +230,7 @@ def test_cluster_bootstrap_matches_a_direct_loop():
         assert value == pytest.approx(
             np.mean([metrics.auroc(s[lab == 0], s[lab == 1]) for s, lab, _ in cell])
         )
-        # The Bird 240 inspector drops out of the resamples that miss its only defect image.
+        # Bird 240 검사기는 유일한 결함 이미지가 빠진 재표본에서 평균에서 빠진다.
         weights = boot.weights["Bird"][:, 4 + 2]
         skipped = skipped or bool((weights == 0).any())
     assert skipped
@@ -246,19 +246,19 @@ def test_cluster_bootstrap_draws_specimens_not_images():
     for category, n_normal, n_anomalous in (("Motor", 5, 8), ("Bird", 4, 7)):
         weights = boot.weights[category]
         assert weights.shape == (N_BOOT, n_normal + n_anomalous)
-        # Every resample keeps the number of normal and of anomalous specimens.
+        # 재표본마다 정상 시편 수와 불량 시편 수가 그대로다.
         assert (weights[:, :n_normal].sum(axis=1) == n_normal).all()
         assert (weights[:, n_normal:].sum(axis=1) == n_anomalous).all()
-    # The draws are those of `stratified_indices` over (normals, anomalous) of each category in order.
+    # 추출은 범주 순서대로 (정상, 불량)에 대한 `stratified_indices`의 추출과 같다.
     draws = stratified_indices([5, 8, 4, 7], n_boot=N_BOOT, seed=0)
     assert boot.weights["Motor"][3, :5].tolist() == np.bincount(draws[0][3], minlength=5).tolist()
     assert boot.weights["Bird"][7, 4:].tolist() == np.bincount(draws[3][7], minlength=7).tolist()
-    # Same seed, same draws; another seed, other draws.
+    # 시드가 같으면 같은 추출, 시드가 다르면 다른 추출.
     again = ClusterBootstrap(run, n_boot=N_BOOT, seed=0)
     assert np.array_equal(again.weights["Bird"], boot.weights["Bird"])
     other = ClusterBootstrap(run, n_boot=N_BOOT, seed=1)
     assert not np.array_equal(other.weights["Bird"], boot.weights["Bird"])
-    # A normal specimen drawn twice counts its images of all three views twice.
+    # 두 번 뽑힌 정상 시편은 세 시점 이미지가 모두 두 번 세어진다.
     cell = condition_cell(run, "S")
     _, samples = boot.counts([cell])
     assert (samples[:, 1] == 3 * 5 + 3 * 4).all()
@@ -291,11 +291,11 @@ def test_auroc_leaves_out_an_inspector_without_defect_images_everywhere():
     run = random_run()
     arr = run["inspectors"]["Bird_120"]
     k = CONDITIONS.index("R:07")
-    arr["labels"][k, arr["object_anomaly"] == 1] = -1  # no defect image under this condition
+    arr["labels"][k, arr["object_anomaly"] == 1] = -1  # 이 조건에서는 결함 이미지가 없다
     cell = condition_cell(run, "R:07")
     defined = [metrics.auroc(s[lab == 0], s[lab == 1]) for s, lab, _ in cell if (lab == 1).any()]
     assert len(defined) == 5
-    # The observed value averages the inspectors that have an AUROC, exactly as every resample does.
+    # 관측값은 모든 재표본과 똑같이 AUROC가 있는 검사기만 평균한다.
     boot = ClusterBootstrap(run, n_boot=N_BOOT, seed=0)
     value, samples = boot.auroc(cell)
     assert value == pytest.approx(np.mean(defined))
@@ -306,7 +306,7 @@ def test_auroc_leaves_out_an_inspector_without_defect_images_everywhere():
     assert row["auroc_ci"][0] <= row["auroc"] <= row["auroc_ci"][1]
     assert np.isfinite(row["d_auroc"]) and np.isfinite(row["d_auroc_ci"]).all()
 
-    # No inspector has a defect image: there is no AUROC, in the observed value and in the resamples.
+    # 어느 검사기에도 결함 이미지가 없다: 관측값에도 재표본에도 AUROC가 없다.
     for other in run["inspectors"].values():
         other["labels"][k, other["object_anomaly"] == 1] = -1
     value, samples = boot.auroc(condition_cell(run, "R:07"))
@@ -328,8 +328,8 @@ def test_condition_table_of_a_flat_run():
     assert table["R:04"]["fpr"] == 0.25 and table["R:04"]["d_fpr"] == 0.25
     assert table["R:04"]["d_fpr_ci"][0] > 0
     assert table["R:04"]["d_tpr"] == 0 and table["R:04"]["d_tpr_ci"] == [0, 0]
-    assert table["P:gamma-1"]["fpr"] == pytest.approx(2 / 120)  # one view of one specimen per category
-    # A quarter of the normals now ties with the defects: AUROC = 0.75 + 0.25 / 2.
+    assert table["P:gamma-1"]["fpr"] == pytest.approx(2 / 120)  # 범주마다 시편 하나의 한 시점
+    # 이제 정상의 4분의 1이 결함과 동점이다: AUROC = 0.75 + 0.25 / 2.
     assert table["R:04"]["auroc"] == pytest.approx(0.875)
     assert table["R:04"]["d_auroc"] == pytest.approx(-0.125)
     assert table["R:04"]["d_auroc_ci"][1] < 0
@@ -342,8 +342,8 @@ def test_condition_table_of_a_flat_run():
 # 지지. 합성 15개·실제 9개를 셌는지도 본다.
 def test_h11_supported():
     run = flat_run()
-    flag(run, [f"R:{light}" for light in LIGHTS], range(10))  # +50 points under every real illumination
-    flag(run, ["P:blur-3"], [0])  # +5 points at most under a synthetic condition
+    flag(run, [f"R:{light}" for light in LIGHTS], range(10))  # 모든 실제 조명에서 +50%p
+    flag(run, ["P:blur-3"], [0])  # 합성 조건에서는 최대 +5%p
     result = h11(run, n_boot=N_BOOT)
     assert result["max_synthetic_condition"] == "P:blur-3"
     assert result["max_synthetic_increase"] == pytest.approx(0.05)
@@ -369,8 +369,8 @@ def test_h11_rejected():
 # H11 판정 불가: 합성 +5%p, 실제 +10%p(절반이 5%p)면 통계량이 0이고 구간이 0을 걸친다.
 def test_h11_undecided():
     run = flat_run()
-    flag(run, ["P:gamma-2"], [0])  # +5 points
-    flag(run, [f"R:{light}" for light in LIGHTS], [1, 2])  # +10 points, half of it is 5
+    flag(run, ["P:gamma-2"], [0])  # +5%p
+    flag(run, [f"R:{light}" for light in LIGHTS], [1, 2])  # +10%p, 그 절반이 5%p
     result = h11(run, n_boot=N_BOOT)
     assert result["statistic"] == pytest.approx(0.0)
     assert result["ci"][0] < 0 < result["ci"][1]
@@ -381,9 +381,9 @@ def test_h11_undecided():
 # 평균인지(세 조명에서만 11/20 증가 → 평균 3 × (11/20) / 9) 확인한다.
 def test_h11_uses_the_mean_of_the_real_conditions_and_differences_to_s():
     run = flat_run()
-    # Specimen 5 is flagged under every condition, S included: it moves no difference.
+    # 시편 5는 S를 포함한 모든 조건에서 표시된다: 어떤 차이도 바꾸지 않는다.
     flag(run, CONDITIONS, [5])
-    flag(run, ["R:02", "R:03", "R:04"], range(12))  # three of nine illuminations: mean increase 0.2
+    flag(run, ["R:02", "R:03", "R:04"], range(12))  # 아홉 조명 중 셋: 평균 증가 0.2
     flag(run, ["P:shift-3"], [0, 1])
     result = h11(run, n_boot=N_BOOT)
     assert result["mean_real_increase"] == pytest.approx(3 * (11 / 20) / 9)
@@ -403,13 +403,13 @@ def test_h11_takes_the_maximum_again_in_every_resample():
     result = h11(run, n_boot=N_BOOT)
     assert result["max_synthetic_condition"] == "P:jpeg-1"
 
-    draws = stratified_indices([20, 50], n_boot=N_BOOT, seed=0)[0]  # the normal specimens
+    draws = stratified_indices([20, 50], n_boot=N_BOOT, seed=0)[0]  # 정상 시편
     counts = np.stack([(draws == k).sum(axis=1) for k in range(20)], axis=1) / 20
     first, second, real = counts[:, :2].sum(axis=1), counts[:, 2:5].sum(axis=1), counts[:, 5:8].sum(axis=1)
     expected = np.maximum(first, second) - 0.5 * real
     assert result["ci"] == pytest.approx(percentile_ci(expected))
     assert result["max_synthetic_increase_ci"] == pytest.approx(percentile_ci(np.maximum(first, second)))
-    # Following only the condition that is largest in the observed data would give another interval.
+    # 관측 데이터에서 가장 큰 조건만 따라가면 다른 구간이 나온다.
     assert (first > second).any()
     assert result["statistic"] == pytest.approx(0.15 - 0.5 * 0.15)
 
@@ -419,19 +419,19 @@ def test_h11_takes_the_maximum_again_in_every_resample():
 def test_h11_interval_averages_the_nine_real_conditions_in_every_resample():
     run = flat_run(categories=("Motor",))
     flag(run, ["P:jpeg-1"], [0, 1])
-    flag(run, ["R:02", "R:05", "R:09"], [2, 3, 4, 5])  # three of the nine illuminations
-    flag(run, ["R:03"], [6])  # and a fourth one with another specimen
+    flag(run, ["R:02", "R:05", "R:09"], [2, 3, 4, 5])  # 아홉 조명 중 셋
+    flag(run, ["R:03"], [6])  # 그리고 다른 시편으로 넷째 조명 하나
     result = h11(run, n_boot=N_BOOT)
     assert result["mean_real_increase"] == pytest.approx((3 * 0.2 + 0.05) / 9)
     assert result["statistic"] == pytest.approx(0.1 - 0.5 * (3 * 0.2 + 0.05) / 9)
 
-    draws = stratified_indices([20, 50], n_boot=N_BOOT, seed=0)[0]  # the normal specimens
+    draws = stratified_indices([20, 50], n_boot=N_BOOT, seed=0)[0]  # 정상 시편
     counts = np.stack([(draws == k).sum(axis=1) for k in range(20)], axis=1) / 20
     synthetic = counts[:, :2].sum(axis=1)
-    real_mean = (3 * counts[:, 2:6].sum(axis=1) + counts[:, 6]) / 9  # five illuminations add nothing
+    real_mean = (3 * counts[:, 2:6].sum(axis=1) + counts[:, 6]) / 9  # 다섯 조명은 아무것도 더하지 않는다
     assert result["mean_real_increase_ci"] == pytest.approx(percentile_ci(real_mean))
     assert result["ci"] == pytest.approx(percentile_ci(synthetic - 0.5 * real_mean))
-    # The largest real increase instead of the mean of the nine would give another interval.
+    # 아홉 조명의 평균 대신 가장 큰 실제 증가를 쓰면 다른 구간이 나온다.
     real_max = np.maximum(counts[:, 2:6].sum(axis=1), counts[:, 6])
     assert result["ci"] != pytest.approx(percentile_ci(synthetic - 0.5 * real_max))
 
@@ -440,13 +440,13 @@ def test_h11_interval_averages_the_nine_real_conditions_in_every_resample():
 # 경우와, 증가가 모든 재표본에서 정확히 상쇄되는 경우(실제 +100%p, 합성은 한 범주에서만 +100%p = 합산 +50%p)
 # 두 가지를 본다.
 def test_h11_is_undecided_when_the_interval_ends_at_zero():
-    # Nothing is flagged anywhere: the statistic is 0 in every resample, the interval is [0, 0]. The rule
-    # needs an upper end below 0 to support and a lower end above 0 to reject, so neither holds.
+    # 어디에도 표시가 없다: 통계량은 모든 재표본에서 0이고 구간은 [0, 0]이다. 규칙은 지지에 상한 < 0을, 기각에
+    # 하한 > 0을 요구하므로 어느 쪽도 성립하지 않는다.
     result = h11(flat_run(), n_boot=N_BOOT)
     assert result["statistic"] == 0 and result["ci"] == [0, 0]
     assert result["verdict"] == "판정 불가"
-    # The same with increases that cancel exactly in every resample: real +100 points in both categories,
-    # one synthetic condition +100 points in one category (half of the pooled normal images).
+    # 모든 재표본에서 증가가 정확히 상쇄되는 경우도 같다: 실제 조명은 두 범주 모두 +100%p, 합성 조건 하나는 한
+    # 범주에서만 +100%p(합산 정상 이미지의 절반).
     run = flat_run()
     flag(run, [f"R:{light}" for light in LIGHTS], range(20))
     flag(run, ["P:blur-2"], range(20), categories=("Motor",))
@@ -460,9 +460,9 @@ def test_h11_is_undecided_when_the_interval_ends_at_zero():
 # 수를 바꿔 반올림 방향이 다른 두 경우를 시험한다.
 @pytest.mark.parametrize("always", [[("Motor", "000")], [("Motor", "000"), ("Motor", "120")]])
 def test_h11_exact_tie_is_not_decided_by_float_rounding(always):
-    # Whole (category, view) blocks of normal images are flagged, so every rate is the same in every
-    # resample: S = s/120, the synthetic condition (s + 20)/120, every real one (s + 40)/120. The statistic
-    # is exactly 0, but in floats it comes out as -5.6e-17 (s = 20) or +2.8e-17 (s = 40).
+    # 정상 이미지를 (범주, 시점) 블록째로 표시하므로 모든 재표본에서 비율이 같다: S = s/120, 합성 조건
+    # (s + 20)/120, 실제 조건마다 (s + 40)/120. 통계량은 정확히 0이지만 부동소수로는 -5.6e-17(s = 20)이나
+    # +2.8e-17(s = 40)로 나온다.
     real = [f"R:{light}" for light in LIGHTS]
     blocks = [(category, view) for category in ("Motor", "Bird") for view in VIEWS]
     free = [block for block in blocks if block not in always]
@@ -517,18 +517,18 @@ def test_h12_supported_rejected_undecided():
     assert result["fpr"] == 1 and result["false_positives"] == 1080 and result["verdict"] == "기각"
 
     run = flat_run()
-    flag(run, keys_of(30), [0, 1], key="recal_scores")  # 10% of the normal specimens
+    flag(run, keys_of(30), [0, 1], key="recal_scores")  # 정상 시편의 10%
     result = h12(run, n_boot=N_BOOT)
     assert result["fpr"] == pytest.approx(0.10)
     assert result["fpr_ci"][0] < 0.10 < result["fpr_ci"][1] and result["verdict"] == "판정 불가"
 
     run = flat_run()
-    flag(run, keys_of(30), range(8), key="recal_scores")  # 40%: clearly above the limit
+    flag(run, keys_of(30), range(8), key="recal_scores")  # 40%: 한계보다 분명히 높다
     result = h12(run, n_boot=N_BOOT)
     assert result["fpr_ci"][0] > 0.10 and result["verdict"] == "기각"
 
     run = flat_run()
-    flag(run, keys_of(30)[:2], [0], key="recal_scores")  # 12 of 1,080 images
+    flag(run, keys_of(30)[:2], [0], key="recal_scores")  # 1,080장 중 12장
     result = h12(run, n_boot=N_BOOT)
     assert result["false_positives"] == 12 and result["fpr_ci"][1] < 0.10 and result["verdict"] == "지지"
 
@@ -538,13 +538,13 @@ def test_h12_supported_rejected_undecided():
 # 재보정하지 않은 점수(R 조건)는 H12에 쓰이지 않아야 하며, 없는 n(16)은 오류다.
 def test_h12_boundary_and_size():
     run = flat_run()
-    # Every normal specimen is flagged in exactly one of its three views: the pooled rate is 1/3 in every
-    # resample, so the interval is the single point 1/3.
+    # 모든 정상 시편을 세 시점 중 정확히 하나에서만 표시한다: 합산 비율이 모든 재표본에서 1/3이라 구간이 1/3
+    # 한 점이다.
     flag(run, keys_of(30), range(20), views=("120",), key="recal_scores")
-    assert h12(run, limit=1 / 3, n_boot=N_BOOT)["verdict"] == "지지"  # upper end <= limit
+    assert h12(run, limit=1 / 3, n_boot=N_BOOT)["verdict"] == "지지"  # 상한 <= 한계
     assert h12(run, limit=0.33, n_boot=N_BOOT)["verdict"] == "기각"
     assert h12(run, limit=0.34, n_boot=N_BOOT)["verdict"] == "지지"
-    # n selects the recalibration size; the un-recalibrated scores play no part.
+    # n은 재보정 장수를 고른다. 재보정하지 않은 점수는 아무 역할도 하지 않는다.
     assert h12(run, n=8, n_boot=N_BOOT)["fpr"] == 0
     flag(run, [f"R:{light}" for light in LIGHTS], range(20))
     assert h12(run, n=8, n_boot=N_BOOT)["verdict"] == "지지"
@@ -556,14 +556,14 @@ def test_h12_boundary_and_size():
 # 조금 낮추면 기각으로 바뀌는지도 본다.
 def test_h12_is_undecided_when_the_lower_end_equals_the_limit():
     run = flat_run()
-    # Motor: every normal specimen is flagged in one view, 20 of 120 images in every resample. Bird: one
-    # specimen is flagged in all three views, so resamples without it stay at 20/120 = 1/6 (more than a
-    # third of them: the lower end) and the others lie above.
+    # Motor: 모든 정상 시편을 한 시점에서 표시해 모든 재표본에서 120장 중 20장. Bird: 시편 하나를 세 시점
+    # 모두에서 표시하므로, 그 시편이 빠진 재표본은 20/120 = 1/6에 머물고(재표본의 3분의 1 이상이라 이것이
+    # 하한) 나머지는 그보다 높다.
     flag(run, keys_of(30), range(20), views=("120",), key="recal_scores", categories=("Motor",))
     flag(run, keys_of(30), [0], key="recal_scores", categories=("Bird",))
     result = h12(run, limit=1 / 6, n_boot=N_BOOT)
     assert result["fpr_ci"][0] == pytest.approx(1 / 6) and result["fpr_ci"][1] > 1 / 6 + 0.01
-    assert result["verdict"] == "판정 불가"  # rejected only if the lower end is above the limit
+    assert result["verdict"] == "판정 불가"  # 하한이 한계보다 높을 때만 기각
     assert h12(run, limit=1 / 6 - 1e-6, n_boot=N_BOOT)["verdict"] == "기각"
 
 
@@ -574,18 +574,18 @@ def test_h12_is_undecided_when_the_lower_end_equals_the_limit():
 def test_recalibrated_images_are_judged_by_the_recalibrated_thresholds():
     run = flat_run()
     for arr in run["inspectors"].values():
-        arr["recal_scores"][:, :20] = 0.7  # every normal image: above the base threshold 0.5 ...
-        arr["recal_thresholds"][:] = 0.9  # ... and below the threshold set by the recalibration
+        arr["recal_scores"][:, :20] = 0.7  # 모든 정상 이미지: 기준 임계값 0.5보다는 높고 ...
+        arr["recal_thresholds"][:] = 0.9  # ... 재보정으로 정한 임계값보다는 낮다
     result = h12(run, n_boot=N_BOOT)
     assert result["fpr"] == 0 and result["false_positives"] == 0 and result["verdict"] == "지지"
     table = recal_table(run, n_boot=N_BOOT)
     assert [row["fpr"] for row in table] == [0, 0, 0] and [row["tpr"] for row in table] == [1, 1, 1]
 
-    # Each key has its own threshold, in each inspector.
+    # 키마다, 검사기마다 자기 임계값이 있다.
     for arr in run["inspectors"].values():
         arr["recal_thresholds"][[RECAL_KEYS.index(key) for key in keys_of(8)]] = 0.6
     run["inspectors"]["Bird_240"]["recal_thresholds"][RECAL_KEYS.index("04:30")] = 0.65
-    run["inspectors"]["Motor_000"]["recal_thresholds"][RECAL_KEYS.index("04:30")] = 1.5  # misses all defects
+    run["inspectors"]["Motor_000"]["recal_thresholds"][RECAL_KEYS.index("04:30")] = 1.5  # 결함을 모두 놓친다
     assert [t for _, _, t in recal_cell(run, "04:30")] == [1.5, 0.9, 0.9, 0.9, 0.9, 0.65]
     assert [t for _, _, t in recal_cell(run, "04:8")] == [0.6] * 6
     table = recal_table(run, n_boot=N_BOOT)
@@ -606,7 +606,7 @@ def test_h12_matches_the_direct_loop():
     assert 0 < result["fpr"] < 1 and result["fpr_ci"][0] < result["fpr"] < result["fpr_ci"][1]
 
 
-# --------------------------------------------------------------------------------------------- recal table
+# --------------------------------------------------------------------------------------------- 재보정 표
 
 
 # 재보정 표가 아홉 조명을 합치는지 확인한다. n = 0(재보정 없음)은 80%, n = 8은 20%, n = 30은 18/1,080. n =
@@ -614,10 +614,10 @@ def test_h12_matches_the_direct_loop():
 # 조건 표의 R 행을 합친 것과 같아야 한다(3-B 표의 96.9% → 3.5%/4.4% 비교의 근거).
 def test_recal_table_pools_the_real_illuminations():
     run = flat_run()
-    flag(run, [f"R:{light}" for light in LIGHTS], range(16))  # 80% flagged without recalibration
-    flag(run, keys_of(8), range(4), key="recal_scores")  # 20% after n = 8
+    flag(run, [f"R:{light}" for light in LIGHTS], range(16))  # 재보정 없이는 80% 표시
+    flag(run, keys_of(8), range(4), key="recal_scores")  # n = 8 뒤에는 20%
     flag(run, keys_of(30)[:3], [0], key="recal_scores")
-    for arr in run["inspectors"].values():  # recalibration with 30 also loses ten defects everywhere
+    for arr in run["inspectors"].values():  # 30장 재보정은 모든 검사기에서 결함 10개도 놓친다
         for key in keys_of(30):
             arr["recal_scores"][RECAL_KEYS.index(key), 20:30] = 0.0
     table = recal_table(run, n_boot=N_BOOT)
@@ -628,7 +628,7 @@ def test_recal_table_pools_the_real_illuminations():
     assert "d_fpr" not in table[0]
     assert table[1]["d_fpr"] == pytest.approx(-0.6) and table[1]["d_fpr_ci"][1] < 0
     assert table[2]["d_tpr"] == pytest.approx(-0.2) and table[2]["d_tpr_ci"][1] < 0
-    # n = 0 is the pooling of the R rows of the condition table.
+    # n = 0은 조건 표의 R 행들을 합친 것이다.
     rows = [r for r in condition_table(run, n_boot=N_BOOT) if r["condition"].startswith("R:")]
     assert table[0]["false_positives"] == sum(r["false_positives"] for r in rows)
     assert table[0]["n_defect"] == sum(r["n_defect"] for r in rows) == 9 * 300
@@ -645,12 +645,12 @@ def test_recal_table_matches_the_direct_loop():
         fpr, tpr = direct_pooled(run, [recal_cell(run, key) for key in keys_of(n)], 100)
         assert row["fpr_ci"] == pytest.approx(percentile_ci(fpr))
         assert row["tpr_ci"] == pytest.approx(percentile_ci(tpr))
-        # Differences to the un-recalibrated rows use the same draws.
+        # 재보정하지 않은 행과의 차이는 같은 추출을 쓴다.
         assert row["d_fpr_ci"] == pytest.approx(percentile_ci(fpr - base_fpr))
         assert row["d_tpr_ci"] == pytest.approx(percentile_ci(tpr - base_tpr))
 
 
-# ------------------------------------------------------------------------------------------ files and CLI
+# ------------------------------------------------------------------------------------------ 파일과 명령행
 
 
 # load가 run_m2ad 폴더를 읽어 검사기 순서·메타·배열을 그대로 되살리고, 읽은 실행으로 만든 조건 표가 원래
@@ -678,7 +678,7 @@ def test_load_rejects_inconsistent_inspectors(tmp_path):
         analyze_m2ad.load(tmp_path / "a")
 
     run = random_run()
-    run["inspectors"]["Bird_000"]["labels"][3, 0] = 1  # a normal specimen with a defect label
+    run["inspectors"]["Bird_000"]["labels"][3, 0] = 1  # 결함 라벨이 붙은 정상 시편
     write_run(run, tmp_path / "b")
     with pytest.raises(ValueError, match="object_anomaly"):
         analyze_m2ad.load(tmp_path / "b")
@@ -725,7 +725,7 @@ def test_cli_writes_the_report_and_judges_p0_only(tmp_path, monkeypatch, capsys)
     assert list(report["methods"]) == ["p0", "d-s"]
     p0, ds = report["methods"]["p0"], report["methods"]["d-s"]
     assert p0["h11"]["verdict"] == "지지" and p0["h12"]["verdict"] == "지지"
-    # The numbers of the other method are there, without a verdict.
+    # 다른 방법의 수치는 있되 판정은 없다.
     assert "verdict" not in ds["h11"] and "verdict" not in ds["h12"]
     assert ds["h11"]["statistic"] == pytest.approx(1.0) and ds["h12"]["fpr"] == 1
     assert [row["condition"] for row in p0["conditions"]] == CONDITIONS
@@ -741,7 +741,7 @@ def test_cli_report_is_strict_json_when_a_value_is_undefined(tmp_path, monkeypat
     k = CONDITIONS.index("R:06")
 
     def hide_the_defects(p0):
-        # No defect image is left under R:06: that condition has no detection rate and no AUROC.
+        # R:06에 결함 이미지가 하나도 남지 않는다: 그 조건에는 검출률도 AUROC도 없다.
         for arr in p0["inspectors"].values():
             arr["labels"][k, 20:] = -1
 
@@ -755,13 +755,13 @@ def test_cli_report_is_strict_json_when_a_value_is_undefined(tmp_path, monkeypat
         raise AssertionError(f"{token} is not JSON")
 
     text = (tmp_path / "reports" / "stage3" / "m2ad.json").read_text(encoding="utf-8")
-    report = json.loads(text, parse_constant=refuse)  # NaN or Infinity in the file would end up here
+    report = json.loads(text, parse_constant=refuse)  # 파일에 NaN이나 Infinity가 있으면 여기서 걸린다
     row = report["methods"]["p0"]["conditions"][k]
     assert (row["condition"], row["n_defect"], row["fpr"]) == ("R:06", 0, 0.5)
     for key in ("tpr", "auroc", "d_tpr", "d_auroc"):
         assert row[key] is None and row[f"{key}_ci"] == [None, None]
     assert report["methods"]["p0"]["per_inspector"]["Bird_120"]["conditions"]["R:06"]["auroc"] is None
-    # Everything that is defined is still a number.
+    # 정의된 값은 여전히 숫자다.
     assert row["fpr_ci"][0] < 0.5 < row["fpr_ci"][1] and row["d_fpr"] == 0.5
     other = report["methods"]["p0"]["conditions"][k + 1]
     assert other["tpr"] == 1 and other["auroc"] == pytest.approx(0.75)

@@ -1,9 +1,8 @@
-"""The serving-side pipeline: ONNX Runtime features + numpy PatchCore scoring, without torch.
+"""서빙 쪽 파이프라인: torch 없이 ONNX Runtime 특징 + numpy PatchCore 채점.
 
-Banks and thresholds come from the torch pipeline (`patchcore.score_images`, GPU fp16). This module
-reproduces the same arithmetic in numpy so that the service can run on a CPU with onnxruntime only:
-features rounded to float16, bank centring, nearest bank row, the PatchCore re-weighting, and the score
-map (bilinear upsample, Gaussian blur, resize to the 256 grid).
+뱅크와 임계값은 torch 파이프라인(`patchcore.score_images`, GPU fp16)에서 온다. 이 모듈은 같은 계산을 numpy로
+다시 구현해 서비스가 onnxruntime만으로 CPU에서 돌 수 있게 한다: float16으로 반올림한 특징, 뱅크 중심화,
+최근접 뱅크 행, PatchCore 재가중, 점수 맵(bilinear 확대, 가우시안 흐림, 256 격자로 리사이즈).
 """
 
 # [파일 역할] 검사 서비스가 쓰는 torch 없는 추론 경로다. 범주 하나를 맡는 검사기 두 종류를 둔다:
@@ -44,8 +43,8 @@ ARTIFACT_VERSION = 1
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 MAP_SIZE = 256
-# torch 쪽(patchcore._MAX_DIST_ELEMS)과 같은 블록 크기 제한이다.
-# Largest [query rows, bank rows] block built at once while searching the bank (2**27 fp32 = 512 MB).
+# 뱅크를 탐색할 때 한 번에 만드는 [쿼리 행, 뱅크 행] 블록의 최대 크기(2**27개 fp32 = 512MB). torch
+# 쪽(patchcore._MAX_DIST_ELEMS)과 같은 제한이다.
 _MAX_DIST_ELEMS = 1 << 27
 # PatchCore 아티팩트 meta.json에 반드시 있어야 하는 키. export.build_artifacts가 쓰고 check_meta가 확인한다.
 META_KEYS = (
@@ -73,19 +72,17 @@ class Inspection:
     score: float
     threshold: float
     is_defect: bool
-    heatmap: np.ndarray | None  # float32 [256, 256] on the score scale, or None when not requested
+    heatmap: np.ndarray | None  # 점수 척도의 float32 [256, 256], 요청하지 않았으면 None
 
 
-# 이미지를 모델 입력(ImageNet 정규화 float32 [1, 3, S, S])으로 바꾼다. PIL 이미지(업로드 사진, 아무 크기)는
-# RGB로 바꾸고 BICUBIC으로 S×S로 줄인다. 리사이즈 캐시(실험)와 같은 방식이라 서빙 입력이 실험 입력과
-# 같아진다(experiments.md '전처리': 비율을 무시하고 정사각형으로 BICUBIC).
-# uint8 배열(캐시에서 읽은 이미지)은 이미 S×S여야 한다. export.py의 대조·INT8 보정, bench.py, 서비스가 모두 이
-# 함수를 써서 전처리가 한 곳에만 있다.
+# 리사이즈 캐시(실험)와 같은 방식이라 서빙 입력이 실험 입력과 같아진다(experiments.md '전처리': 비율을
+# 무시하고 정사각형으로 BICUBIC). export.py의 대조·INT8 보정, bench.py, 서비스가 모두 이 함수를 써서 전처리가
+# 한 곳에만 있다.
 def preprocess(image: Image.Image | np.ndarray, size: int) -> np.ndarray:
-    """An image -> ImageNet-normalised float32 [1, 3, size, size].
+    """이미지를 모델 입력, 곧 ImageNet 정규화한 float32 [1, 3, size, size]로 바꾼다.
 
-    PIL images (any size) are converted to RGB and resized with BICUBIC, like the resize cache. A uint8
-    array must already be [size, size, 3].
+    PIL 이미지(업로드 사진, 아무 크기)는 리사이즈 캐시처럼 RGB로 바꾸고 BICUBIC으로 줄인다. uint8
+    배열(캐시에서 읽은 이미지)은 이미 [size, size, 3]이어야 한다.
     """
     if isinstance(image, Image.Image):
         if image.size != (size, size) or image.mode != "RGB":
@@ -102,15 +99,14 @@ def preprocess(image: Image.Image | np.ndarray, size: int) -> np.ndarray:
     return np.ascontiguousarray(x.transpose(2, 0, 1)[None])
 
 
-# patchcore._nearest의 numpy 판: 쿼리 행마다 가장 가까운 뱅크 행과 거리. 전개식 ||b||² - 2q·b로 블록 단위로
-# 최근접을 찾고, 찾은 행과의 거리는 q - b로 직접 다시 계산해 0 근처의 큰 수 뺄셈 오차를 피한다.
+# patchcore._nearest의 numpy 판이다. 탐색의 전개식은 ||b||² - 2q·b다.
 # 4단계 dev 지연 분해에서 WideResNet 10% 뱅크는 이 최근접 탐색이 CPU 지연의 82~91%였다(experiments.md 4단계).
 # 그래서 코어셋을 1%로 줄이는 것이 지연을 줄이는 주된 방법이었다.
 def nearest(query: np.ndarray, bank: np.ndarray, bank_sq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Euclidean distance to, and index of, the nearest bank row for each query row (both centred, fp32).
+    """쿼리 행마다 가장 가까운 뱅크 행까지의 유클리드 거리와 그 인덱스(둘 다 중심화한 fp32).
 
-    The search uses the expanded form in blocks; the distance to the row it finds is recomputed by
-    direct subtraction, so it does not suffer from cancellation near zero.
+    탐색은 블록 단위로 전개식을 쓰고, 찾은 행까지의 거리는 q - b로 직접 다시 계산한다. 그래서 0 근처에서
+    큰 수끼리 빼는 오차(상쇄)를 겪지 않는다.
     """
     n = query.shape[0]
     step = max(1, _MAX_DIST_ELEMS // bank.shape[0])
@@ -125,8 +121,8 @@ def nearest(query: np.ndarray, bank: np.ndarray, bank_sq: np.ndarray) -> tuple[n
     return dist, index
 
 
-# patchcore._image_scores의 이미지 한 장 판. 가장 큰 패치 점수 s*에 1 - softmax(이웃 거리)[m*]를 곱하는
-# PatchCore 재가중이다(reweight_k=9가 P0 기본값).
+# patchcore._image_scores의 이미지 한 장 판. 재가중은 가장 큰 패치 점수 s*에 1 - softmax(이웃 거리)[m*]를
+# 곱한다(reweight_k=9가 P0 기본값).
 # 차이점: torch topk 대신 argpartition으로 k개만 고른 뒤 거리 순으로 안정 정렬한다. -inf로 둔 m*가 맨 앞에
 # 와서 softmax의 0번 칸이 m*가 되는 점은 torch 쪽과 같다.
 def image_score(
@@ -137,7 +133,7 @@ def image_score(
     bank_sq: np.ndarray,
     reweight_k: int = 9,
 ) -> float:
-    """PatchCore image score of one image: the largest patch score, re-weighted by its bank neighbourhood."""
+    """이미지 한 장의 PatchCore 이미지 점수: 가장 큰 패치 점수를 그 뱅크 이웃으로 재가중한 값."""
     p_star = int(patch_scores.argmax())
     s_star = float(patch_scores[p_star])
     if reweight_k <= 1:
@@ -145,7 +141,7 @@ def image_score(
     k = min(reweight_k, bank.shape[0])
     m_star = int(nearest_index[p_star])
     block = bank_sq - 2.0 * (bank @ bank[m_star])
-    block[m_star] = -np.inf  # m* itself comes first, even if the bank has duplicates of it
+    block[m_star] = -np.inf  # 뱅크에 m*와 같은 행이 있어도 m* 자신이 맨 앞에 온다
     support = np.argpartition(block, k - 1)[:k] if k < bank.shape[0] else np.arange(bank.shape[0])
     support = support[np.argsort(block[support], kind="stable")]
     # softmax를 직접 쓰지 않고 exp(d - max d)로 계산한다. 최댓값을 빼도 비율은 같고, 거리가 커도 exp가 넘치지
@@ -154,17 +150,14 @@ def image_score(
     weights = np.exp(dist - dist.max())
     weight = 1.0 - weights[0] / weights.sum()
     # 임계값은 torch 파이프라인의 float32 점수에서 나왔으므로, 서빙 점수도 float32로 반올림해 float64의 남는
-    # 자릿수 때문에 임계값 근처 판정이 갈리지 않게 한다(기존 영어 주석).
-    # Rounded to float32 like the torch pipeline's scores: thresholds are float32 scores, and a verdict
-    # must not depend on the digits float64 keeps beyond them.
+    # 자릿수 때문에 임계값 근처 판정이 갈리지 않게 한다.
     return float(np.float32(weight * s_star))
 
 
-# torch F.interpolate(mode="bilinear", align_corners=False)와 같은 원본 좌표 계산: 출력 픽셀 중심을 원본
-# 좌표로 옮겨 (i + 0.5) × (n_in / n_out) - 0.5, 음수는 0으로 자른다. 아래쪽·위쪽 이웃 인덱스와 보간 가중치를
-# 돌려준다.
+# 출력 픽셀 중심을 원본 좌표로 옮겨 (i + 0.5) × (n_in / n_out) - 0.5, 음수는 0으로 자른다. 아래쪽·위쪽 이웃
+# 인덱스와 보간 가중치를 돌려준다.
 def _bilinear_axis(n_in: int, n_out: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Source indices and weight of torch's bilinear interpolation with `align_corners=False`."""
+    """torch bilinear 보간(`align_corners=False`)과 같은 원본 인덱스와 가중치를 계산한다."""
     src = (np.arange(n_out, dtype=np.float64) + 0.5) * (n_in / n_out) - 0.5
     src = np.clip(src, 0.0, None)
     lo = np.minimum(np.floor(src).astype(np.int64), n_in - 1)
@@ -172,20 +165,19 @@ def _bilinear_axis(n_in: int, n_out: int) -> tuple[np.ndarray, np.ndarray, np.nd
     return lo, hi, (src - lo).astype(np.float32)
 
 
-# 2차원 맵을 torch의 안티앨리어싱 없는 bilinear와 같게 size×size로 바꾼다. 행 방향 보간 후 열 방향
-# 보간(분리형)이다. torch 파이프라인의 점수 맵과 같은 값을 내도록 torch의 좌표 규칙(_bilinear_axis)을 그대로
-# 옮겼다.
+# 행 방향 보간 후 열 방향 보간(분리형)이다. torch 파이프라인의 점수 맵과 같은 값을 내도록 torch의 좌표
+# 규칙(_bilinear_axis)을 그대로 옮겼다.
 def resize_bilinear(a: np.ndarray, size: int) -> np.ndarray:
-    """[H, W] float32 -> [size, size], as torch's bilinear interpolation without antialiasing."""
+    """[H, W] float32 -> [size, size]. torch의 안티앨리어싱 없는 bilinear 보간과 같다."""
     lo_r, hi_r, w_r = _bilinear_axis(a.shape[0], size)
     lo_c, hi_c, w_c = _bilinear_axis(a.shape[1], size)
     rows = a[lo_r] * (1.0 - w_r)[:, None] + a[hi_r] * w_r[:, None]
     return (rows[:, lo_c] * (1.0 - w_c)[None, :] + rows[:, hi_c] * w_c[None, :]).astype(np.float32)
 
 
-# patchcore.gaussian_kernel1d와 같은 크기 규칙(반지름 int(4σ + 0.5))의 numpy 커널.
+# patchcore.gaussian_kernel1d와 같은 크기 규칙(반지름 int(4σ + 0.5))이다.
 def gaussian_kernel1d(sigma: float) -> np.ndarray:
-    """Normalised kernel of size `2 * int(4 * sigma + 0.5) + 1` (a single 1 if sigma <= 0)."""
+    """크기 `2 * int(4 * sigma + 0.5) + 1`의 정규화한 가우시안 커널(sigma <= 0이면 1 하나)."""
     if sigma <= 0:
         return np.ones(1, dtype=np.float32)
     radius = int(4 * sigma + 0.5)
@@ -194,20 +186,19 @@ def gaussian_kernel1d(sigma: float) -> np.ndarray:
     return (kernel / kernel.sum()).astype(np.float32)
 
 
-# 패치 점수 [H, W]를 점수 맵 [256, 256]으로: 입력 크기 S로 bilinear 확대 → 가우시안 흐림 → 256 격자로
-# bilinear. torch 쪽 score_images의 맵 단계와 같은 순서다. Inspector.inspect가 heatmap=True일 때 부르고,
-# bench.py도 지연 측정에 쓴다.
+# torch 쪽 score_images의 맵 단계와 같은 순서다. Inspector.inspect가 heatmap=True일 때 부르고, bench.py도
+# 지연 측정에 쓴다.
 def score_map(
     patch_scores: np.ndarray, size: int, sigma: float = 4.0, map_size: int = MAP_SIZE
 ) -> np.ndarray:
-    """Patch scores [H, W] -> float32 map [map_size, map_size]: upsample to `size`, blur, resize."""
+    """패치 점수 [H, W] -> float32 맵 [map_size, map_size]: `size`로 확대, 가우시안 흐림, 리사이즈."""
     out = resize_bilinear(patch_scores.astype(np.float32), size)
     kernel = gaussian_kernel1d(sigma)
     if kernel.size > 1:
         # mirror(=torch reflect) 패딩은 반지름이 맵 크기보다 작아야 하므로 미리 막는다.
         if kernel.size // 2 >= size:
             raise ValueError(f"blur radius {kernel.size // 2} needs a map larger than {size}")
-        # scipy "mirror" = reflect without repeating the edge sample = torch's "reflect" padding.
+        # scipy "mirror"는 가장자리 표본을 반복하지 않는 반사로, torch의 "reflect" 패딩과 같다.
         out = ndimage.correlate1d(out, kernel, axis=0, mode="mirror")
         out = ndimage.correlate1d(out, kernel, axis=1, mode="mirror")
     if size != map_size:
@@ -228,17 +219,16 @@ def _is_finite_number(value) -> bool:
         return False
     try:
         return math.isfinite(float(value))
-    except OverflowError:  # an integer beyond the float range
+    except OverflowError:  # float 범위를 넘는 정수
         return False
 
 
-# PatchCore 아티팩트 meta.json이 서비스가 쓸 수 있는 값인지 점검한다. 키 누락, 버전, 양의 정수(img_size, dim,
-# grid), 음수가 아닌 reweight_k·sigma, 유한한 threshold를 확인한다. 잘못된 아티팩트를 서비스 시작 때 바로
-# 거절해, 요청을 처리하다 이상한 값으로 판정하는 일을 막는다.
+# 키 누락, 버전, 양의 정수(img_size, dim, grid), 음수가 아닌 reweight_k·sigma, 유한한 threshold를 확인한다.
+# 잘못된 아티팩트를 서비스 시작 때 바로 거절해, 요청을 처리하다 이상한 값으로 판정하는 일을 막는다.
 # 호출 위치: export.build_artifacts(쓰기 전), Inspector 생성자, Inspector.load, save_artifact,
 # run_export_eval.
 def check_meta(meta: dict) -> None:
-    """Raise ValueError unless `meta` has every key of an artifact with a usable value."""
+    """PatchCore 아티팩트 `meta`에 모든 키가 쓸 수 있는 값으로 있지 않으면 ValueError를 낸다."""
     if not isinstance(meta, dict):
         raise ValueError(f"artifact meta must be a JSON object, got {type(meta).__name__}")
     missing = [k for k in META_KEYS if k not in meta]
@@ -260,7 +250,7 @@ def check_meta(meta: dict) -> None:
         raise ValueError(f"artifact meta: sigma must be a finite number >= 0, got {meta['sigma']!r}")
     # 가우시안 커널 반지름이 입력 크기 이상이면 score_map의 반사 패딩이 실패하므로, 요청 때가 아니라 읽을 때
     # 거절한다.
-    radius = int(4 * float(meta["sigma"]) + 0.5)  # the kernel radius of `gaussian_kernel1d`
+    radius = int(4 * float(meta["sigma"]) + 0.5)  # `gaussian_kernel1d`의 커널 반지름
     if radius >= meta["img_size"]:
         raise ValueError(
             f"artifact meta: sigma {meta['sigma']!r} gives a blur radius of {radius}, which needs an "
@@ -270,14 +260,12 @@ def check_meta(meta: dict) -> None:
         raise ValueError(f"artifact meta: threshold must be a finite number, got {meta['threshold']!r}")
 
 
-# ONNX 세션이 선언한 입력·출력 이름과 모양이 meta와 맞는지 확인한다(입력 image [1, 3, S, S], 출력 features [1,
-# H, W, dim]). 다른 설정의 모델 파일이 섞여 들어오는 것을 막는다. 모델이 기호로 남긴 차원(정수가 아닌 값)은
-# 비교하지 않는다.
+# 다른 설정의 모델 파일이 섞여 들어오는 것을 막는다.
 def check_model_io(session, meta: dict) -> None:
-    """Raise ValueError unless the session's declared input and output fit `meta`.
+    """ONNX 세션이 선언한 입력·출력 이름과 모양이 `meta`와 맞지 않으면 ValueError를 낸다.
 
-    The model must take `image` [1, 3, S, S] and return `features` [1, H, W, dim]. Dimensions the model
-    leaves symbolic are not compared.
+    모델은 `image` [1, 3, S, S]를 받아 `features` [1, H, W, dim]을 돌려줘야 한다. 모델이 기호로 남긴
+    차원(정수가 아닌 값)은 비교하지 않는다.
     """
     size, (grid_h, grid_w), dim = meta["img_size"], meta["grid"], meta["dim"]
     wanted = (
@@ -293,10 +281,10 @@ def check_model_io(session, meta: dict) -> None:
             raise ValueError(f"the model's {kind} {name!r} is {shape}, the artifact meta needs {want}")
 
 
-# 메모리 뱅크가 [R, dim]의 비어 있지 않은 실수 배열이고 fp32로 바꿨을 때 모두 유한한지 확인한 뒤 fp32 배열로
-# 돌려준다. 뱅크는 fp16으로 저장되지만 거리 계산은 fp32로 한다(torch 쪽과 같음).
+# 뱅크가 [R, dim]의 비어 있지 않은 실수 배열이고 fp32로 바꿨을 때 모두 유한한지 확인한다. 뱅크는 fp16으로
+# 저장되지만 거리 계산은 fp32로 한다(torch 쪽과 같음).
 def _check_bank(bank: np.ndarray, dim: int) -> np.ndarray:
-    """The bank as one fp32 array [R, dim], or ValueError."""
+    """메모리 뱅크를 fp32 배열 [R, dim] 하나로 돌려주고, 쓸 수 없으면 ValueError를 낸다."""
     bank = np.asarray(bank)
     if bank.ndim != 2 or bank.shape[0] == 0 or bank.shape[1] != dim:
         raise ValueError(f"bank shape {bank.shape} does not match dim {dim}")
@@ -309,23 +297,21 @@ def _check_bank(bank: np.ndarray, dim: int) -> np.ndarray:
     return bank32
 
 
-# PatchCore 범주 하나의 CPU 검사기: onnxruntime 세션(모든 범주 공용 모델), 그 범주의 메모리 뱅크, 임계값.
-# 점수가 유한하지 않으면 판정하지 않고 FloatingPointError를 낸다. nan > threshold는 False라서, 막지 않으면 NaN
-# 점수가 정상으로 통과한다(docstring).
+# 세션은 모든 범주가 함께 쓰는 모델이다.
 # 호출 위치: service.load_inspectors, bench.py(Inspector.load), run_export_eval(범주·비율마다 생성),
 # service.offline_inspector(모델 파일 없이 도는 합성 demo 범주).
 class Inspector:
-    """One category's inspector: an ONNX Runtime session, a memory bank and a threshold.
+    """PatchCore 범주 하나의 CPU 검사기: ONNX Runtime 세션, 메모리 뱅크, 임계값.
 
-    A score that is not finite raises `FloatingPointError` instead of reaching a verdict: `nan > threshold`
-    is false, so it would otherwise pass as normal.
+    점수가 유한하지 않으면 판정하지 않고 `FloatingPointError`를 낸다. `nan > threshold`는 거짓이라, 막지
+    않으면 NaN 점수가 정상으로 통과한다.
     """
 
-    # 클래스 속성: kind는 /categories 응답에 나가는 모델 종류, precision은 읽은 모델 정밀도, threads는 세션의
-    # 연산 스레드 수(None이면 onnxruntime 기본값).
+    # 클래스 속성: kind는 /categories 응답에 나가는 모델 종류, precision은 읽은 모델 정밀도, threads는 세션을
+    # 만들 때 준 연산 스레드 수(None이면 onnxruntime 기본값).
     kind = PATCHCORE
     precision = "fp32"
-    threads: int | None = None  # intra-op threads the session was created with; None = onnxruntime's default
+    threads: int | None = None
 
     def __init__(self, session, bank: np.ndarray, meta: dict):
         check_meta(meta)
@@ -342,21 +328,18 @@ class Inspector:
         self.sigma = float(meta["sigma"])
         self.threshold = float(meta["threshold"])
         self.bank_rows = int(bank32.shape[0])
-        # torch 쪽 score_images와 같은 중심화: 뱅크 평균을 빼 두고, 쿼리도 같은 centre를 뺀다. 행별 제곱
-        # 노름은 한 번만 계산한다.
-        # One centred fp32 copy. Centring leaves distances unchanged and keeps the expanded form accurate.
+        # torch 쪽 score_images와 같은 중심화: 뱅크 평균을 뺀 fp32 사본 하나를 두고, 쿼리도 같은 centre를
+        # 뺀다. 중심화해도 거리는 같고 전개식은 정확해진다. 행별 제곱 노름은 한 번만 계산한다.
         self._centre = bank32.mean(axis=0, keepdims=True)
         self._bank = bank32 - self._centre
         self._bank_sq = np.square(self._bank).sum(axis=1)
 
-    # 아티팩트 범주 폴더에서 검사기를 만든다. 범주 폴더에 모델 파일이 없으면 부모(아티팩트 세트) 폴더의 공용
-    # 모델을 쓴다. meta.json → bank.npy → 모델 순으로 읽고, 무엇이 잘못됐든 ValueError 하나로 경로와 이유를
-    # 알려 준다.
-    # check_meta를 모델을 열기 전에 불러, 오류 메시지가 onnxruntime 오류가 아니라 잘못된 meta 값을 가리키게
-    # 한다(기존 주석). np.load는 allow_pickle=False로 피클 실행을 막는다.
+    # 범주 폴더에 모델 파일이 없으면 부모(아티팩트 세트) 폴더의 공용 모델을 쓴다. meta.json → bank.npy → 모델
+    # 순으로 읽는다. check_meta를 모델을 열기 전에 불러, 오류 메시지가 onnxruntime 오류가 아니라 잘못된 meta
+    # 값을 가리키게 한다. np.load는 allow_pickle=False로 피클 실행을 막는다.
     @classmethod
     def load(cls, artifact_dir: Path, *, precision: str = "fp32", threads: int | None = None) -> "Inspector":
-        """An inspector from an artifact folder. Anything wrong with the artifact is a `ValueError`."""
+        """아티팩트 범주 폴더에서 검사기를 만든다. 아티팩트가 무엇이 잘못됐든 `ValueError` 하나로 알린다."""
         import onnxruntime as ort
 
         artifact_dir = Path(artifact_dir)
@@ -364,7 +347,7 @@ class Inspector:
             raise ValueError(f"precision must be one of {sorted(PRECISIONS)}, got {precision!r}")
         model = artifact_dir / PRECISIONS[precision]
         if not model.exists():
-            # An artifact set keeps one model file next to the per-category folders.
+            # 아티팩트 세트는 범주 폴더들 옆에 모델 파일 하나를 둔다.
             model = artifact_dir.parent / PRECISIONS[precision]
         for path in (artifact_dir / "meta.json", artifact_dir / "bank.npy", model):
             if not path.exists():
@@ -375,7 +358,7 @@ class Inspector:
         except (OSError, ValueError) as err:
             raise ValueError(f"{artifact_dir / 'meta.json'} is not readable JSON: {err}") from err
         try:
-            check_meta(meta)  # before the model is opened, so that the message names the bad value
+            check_meta(meta)  # 모델을 열기 전에 불러 메시지가 잘못된 값을 가리키게 한다
         except ValueError as err:
             raise ValueError(f"{artifact_dir / 'meta.json'}: {err}") from err
         try:
@@ -389,7 +372,7 @@ class Inspector:
             session = ort.InferenceSession(
                 str(model), sess_options=options, providers=["CPUExecutionProvider"]
             )
-        except Exception as err:  # onnxruntime has its own exception types for files it cannot load
+        except Exception as err:  # onnxruntime은 읽지 못하는 파일에 자체 예외 형식을 낸다
             raise ValueError(f"{model} is not a loadable ONNX model: {err}") from err
         try:
             inspector = cls(session, bank, meta)
@@ -399,32 +382,31 @@ class Inspector:
         inspector.threads = None if threads is None else int(threads)
         return inspector
 
-    # 이미지 한 장의 패치 특징 [H*W, D]. 모델 출력을 float16으로 반올림했다가 float32로 되돌린다. torch
-    # 파이프라인은 특징을 fp16으로 계산·저장하므로(patchcore._patch_features), 같은 반올림을 거쳐야 뱅크와
-    # 같은 값의 격자에서 거리를 잰다.
+    # torch 파이프라인은 특징을 fp16으로 계산·저장하므로(patchcore._patch_features), 같은 반올림을 거쳐야
+    # 뱅크와 같은 값의 격자에서 거리를 잰다.
     def features(self, image: Image.Image | np.ndarray) -> np.ndarray:
-        """Patch features float32 [H * W, D] of one image, rounded through float16 like the torch pipeline."""
+        """이미지 한 장의 패치 특징 float32 [H * W, D]. torch 파이프라인처럼 float16을 거쳐 반올림한다."""
         out = self.session.run(["features"], {"image": preprocess(image, self.size)})[0]
         if out.shape != (1, *self.grid, self._bank.shape[1]):
             raise ValueError(
                 f"model returned features {out.shape}, expected {(1, *self.grid, self._bank.shape[1])}"
             )
         feats = out[0].reshape(-1, out.shape[-1])
-        # fp16 범위를 넘는 값은 캐스트에서 inf가 되므로 경고 대신 아래에서 직접 검사한다. 원래 값이
-        # 비정상인지(모델 문제), 캐스트에서 넘쳤는지 구분해 메시지를 다르게 낸다.
+        # fp16 범위를 넘는 값은 캐스트에서 inf가 되므로 경고 대신 캐스트 뒤에 직접 검사한다
+        # (patchcore._patch_features와 같음). 원래 값이 비정상인지(모델 문제), 캐스트에서 넘쳤는지 구분해
+        # 메시지를 다르게 낸다.
         with np.errstate(over="ignore"):
             rounded = feats.astype(np.float16)
-        # Checked after the cast, like patchcore._patch_features: a value beyond fp16 becomes inf there.
         if not np.isfinite(rounded).all():
             if not np.isfinite(feats).all():
                 raise FloatingPointError("the model produced non-finite features")
             raise FloatingPointError("patch features overflowed fp16")
         return rounded.astype(np.float32)
 
-    # 특징으로 이미지 점수와 패치 점수 [H, W]를 계산한다. 쿼리 중심화 → 최근접 거리(패치 점수) → 재가중 이미지
-    # 점수. 특징을 따로 받는 것은 bench.py가 단계별 시간(백본, 탐색, 맵)을 나눠 재기 위해서다.
+    # 쿼리 중심화 → 최근접 거리(패치 점수) → 재가중 이미지 점수. 특징을 따로 받는 것은 bench.py가 단계별
+    # 시간(백본, 탐색, 맵)을 나눠 재기 위해서다.
     def score_features(self, feats: np.ndarray) -> tuple[float, np.ndarray]:
-        """Image score and patch scores [H, W] of one image's features."""
+        """이미지 한 장의 특징으로 이미지 점수와 패치 점수 [H, W]를 계산한다."""
         feats = np.asarray(feats, dtype=np.float32)
         if not np.isfinite(feats).all():
             raise FloatingPointError("patch features are not finite")
@@ -444,10 +426,10 @@ class Inspector:
             score=score, threshold=self.threshold, is_defect=score > self.threshold, heatmap=heat
         )
 
-    # 이미 입력 크기인 uint8 이미지 여러 장의 점수만 낸다. run_export_eval이 봉인 테스트와 교차 적합 풀을 CPU
-    # 파이프라인으로 다시 채점할 때 쓴다. 서빙과 같은 한 장씩 경로로 계산한다.
+    # run_export_eval이 봉인 테스트와 교차 적합 풀을 CPU 파이프라인으로 다시 채점할 때 쓴다. 서빙과 같은 한
+    # 장씩 경로로 계산한다.
     def scores(self, images: np.ndarray) -> np.ndarray:
-        """Image scores float32 [N] of uint8 images [N, S, S, 3] that are already at the input size."""
+        """이미 입력 크기인 uint8 이미지 [N, S, S, 3]의 이미지 점수 float32 [N]만 낸다."""
         out = np.empty(len(images), dtype=np.float32)
         for i, image in enumerate(images):
             out[i] = self.score_features(self.features(image))[0]
@@ -460,14 +442,13 @@ class Inspector:
         self.threshold = float(value)
         self.meta["threshold"] = float(value)
 
-    # 현재 촬영 조건의 정상 사진들로 임계값만 다시 잡는다(뱅크는 그대로). 점수를 매겨 conformal 임계값을
-    # 구하고 meta에 alpha와 보정 기록(holdout, 장수, 보장 여부)을 남긴다.
+    # 뱅크는 그대로다. meta에 alpha와 보정 기록(holdout, 장수, 보장 여부)을 남긴다.
     # 왜 필요한가: 고정 임계값은 촬영 조건과 한 묶음이다. 조명이 바뀐 M2AD에서 새 조명의 정상 30장으로 다시
     # 잡으면 오검출률이 4.4%로 돌아왔다(README 3단계).
     # 호출 위치: service.offline_inspector, tests/test_inspector.py. 서비스의 /calibrate는 같은 규칙을 업로드
     # 처리 중에 직접 적용한다.
     def calibrate(self, images: Sequence[Image.Image | np.ndarray], alpha: float = 0.05) -> float:
-        """Set the threshold from normal images of the current condition (conformal rank at `alpha`)."""
+        """현재 촬영 조건의 정상 이미지들로 임계값만 다시 잡는다(`alpha`의 conformal 순위)."""
         if len(images) == 0:
             raise ValueError("calibration needs at least one normal image")
         scores = np.array(
@@ -487,16 +468,16 @@ class Inspector:
 # 6단계 Dinomaly(복원 오차로 점수를 내는 모델) 아티팩트의 종류 이름. 메모리 뱅크가 없고, 범주 폴더에는
 # meta.json(임계값)만 있다.
 RECONSTRUCTION = "reconstruction"
-# README: 동적 INT8(행렬 곱만)은 모델 경로 123ms로 빨라지지만 dev AUROC가 1.4%p 낮고, 아티팩트 임계값은 FP32
-# 점수로 정한 것이라 서빙은 FP32다.
-# Model files of a reconstruction (Dinomaly) artifact set; INT8 is dynamic quantization of MatMul only.
+# 재구성(Dinomaly) 아티팩트 세트의 모델 파일 이름. INT8은 MatMul만 동적 양자화한 것이다. README: 동적
+# INT8은 모델 경로 123ms로 빨라지지만 dev AUROC가 1.4%p 낮고, 아티팩트 임계값은 FP32 점수로 정한 것이라 서빙은
+# FP32다.
 RECONSTRUCTION_PRECISIONS = {"fp32": "model_fp32.onnx", "int8-dynamic": "model_int8_dynamic.onnx"}
 RECONSTRUCTION_META_KEYS = ("version", "kind", "name", "category", "img_size", "map_size", "threshold")
 
 
-# 재구성 아티팩트 meta.json 점검: 키, kind, 버전, 양의 정수 img_size·map_size, 유한한 threshold.
+# 점검 항목: 키, kind, 버전, 양의 정수 img_size·map_size, 유한한 threshold.
 def check_reconstruction_meta(meta: dict) -> None:
-    """Raise ValueError unless `meta` describes a usable reconstruction artifact."""
+    """`meta`가 쓸 수 있는 재구성 아티팩트를 설명하지 않으면 ValueError를 낸다."""
     if not isinstance(meta, dict):
         raise ValueError(f"artifact meta must be a JSON object, got {type(meta).__name__}")
     missing = [k for k in RECONSTRUCTION_META_KEYS if k not in meta]
@@ -513,12 +494,11 @@ def check_reconstruction_meta(meta: dict) -> None:
         raise ValueError(f"artifact meta: threshold must be a finite number, got {meta['threshold']!r}")
 
 
-# 범주 폴더의 meta.json에서 kind를 읽어 어느 검사기 클래스로 열지 정한다. kind가 없으면 patchcore로 본다.
-# 4단계 PatchCore 아티팩트는 kind 키 없이 만들어졌으므로, 옛 아티팩트도 그대로 읽힌다(README: 4단계 PatchCore
-# 아티팩트도 그대로 읽는다).
+# 결과로 어느 검사기 클래스로 열지 정한다. 4단계 PatchCore 아티팩트는 kind 키 없이 만들어졌으므로, 옛
+# 아티팩트도 그대로 읽힌다(README: 4단계 PatchCore 아티팩트도 그대로 읽는다).
 # 호출 위치: service.load_inspectors.
 def artifact_kind(artifact_dir: Path) -> str:
-    """ "patchcore" or "reconstruction", from the `kind` of the folder's meta.json (absent: patchcore)."""
+    """범주 폴더 meta.json의 `kind`로 "patchcore" 또는 "reconstruction"을 돌려준다(없으면 patchcore)."""
     try:
         with open(Path(artifact_dir) / "meta.json", encoding="utf-8") as f:
             meta = json.load(f)
@@ -527,19 +507,16 @@ def artifact_kind(artifact_dir: Path) -> str:
     return str(meta.get("kind", PATCHCORE)) if isinstance(meta, dict) else PATCHCORE
 
 
-# Dinomaly ViT-S(6단계 dms-280-car) 범주 하나의 CPU 검사기. ONNX 모델이 이미지 점수(흐린 맵의 상위 1% 평균)와
-# 이상 맵을 직접 내므로 뱅크 탐색이 없다. 모델은 12개 범주가 같이 쓰고 임계값만 범주별이다.
-# 왜: 6단계에서 이 모델이 CPU 150ms, 실제 오검출률 4.3%, AUROC 96.5로 세 기준을 모두 지켜(H16 지지)
-# 2026-10-04에 서비스 모델로 바뀌었다(README '검사 서비스').
+# 서비스의 모델은 Dinomaly ViT-S(6단계 dms-280-car)다. 왜: 6단계에서 이 모델이 CPU 150ms, 실제 오검출률 4.3%,
+# AUROC 96.5로 세 기준을 모두 지켜(H16 지지) 2026-10-04에 서비스 모델로 바뀌었다(README '검사 서비스').
 # 호출 위치: service.load_inspectors, bench.py, dinomaly_serving.py, runtime_compare.py(OpenVINO 세션을 끼워
 # 넣어 같은 클래스로 비교).
 class ReconstructionInspector:
-    """One category's inspector for a model that scores by itself (Dinomaly): no memory bank.
+    """스스로 점수를 내는 모델(Dinomaly)의 범주 하나 CPU 검사기: 메모리 뱅크가 없다.
 
-    The ONNX model takes `image` [1, 3, S, S] (ImageNet-normalised) and returns `score` [1] (the image
-    score: the mean of the top 1% of the blurred map) and `map` [1, M, M] (the anomaly map). The model is
-    shared by all categories; the threshold is per category. A score that is not finite raises
-    `FloatingPointError` instead of reaching a verdict.
+    ONNX 모델은 `image` [1, 3, S, S](ImageNet 정규화)를 받아 `score` [1](이미지 점수: 흐린 맵의 상위 1%
+    평균)과 `map` [1, M, M](이상 맵)을 돌려준다. 모델은 모든 범주가 함께 쓰고 임계값만 범주별이다. 점수가
+    유한하지 않으면 판정하지 않고 `FloatingPointError`를 낸다.
     """
 
     kind = RECONSTRUCTION
@@ -576,13 +553,12 @@ class ReconstructionInspector:
             ):
                 raise ValueError(f"the model's {kind} {name!r} is {shape}, the artifact meta needs {want}")
 
-    # 범주 폴더에서 재구성 검사기를 연다. 모델 파일은 범주 폴더 또는 부모 폴더에 있다. 잘못된 것은 모두
-    # ValueError로 알린다(Inspector.load와 같은 방식).
+    # 잘못된 것은 모두 ValueError로 알린다(Inspector.load와 같은 방식).
     @classmethod
     def load(
         cls, artifact_dir: Path, *, precision: str = "fp32", threads: int | None = None
     ) -> "ReconstructionInspector":
-        """An inspector from a category folder (the model may sit in its parent folder)."""
+        """범주 폴더에서 재구성 검사기를 연다(모델 파일은 부모 폴더에 있을 수 있다)."""
         import onnxruntime as ort
 
         artifact_dir = Path(artifact_dir)
@@ -609,7 +585,7 @@ class ReconstructionInspector:
             session = ort.InferenceSession(
                 str(model), sess_options=options, providers=["CPUExecutionProvider"]
             )
-        except Exception as err:  # onnxruntime has its own exception types for files it cannot load
+        except Exception as err:  # onnxruntime은 읽지 못하는 파일에 자체 예외 형식을 낸다
             raise ValueError(f"{model} is not a loadable ONNX model: {err}") from err
         try:
             inspector = cls(session, meta)
@@ -619,10 +595,9 @@ class ReconstructionInspector:
         inspector.threads = None if threads is None else int(threads)
         return inspector
 
-    # 모델을 한 번 돌려 (이미지 점수, 맵 [M, M])을 얻는다. 출력 모양이 meta와 다르거나 점수가 유한하지 않으면
-    # 판정 전에 멈춘다.
+    # 출력 모양이 meta와 다르거나 점수가 유한하지 않으면 판정 전에 멈춘다.
     def run(self, image: Image.Image | np.ndarray) -> tuple[float, np.ndarray]:
-        """(image score, float32 map [M, M]) of one image."""
+        """모델을 한 번 돌려 이미지 한 장의 (이미지 점수, float32 맵 [M, M])을 얻는다."""
         score, amap = self.session.run(["score", "map"], {"image": preprocess(image, self.size)})
         score = np.asarray(score, dtype=np.float32).reshape(-1)
         amap = np.asarray(amap, dtype=np.float32)
@@ -647,7 +622,7 @@ class ReconstructionInspector:
         )
 
     def scores(self, images: np.ndarray) -> np.ndarray:
-        """Image scores float32 [N] of uint8 images [N, S, S, 3] that are already at the input size."""
+        """이미 입력 크기인 uint8 이미지 [N, S, S, 3]의 이미지 점수 float32 [N]만 낸다."""
         out = np.empty(len(images), dtype=np.float32)
         for i, image in enumerate(images):
             out[i] = self.run(image)[0]
@@ -663,7 +638,7 @@ class ReconstructionInspector:
     # Inspector.calibrate와 같은 규칙으로 임계값만 다시 잡는다. 모델은 그대로라 README의 'POST /calibrate는 그
     # 범주의 임계값만 다시 잡는다(모델은 그대로)'에 해당한다.
     def calibrate(self, images: Sequence[Image.Image | np.ndarray], alpha: float = 0.05) -> float:
-        """Set the threshold from normal images of the current condition (conformal rank at `alpha`)."""
+        """현재 촬영 조건의 정상 이미지들로 임계값만 다시 잡는다(`alpha`의 conformal 순위)."""
         if len(images) == 0:
             raise ValueError("calibration needs at least one normal image")
         scores = np.array([self.run(image)[0] for image in images], dtype=np.float32)
@@ -678,14 +653,13 @@ class ReconstructionInspector:
         return self.threshold
 
 
-# 단일 범주 아티팩트 폴더(모델 파일, bank.npy, meta.json)를 쓴다. 쓰기 전에 check_meta와 _check_bank로 형식을
-# 확인하고, 원본과 대상이 같은 파일이면 복사하지 않는다.
-# 이 저장소에서는 테스트만 쓴다(실제 4단계 아티팩트는 export.build_artifacts가 만든다). 두 함수가 쓰는
-# bank.npy·meta.json이 바이트까지 같다는 것은 tests/test_run_export_eval.py가 확인한다.
+# 단일 범주 아티팩트 폴더다. 쓰기 전에 check_meta와 _check_bank로 형식을 확인하고, 원본과 대상이 같은 파일이면
+# 복사하지 않는다. 이 저장소에서는 테스트만 쓴다(실제 4단계 아티팩트는 export.build_artifacts가 만든다). 두
+# 함수가 쓰는 bank.npy·meta.json이 바이트까지 같다는 것은 tests/test_run_export_eval.py가 확인한다.
 def save_artifact(
     artifact_dir: Path, *, onnx_fp32: Path, bank: np.ndarray, meta: dict, onnx_int8: Path | None = None
 ) -> None:
-    """Write an artifact directory: the ONNX model(s), the bank and meta.json."""
+    """아티팩트 폴더를 쓴다: ONNX 모델(들), 뱅크, meta.json."""
     import shutil
 
     meta = {"version": ARTIFACT_VERSION, **meta}

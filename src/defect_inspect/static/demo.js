@@ -63,8 +63,8 @@ function draw() {
   if (!state.photo || !state.heat) return;
   const canvas = $("overlay");
   const ctx = canvas.getContext("2d");
-  // Grey heatmap -> red with alpha proportional to the score.
-  // 히트맵 원래 크기의 보조 캔버스에서 화소를 바꾼 뒤 표시 캔버스 크기로 늘려 그린다.
+  // 회색조 히트맵 -> 점수에 비례하는 알파를 가진 빨강. 히트맵 원래 크기의 보조 캔버스에서 화소를 바꾼 뒤 표시
+  // 캔버스 크기로 늘려 그린다.
   const buffer = document.createElement("canvas");
   buffer.width = state.heat.width;
   buffer.height = state.heat.height;
@@ -92,8 +92,8 @@ function describeRefusal(data) {
   return data && typeof data.detail === "string" ? data.detail : "요청이 거부됐다.";
 }
 
-// Four significant digits: PatchCore scores are around 1 to 3, Dinomaly scores around 0.01, so a fixed
-// number of decimals would show a Dinomaly score and its threshold as the same number.
+// 유효숫자 4자리로 보인다: PatchCore 점수는 1~3 정도, Dinomaly 점수는 0.01 정도라서, 소수점 아래 자릿수를
+// 고정하면 Dinomaly 점수와 그 임계값이 같은 숫자로 보이게 된다.
 function formatScore(value) {
   return String(Number(value.toPrecision(4)));
 }
@@ -108,7 +108,7 @@ async function inspect(event) {
   body.append("image", file);
   body.append("category", $("category").value);
   $("submit").disabled = true;
-  // The verdict and picture of the previous upload must not stay next to this one.
+  // 이전 업로드의 판정과 그림이 이번 것 옆에 남아 있으면 안 된다.
   $("result").hidden = true;
   state.photo = null;
   state.heat = null;
@@ -117,8 +117,8 @@ async function inspect(event) {
 
   let data;
   try {
-    // preview=true: the server sends back the picture the model saw, so the overlay always lines up
-    // (formats a browser cannot draw, EXIF rotation that the server does not apply).
+    // preview=true: 서버가 모델이 본 그림을 돌려주므로 겹쳐 그린 히트맵이 늘 사진과 맞는다(브라우저가 그리지
+    // 못하는 형식이나, 서버가 적용하지 않는 EXIF 회전이 있어도).
     const response = await fetch("/inspect?preview=true", { method: "POST", body });
     data = await response.json();
     if (!response.ok) {

@@ -1,17 +1,16 @@
-"""CPU runtimes for one reconstruction artifact: onnxruntime against OpenVINO (score parity, then latency).
+"""재구성 아티팩트 하나의 CPU 런타임 대조: onnxruntime 대 OpenVINO(점수 동일성, 그다음 지연).
 
-Arms (docs/experiments.md, "CPU 런타임 대조", registered 2026-10-04 before measuring):
+팔(docs/experiments.md "CPU 런타임 대조", 2026-10-04 측정 전에 등록):
 
-- R0: onnxruntime CPUExecutionProvider, intra-op threads at its default (the serving setting)
-- R1: onnxruntime, 12 intra-op threads (control)
-- R2: OpenVINO on the CPU, reading the same ONNX file: PERFORMANCE_HINT=LATENCY,
+- R0: onnxruntime CPUExecutionProvider, intra-op 스레드는 기본값(서빙 설정)
+- R1: onnxruntime, intra-op 스레드 12개(대조)
+- R2: 같은 ONNX 파일을 읽는 CPU OpenVINO: PERFORMANCE_HINT=LATENCY,
   INFERENCE_PRECISION_HINT=f32, NUM_STREAMS=1
 
-`parity` scores the dev evaluation set (fold-0 normals + dev defects) image by image with every arm and
-compares scores, maps, AUROC and the hold-out flags with R0 (and R0 with the recorded dev run).
-`latency` waits for an idle machine, then times the arms in blocks whose order rotates, each run in a
-fresh process (`run-arm`). Neither command reads the sealed test set. OpenVINO is imported only when an
-OpenVINO arm is built (dependency group `openvino`).
+`parity`는 dev 평가 세트(겹 0 정상 + dev 결함)를 팔마다 이미지 한 장씩 채점해 점수, 맵, AUROC, 홀드아웃
+판정을 R0와 비교한다(R0는 기록된 dev 실행과 비교). `latency`는 PC가 한가해질 때까지 기다린 뒤, 순서가
+돌아가는 블록으로 팔들의 시간을 잰다. 실행마다 새 프로세스(`run-arm`)를 띄운다. 두 명령 모두 봉인 테스트
+세트를 읽지 않는다. OpenVINO는 OpenVINO 팔을 만들 때만 가져온다(의존성 그룹 `openvino`).
 """
 
 # [파일 역할] 검사 서비스 모델(dms-280-car, Dinomaly ViT-S 280px + CAR의 FP32 ONNX)을 CPU 런타임 세 팔로 돌려
@@ -70,10 +69,10 @@ ARMS: dict[str, dict] = {
 # 남길 속성 이름들.
 REFERENCE = "R0"
 ALPHA = 0.05
-SCORE_REL_TOL = 1e-3  # (a) largest relative image-score difference against R0
-MAP_ABS_TOL = 1e-3  # (b) largest absolute map difference against R0
-AUROC_TOL_PP = 0.01  # (c) dev macro image AUROC, percentage points
-RECORD_REL_TOL = 1e-6  # R0 against the recorded dev run (same file, same runtime)
+SCORE_REL_TOL = 1e-3  # (가) R0 대비 이미지 점수 상대 차이의 최댓값
+MAP_ABS_TOL = 1e-3  # (나) R0 대비 맵 절대 차이의 최댓값
+AUROC_TOL_PP = 0.01  # (다) dev 범주 평균 이미지 AUROC 차이, %p
+RECORD_REL_TOL = 1e-6  # R0 대 기록된 dev 실행(같은 파일, 같은 런타임)
 MIN_SPEEDUP = 0.10  # H22
 CPU_IDLE_PCT = 10.0
 GPU_IDLE_PCT = 10.0
@@ -95,16 +94,16 @@ def _write_json(path: Path, data: dict) -> None:
         f.write("\n")
 
 
-# ---------------------------------------------------------------- arms
+# ---------------------------------------------------------------- 팔
 
 
 # OpenVINO를 onnxruntime 세션처럼 보이게 하는 감싸개. ReconstructionInspector가 쓰는 메서드는 run(출력 이름
 # 목록, 입력 dict) 하나뿐이라 이것만 맞춘다. ONNX 파일을 IR로 변환하지 않고 직접 읽어, 세 팔이 정확히 같은
 # 파일을 쓰게 한다. 추론 요청 객체 하나를 계속 재사용한다(세션 하나와 같은 조건).
 class OpenVINOSession:
-    """The part of an onnxruntime session that `ReconstructionInspector` uses, backed by OpenVINO.
+    """`ReconstructionInspector`가 쓰는 onnxruntime 세션의 부분을 OpenVINO로 구현한다.
 
-    The ONNX file is read directly (no converted IR). One infer request is reused, like one session.
+    ONNX 파일을 직접 읽는다(IR로 변환하지 않음). 추론 요청 하나를 세션 하나처럼 계속 재사용한다.
     """
 
     def __init__(self, model_path: Path, config: dict, device: str = "CPU"):
@@ -119,7 +118,7 @@ class OpenVINOSession:
         for name in OV_PROPERTIES:
             try:
                 self.properties[name] = str(self.compiled.get_property(name))
-            except Exception:  # a property this plugin does not report
+            except Exception:  # 이 플러그인이 알려 주지 않는 속성
                 self.properties[name] = None
 
     # onnxruntime의 session.run과 같은 모양: 요청한 출력 이름 순서대로 numpy 배열 목록을 돌려준다.
@@ -131,7 +130,7 @@ class OpenVINOSession:
 # 모델 파일 경로. 서비스 아티팩트는 ONNX 하나를 12개 범주가 같이 쓰고 범주 폴더에는 임계값만 있으므로, 범주
 # 폴더에 없으면 부모 폴더의 파일을 쓴다(ReconstructionInspector.load와 같은 규칙).
 def _model_path(category_dir: Path, precision: str = "fp32") -> Path:
-    """The model file of a category folder; like `ReconstructionInspector.load`, it may sit in the parent."""
+    """범주 폴더의 모델 파일. `ReconstructionInspector.load`처럼 부모 폴더에 있을 수도 있다."""
     name = RECONSTRUCTION_PRECISIONS[precision]
     path = Path(category_dir) / name
     return path if path.exists() else Path(category_dir).parent / name
@@ -140,7 +139,7 @@ def _model_path(category_dir: Path, precision: str = "fp32") -> Path:
 # 팔 이름과 범주 폴더로 FP32 검사기를 만든다. onnxruntime 팔은 서비스와 같은 load(스레드 수만 다름)를,
 # OpenVINO 팔은 메타를 같은 함수로 검사한 뒤 OpenVINOSession을 끼운 검사기를 만든다.
 def load_arm(arm: str, category_dir: Path) -> ReconstructionInspector:
-    """The FP32 inspector of one category under one arm."""
+    """팔 하나에서 범주 하나의 FP32 검사기."""
     spec = ARMS[arm]
     if spec["runtime"] == "onnxruntime":
         return ReconstructionInspector.load(category_dir, precision="fp32", threads=spec["threads"])
@@ -166,7 +165,7 @@ def arm_info(arm: str, inspector: ReconstructionInspector) -> dict:
     return info
 
 
-# ---------------------------------------------------------------- parity
+# ---------------------------------------------------------------- 점수 동일성(parity)
 
 
 # 최대 상대 차이. 분모가 0에 가까울 때 터지지 않게 1e-12로 막는다.
@@ -186,7 +185,7 @@ def max_rel_diff(values: np.ndarray, ref: np.ndarray) -> float:
 # 저장된 임계값을 그대로 썼을 때 판정이 바뀌는 수와, 자기 임계값에서 결함 판정이 바뀌는 수는 판정 없이 기록만
 # 한다.
 def category_parity(ref: np.ndarray, arm: np.ndarray, labels: np.ndarray, stored_threshold: float) -> dict:
-    """One category: an arm's image scores against R0's on the same images (labels 0 = fold-0 normal)."""
+    """범주 하나: 같은 이미지에서 한 팔의 이미지 점수를 R0의 점수와 비교한다(라벨 0 = 겹 0 정상)."""
     ref = np.asarray(ref, dtype=np.float32)
     arm = np.asarray(arm, dtype=np.float32)
     labels = np.asarray(labels)
@@ -205,10 +204,10 @@ def category_parity(ref: np.ndarray, arm: np.ndarray, labels: np.ndarray, stored
         "threshold_ref": thr_ref.value,
         "threshold_arm": thr_arm.value,
         "threshold_rank": thr_ref.rank,
-        # (d): the arm's own hold-out threshold flags the same fold-0 normals as R0's own.
+        # (라): 팔이 자기 점수로 잡은 홀드아웃 임계값이 R0 자신의 것과 같은 겹 0 정상을 표시하는지.
         "fold0_flags_ref": int(flags_ref[normal].sum()),
         "fold0_flags_same": bool(np.array_equal(flags_ref[normal], flags_arm[normal])),
-        # Reported only: defects under the own thresholds, all images under the stored threshold.
+        # 기록만 한다: 자기 임계값에서 바뀌는 결함 판정 수, 저장된 임계값에서 바뀌는 전체 이미지 판정 수.
         "defect_verdict_flips_own": int((flags_ref[~normal] != flags_arm[~normal]).sum()),
         "verdict_flips_stored": int(((ref > stored_threshold) != (arm > stored_threshold)).sum()),
     }
@@ -217,7 +216,7 @@ def category_parity(ref: np.ndarray, arm: np.ndarray, labels: np.ndarray, stored
 # 범주별 결과를 팔 하나의 관문 (가)~(라)로 모은다: 점수 상대 차이의 최댓값, 맵 절대 차이, 12개 범주 평균 AUROC
 # 차이(%p), 12개 범주 모두에서 겹 0 표시가 같은지. 넷 다 통과해야 pass다.
 def parity_gate(categories: dict[str, dict], map_abs: float) -> dict:
-    """Aggregate the per-category results of one arm into the registered gate (a)-(d)."""
+    """팔 하나의 범주별 결과를 등록된 관문 (가)~(라)로 모은다."""
     rel = max(c["max_rel_diff"] for c in categories.values())
     auroc_ref = 100.0 * float(np.mean([c["auroc_ref"] for c in categories.values()]))
     auroc_arm = 100.0 * float(np.mean([c["auroc_arm"] for c in categories.values()]))
@@ -275,7 +274,7 @@ def _parity_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -
                 continue
             try:
                 inspectors[arm] = load_arm(arm, art / category)
-            except Exception as err:  # an arm that cannot load this model fails its gate
+            except Exception as err:  # 이 모델을 적재하지 못하는 팔은 관문을 통과하지 못한다
                 if arm == REFERENCE:
                     raise
                 errors[arm] = f"{type(err).__name__}: {err}"
@@ -361,7 +360,7 @@ def _parity_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -
     print(json.dumps({"matches_record": report["reference"]["matches_record"], "pass": summary}), flush=True)
 
 
-# ---------------------------------------------------------------- machine load
+# ---------------------------------------------------------------- PC 부하
 
 
 # Windows FILETIME 구조체(상위·하위 32비트)를 하나의 정수(100ns 단위)로 합친다.
@@ -372,7 +371,7 @@ def _filetime(ft) -> int:
 # Windows GetSystemTimes로 (유휴 시간, 커널 + 사용자 시간)을 읽는다. 커널 시간에 유휴 시간이 포함되므로 둘의
 # 비율로 전체 CPU 사용률을 낼 수 있다. 외부 패키지(psutil) 없이 ctypes만 쓴다. Windows가 아니면 None이다.
 def _system_times() -> tuple[int, int] | None:
-    """(idle, kernel + user) in 100 ns units on Windows; kernel time includes idle time."""
+    """Windows에서 (유휴, 커널 + 사용자) 시간을 100ns 단위로 돌려준다. 커널 시간에 유휴 시간이 들어 있다."""
     if os.name != "nt":
         return None
     import ctypes
@@ -394,7 +393,7 @@ def busy_percent(before: tuple[int, int] | None, after: tuple[int, int] | None) 
 
 
 def cpu_percent(seconds: float) -> float | None:
-    """Mean total CPU utilisation over the next `seconds` (None where it cannot be read)."""
+    """앞으로 `seconds`초 동안의 전체 CPU 평균 사용률(읽을 수 없으면 None)."""
     before = _system_times()
     time.sleep(seconds)
     return busy_percent(before, _system_times())
@@ -402,7 +401,7 @@ def cpu_percent(seconds: float) -> float | None:
 
 # nvidia-smi로 첫 GPU의 사용률을 읽는다. 명령이 없거나 실패하면 None(GPU 조건은 건너뜀).
 def gpu_percent() -> float | None:
-    """GPU utilisation from nvidia-smi (the first GPU), or None."""
+    """nvidia-smi로 읽은 첫 GPU의 사용률, 또는 None."""
     try:
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
@@ -418,7 +417,7 @@ def gpu_percent() -> float | None:
 
 # 1분 동안의 CPU 사용률과, 5초마다 12번 읽은 GPU 사용률의 평균. 한가함 판단의 단위다(규칙: 시작 전 1분).
 def load_minute(step_s: float = 5.0, steps: int = 12) -> dict:
-    """CPU utilisation over one minute and the mean of GPU samples taken every `step_s` seconds."""
+    """1분 동안의 CPU 사용률과, `step_s`초마다 읽은 GPU 사용률의 평균."""
     before = _system_times()
     gpu = []
     for _ in range(steps):
@@ -444,10 +443,10 @@ def is_idle(minute: dict, cpu_limit: float = CPU_IDLE_PCT, gpu_limit: float = GP
 # 쪽은 그대로 재되 리포트에 조건을 남긴다(규칙). 1분을 먼저 잰 뒤 그 끝 시각을 기록하도록 2026-10-04에 순서를
 # 고쳤다. minute와 clock을 인자로 받아 테스트가 가짜 측정을 넣을 수 있다.
 def wait_idle(max_minutes: int, minute=load_minute, clock=time.strftime) -> tuple[bool, list[dict]]:
-    """Measure one minute at a time until the machine is idle or `max_minutes` have passed."""
+    """PC가 한가해지거나 `max_minutes`분이 지날 때까지 1분씩 잰다."""
     log = []
     for i in range(max_minutes):
-        load = minute()  # measure first: `end` is the time the minute ended (2026-10-04 fix)
+        load = minute()  # 먼저 잰다: `end`는 그 1분이 끝난 시각이다(2026-10-04 수정)
         record = {"minute": i + 1, "end": clock("%Y-%m-%d %H:%M:%S"), **load}
         record["idle"] = is_idle(record)
         log.append(record)
@@ -457,20 +456,20 @@ def wait_idle(max_minutes: int, minute=load_minute, clock=time.strftime) -> tupl
     return False, log
 
 
-# ---------------------------------------------------------------- latency
+# ---------------------------------------------------------------- 지연(latency)
 
 
 # 블록 b에서는 팔 순서를 b칸 돌린다(1: R0 R1 R2, 2: R1 R2 R0, 3: R2 R0 R1). 팔 수만큼 블록을 돌면 모든 팔이
 # 모든 자리를 한 번씩 맡아 순서 효과(먼저 돈 팔이 유리·불리한 것)가 고르게 나뉜다.
 def block_orders(arms: list[str], blocks: int) -> list[list[str]]:
-    """Block b runs the arms rotated by b, so every arm takes every position once in len(arms) blocks."""
+    """블록 b는 팔 순서를 b칸 돌려 돌린다. len(arms)개 블록에서 모든 팔이 모든 자리를 한 번씩 맡는다."""
     return [arms[b % len(arms) :] + arms[: b % len(arms)] for b in range(blocks)]
 
 
 # 워밍업 뒤 inspector.run(정규화 + 모델 호출) 한 번씩의 시간을 ms로 모은다. 이미지는 돌아가며 쓴다.
 # bench.time_reconstruction과 같은 방식이지만 요약하지 않은 원값을 돌려준다(블록을 합친 중앙값을 내기 위해).
 def time_calls(inspector, images: np.ndarray, warmup: int, repeats: int) -> list[float]:
-    """Milliseconds of each timed `inspector.run` call (as `bench.time_reconstruction`, raw values)."""
+    """측정한 `inspector.run` 호출마다의 밀리초(`bench.time_reconstruction`과 같은 방식, 요약 전 원값)."""
     if len(images) == 0 or warmup < 0 or repeats < 1:
         raise ValueError("need images, warmup >= 0 and repeats >= 1")
     out = []
@@ -509,7 +508,7 @@ def _run_arm_command(args: argparse.Namespace, parser: argparse.ArgumentParser) 
 # 팔마다 세 블록의 모든 측정(150회)을 합친 중앙값에 리사이즈 시간을 더한 값이 팔의 지연이다. 속도 이득 = 1 −
 # (팔 지연 / R0 지연). 블록별 중앙값과 p95도 남겨 블록 사이 흔들림(부하)을 볼 수 있게 한다.
 def summarise_latency(runs: list[dict], resize_ms: float, arms: list[str]) -> dict:
-    """Per arm: the median of all timed calls of all blocks plus the resize, and the gain against R0."""
+    """팔마다: 모든 블록의 측정 호출을 합친 중앙값 + 리사이즈 시간, 그리고 R0 대비 속도 이득."""
     out: dict = {}
     for arm in arms:
         mine = [r for r in runs if r["arm"] == arm]
@@ -534,9 +533,9 @@ def summarise_latency(runs: list[dict], resize_ms: float, arms: list[str]) -> di
 # H22 판정: 관문을 통과하고 같은 세션에서 10% 이상 빠르면 후보. R0가 6단계 기록을 재현하지 못했다면 환경이
 # 바뀐 것이므로 어느 팔의 관문도 인정하지 않는다. parity 리포트가 없으면 관문 결과는 None으로 둔다.
 def h22(parity: dict | None, latency: dict) -> dict:
-    """H22 per challenger arm: passes the parity gate and is at least 10 % faster than R0 in this session.
+    """도전 팔마다 H22: 점수 동일성 관문을 통과하고, 이 세션에서 R0보다 10% 이상 빠른가.
 
-    The parity gate only counts when R0 itself reproduced the recorded dev scores.
+    점수 동일성 관문은 R0 자신이 기록된 dev 점수를 재현했을 때만 인정한다.
     """
     out = {}
     for arm, lat in latency.items():
@@ -574,7 +573,7 @@ def _run_arm_cmd(args: argparse.Namespace, arm: str) -> list[str]:
 
 # 리포트(커밋되는 파일)에 로컬 절대 경로가 들어가지 않도록 저장소 안 경로는 상대 경로로 바꾼다.
 def _rel(path: Path) -> str:
-    """A path relative to the repository when it lies inside it (reports carry no local prefixes)."""
+    """저장소 안에 있는 경로면 저장소 기준 상대 경로로 바꾼다(리포트에 로컬 경로 앞부분이 남지 않게)."""
     try:
         return Path(path).resolve().relative_to(paths.ROOT).as_posix()
     except ValueError:
@@ -661,14 +660,14 @@ def main(argv: list[str] | None = None) -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     default_art = paths.ROOT / "artifacts" / "dms-280-car"
 
-    par = commands.add_parser("parity", help="score the dev evaluation set with every arm and compare")
+    par = commands.add_parser("parity", help="모든 팔로 dev 평가 세트를 채점해 R0와 비교한다")
     par.add_argument("--artifacts", type=Path, default=default_art)
     par.add_argument("--recorded", type=Path, default=paths.OUTPUTS / "dms-280-car-onnx-fp32-dev")
     par.add_argument("--arms", nargs="+", default=list(ARMS))
     par.add_argument("--categories", nargs="+", default=list(CATEGORIES))
     par.add_argument("--out", type=Path, default=paths.REPORTS / "runtime" / "parity.json")
 
-    lat = commands.add_parser("latency", help="time the arms in rotating blocks on an idle machine")
+    lat = commands.add_parser("latency", help="한가한 PC에서 순서를 돌리는 블록으로 팔들의 지연을 잰다")
     lat.add_argument("--artifacts", type=Path, default=default_art)
     lat.add_argument("--arms", nargs="+", default=list(ARMS))
     lat.add_argument("--category", default="pcb1")
@@ -676,11 +675,11 @@ def main(argv: list[str] | None = None) -> None:
     lat.add_argument("--warmup", type=int, default=5)
     lat.add_argument("--repeats", type=int, default=50)
     lat.add_argument("--blocks", type=int, default=3)
-    lat.add_argument("--wait-max-min", type=int, default=60, help="minutes to wait for an idle machine")
+    lat.add_argument("--wait-max-min", type=int, default=60, help="PC가 한가해지기를 기다릴 최대 분")
     lat.add_argument("--parity", type=Path, default=paths.REPORTS / "runtime" / "parity.json")
     lat.add_argument("--out", type=Path, default=paths.REPORTS / "runtime" / "latency.json")
 
-    one = commands.add_parser("run-arm", help="(used by latency) time one arm in this process")
+    one = commands.add_parser("run-arm", help="(latency가 내부에서 씀) 이 프로세스에서 팔 하나의 시간을 잰다")
     one.add_argument("--arm", choices=sorted(ARMS), required=True)
     one.add_argument("--artifacts", type=Path, required=True)
     one.add_argument("--category", default="pcb1")

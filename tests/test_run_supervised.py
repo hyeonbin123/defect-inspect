@@ -37,7 +37,7 @@ from defect_inspect.supervised import TrainConfig  # noqa: E402
 # 가짜 데이터 크기: 32px 이미지를 GridMean이 4x4 칸(칸 하나 8px)으로 줄인다. 마스크는 256 격자라 칸 하나가
 # 마스크에서 64px이다. SEALED는 봉인 테스트 역할 이름이다.
 SIZE = 32
-CELLS = 4  # the fake extractor returns a 4x4 grid
+CELLS = 4  # 가짜 추출기는 4x4 격자를 낸다
 CELL = SIZE // CELLS
 SEALED = {"test_normal", "test_defect"}
 # 2단계 공통 형식의 npz 키(비지도 방법과 같은 분석 코드가 읽는 키)와, 지도 학습만 더 쓰는 키(학습 결함
@@ -56,14 +56,14 @@ COMMON_KEYS = {
     "pro_component_image",
 }
 SUPERVISED_KEYS = {"train_defect_images", "train_defect_types", "best_epoch", "best_val_auroc"}
-# Two epochs are enough wherever the test is about bookkeeping, not about the head.
+# 헤드 성능이 아니라 기록·파일 처리를 보는 테스트에는 2에폭이면 충분하다.
 QUICK = TrainConfig(epochs=2, eval_every=1)
 
 
 # DINOv2 ViT-S 대신 쓰는 작은 특징 추출기: 4x4 칸마다 평균 색(3차원). 학습 가중치가 없어 결정적이고 CPU에서
 # 빠르다.
 class GridMean(torch.nn.Module):
-    """Tiny stand-in for a backbone: the mean colour of each cell of a 4x4 grid."""
+    """백본 대신 쓰는 작은 추출기: 4x4 격자의 칸마다 평균색을 낸다."""
 
     name = "gridmean"
     dim = 3
@@ -76,7 +76,7 @@ class GridMean(torch.nn.Module):
 # 정답이 칸 하나로 딱 떨어진다). images·masks를 부를 때마다 (종류, 이미지, 역할)을 events에 남겨, 무엇을 어떤
 # 순서로 읽었는지(봉인 이미지, 다른 범주, 장부 기록과의 순서)를 검사한다.
 class FakeCache:
-    """Random grey images; every defect image has one bright cell, marked in its mask."""
+    """무작위 회색 이미지. 결함 이미지마다 밝은 칸이 하나 있고 마스크에 그 칸이 표시된다."""
 
     size = SIZE
 
@@ -118,11 +118,11 @@ def _manifest():
         rows.append(ManifestRow(f"toy/p{i}.JPG", f"toy/p{i}.png", "toy", "anomaly", "label_pool", -1, types))
     for i in range(10):
         rows.append(ManifestRow(f"toy/tn{i}.JPG", "", "toy", "normal", "test_normal", -1, ""))
-    # 15 test images against 14 validation images: scoring the wrong set shows in the shapes.
+    # 테스트 15장 대 검증 14장: 엉뚱한 세트를 채점하면 배열 모양에서 드러난다.
     for i in range(5):
         mask = f"toy/td{i}.png"
         rows.append(ManifestRow(f"toy/td{i}.JPG", mask, "toy", "anomaly", "test_defect", -1, "hole"))
-    # A second category that a run of "toy" must never touch.
+    # "toy" 실행이 절대 건드리면 안 되는 두 번째 범주.
     for i in range(10):
         rows.append(ManifestRow(f"other/n{i}.JPG", "", "other", "normal", "pool_normal", i % 5, ""))
     for i in range(3):
@@ -145,7 +145,7 @@ def _images(manifest, role, fold=None):
 # 하는 감시 함수로 바꾼다. git 커밋은 고정값이다.
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    """Toy manifest, fake cache and extractor, and every project path redirected into tmp_path."""
+    """가짜 매니페스트·캐시·추출기와, tmp_path 아래로 돌린 모든 프로젝트 경로."""
     manifest = _manifest()
     write_manifest(manifest, tmp_path / "visa.csv")
     events, calls = [], {}
@@ -199,7 +199,7 @@ def _run(env, protocol, allow_test=False, ks=(2,), seeds=(0,), train_cfg=QUICK):
 # train_head를 감싸 매 호출의 입력(학습 특징·정답, 검증 특징·라벨, 구성, 장치)과 결과를 복사해 둔다. 실행이
 # 어떤 데이터로 학습했는지와, 고른 헤드로 다시 예측한 값이 저장 결과와 같은지를 확인하는 데 쓴다.
 def _spy_on_training(monkeypatch):
-    """Record the arguments and the result of every `train_head` call."""
+    """`train_head`를 부를 때마다 인자와 결과를 기록한다."""
     calls = []
     real = supervised.train_head
 
@@ -225,7 +225,7 @@ def _spy_on_training(monkeypatch):
 # CLI는 기본 구성(60에폭)으로 학습하므로, 파일 처리만 보는 테스트에서는 train_head를 2에폭짜리로 바꿔 시간을
 # 줄인다.
 def _quick_training(monkeypatch):
-    """Two epochs instead of 60, for CLI tests that are about the files and not about the head."""
+    """헤드가 아니라 파일을 보는 CLI 테스트를 위해 60에폭 대신 2에폭으로 학습하게 한다."""
     real = supervised.train_head
 
     def quick(train_feats, train_targets, val_feats, val_labels, cfg, *, device):
@@ -243,7 +243,7 @@ def _rows(manifest, images):
 
 
 def _features(manifest, images):
-    """Features of the named images, extracted the way the runner extracts them."""
+    """이름을 준 이미지들의 특징을 실행 코드와 같은 방식으로 뽑는다."""
     cache = FakeCache(manifest, [])
     return supervised.extract(GridMean(), cache.images(_rows(manifest, images)), device="cpu")
 
@@ -271,7 +271,7 @@ def test_dev_cli_writes_the_common_format(env, monkeypatch):
     calls = _spy_on_training(monkeypatch)
     args = ["--protocol", "dev", "--categories", "toy", "--ks", "2", "4", "--seeds", "0", "1"]
     run_supervised.main([*args, "--device", "cpu"])
-    out = env.tmp / "outputs" / "sup-dev"  # the default output directory
+    out = env.tmp / "outputs" / "sup-dev"  # 기본 출력 폴더
     assert env.calls["extractor"][:2] == ("dinov2_vits14", 448)
     assert env.calls["cache"] == (env.tmp / "cache", 448)
     by_run = {(len(call.train_feats) - 32, call.cfg.seed): call for call in calls}
@@ -285,22 +285,22 @@ def test_dev_cli_writes_the_common_format(env, monkeypatch):
     for k in (2, 4):
         for seed in (0, 1):
             run_dir = out / f"k{k}-s{seed}"
-            # What the selected head of this run gives for the evaluation set, image by image.
+            # 이 실행에서 고른 헤드가 평가 세트에 대해 이미지마다 내는 값.
             call = by_run[(k, seed)]
             scored = supervised.predict(call.result.head, call.val_feats, device="cpu")
             maps = np.load(run_dir / "toy_maps.npy")
             assert maps.shape == (14, 256, 256) and maps.dtype == np.float16
             assert np.isfinite(maps.astype(np.float32)).all()
-            # The maps file holds the maps of the evaluation images, in the order of `eval_images`.
+            # 맵 파일에는 평가 이미지의 맵이 `eval_images` 순서로 들어 있다.
             np.testing.assert_array_equal(maps, scored.maps)
             with np.load(run_dir / "toy.npz") as z:
                 np.testing.assert_array_equal(z["eval_score"], scored.image_scores)
-                # The pixel metrics in the npz are those of the stored maps against the masks.
+                # npz의 픽셀 지표는 저장된 맵을 마스크와 대조한 값이다.
                 stored = maps.astype(np.float32)
                 assert float(z["pixel_auroc"]) == pytest.approx(pixel_auroc(stored, eval_masks), abs=1e-12)
                 assert float(z["aupro"]) == pytest.approx(aupro(stored, eval_masks), abs=1e-12)
                 assert COMMON_KEYS | SUPERVISED_KEYS <= set(z.files)
-                # Evaluation set of the dev protocol: fold-0 normals, then the dev defects.
+                # dev 절차의 평가 세트: 겹 0 정상, 그다음 dev 결함.
                 assert z["eval_images"].tolist() == fold0 + dev_defects
                 assert z["eval_labels"].dtype == np.int8
                 assert z["eval_labels"].tolist() == [0] * 8 + [1] * 6
@@ -308,10 +308,10 @@ def test_dev_cli_writes_the_common_format(env, monkeypatch):
                 scores = z["eval_score"]
                 assert scores.shape == (14,) and scores.dtype == np.float32
                 assert np.isfinite(scores).all()
-                # In dev the fold-0 normals are the evaluation set itself: no calibration scores.
+                # dev에서는 겹 0 정상이 곧 평가 세트라 보정 점수가 없다.
                 assert z["cal_score"].shape == (0,) and z["cal_score"].dtype == np.float32
-                # The bright cell is easy: the head finds every defect, and because the dev evaluation
-                # set is the validation set, the stored scores reproduce the selected epoch's AUROC.
+                # 밝은 칸은 쉬워서 헤드가 결함을 모두 찾고, dev 평가 세트가 곧 검증 세트라 저장된 점수가
+                # 고른 에폭의 AUROC를 그대로 재현한다.
                 assert float(z["best_val_auroc"]) >= 0.95
                 assert auroc(scores[:8], scores[8:]) == pytest.approx(float(z["best_val_auroc"]))
                 assert int(z["best_epoch"]) in range(5, 61, 5)
@@ -325,7 +325,7 @@ def test_dev_cli_writes_the_common_format(env, monkeypatch):
                 assert z["pro_component_image"].tolist() == list(range(8, 14))
                 assert z["history_loss"].shape == (60,) and z["history_val_auroc"].shape == (60,)
                 assert np.flatnonzero(~np.isnan(z["history_val_auroc"])).tolist() == list(range(4, 60, 5))
-                # Label accounting: exactly k training defects, all from the label pool.
+                # 라벨 회계: 학습 결함은 정확히 k장이고 모두 라벨 풀에서 왔다.
                 train_defects = z["train_defect_images"].tolist()
                 assert len(train_defects) == k and len(set(train_defects)) == k
                 assert set(train_defects) <= pool
@@ -338,7 +338,7 @@ def test_dev_cli_writes_the_common_format(env, monkeypatch):
             assert sub["torch_threads"] == torch.get_num_threads()
             assert (sub["config"]["k"], sub["config"]["seed"]) == (k, seed)
             assert [c["category"] for c in sub["categories"]] == ["toy"]
-    # Nested across k for one seed; the seeds order the pool differently.
+    # 같은 시드에서는 k 사이에 포함 관계이고, 시드가 다르면 풀의 순서가 다르다.
     for seed in (0, 1):
         assert subsets[(4, seed)][:2] == subsets[(2, seed)]
     assert subsets[(4, 0)] != subsets[(4, 1)]
@@ -346,7 +346,7 @@ def test_dev_cli_writes_the_common_format(env, monkeypatch):
     run = json.loads((out / "run.json").read_text(encoding="utf-8"))
     assert run["method"] == "supervised" and run["protocol"] == "dev"
     assert run["commit"] == "test-commit" and run["device"] == "cpu"
-    # CPU results are only bit-identical for the same number of threads, so the run records it.
+    # CPU 결과는 스레드 수가 같을 때만 비트 단위로 같으므로 실행이 스레드 수를 기록한다.
     assert run["torch_threads"] == torch.get_num_threads() and type(run["torch_threads"]) is int
     assert run["config"] == {
         "backbone": "dinov2_vits14",
@@ -375,7 +375,7 @@ def test_dev_cli_writes_the_common_format(env, monkeypatch):
             assert info["best_val_auroc"] == float(z["best_val_auroc"])
     assert run["total_s"] >= 0
 
-    # The dev protocol never touches the sealed test set, the other category or the ledger.
+    # dev 절차는 봉인 테스트, 다른 범주, 장부를 건드리지 않는다.
     assert {role for _, _, role in env.events} == {"pool_normal", "dev_defect", "label_pool"}
     assert all(image.startswith("toy/") for _, image, _ in env.events)
     assert not env.ledger.exists()
@@ -399,7 +399,7 @@ def test_training_set_is_the_pool_normals_plus_k_label_pool_defects(env, monkeyp
     val_feats = supervised.extract(extractor, cache.images(validation), device="cpu")
     for call, run in zip(calls, runs, strict=True):
         k, seed = run["k"], run["seed"]
-        # The run's seed replaces the seed of the base configuration and nothing else.
+        # 실행의 시드는 기본 구성의 seed만 바꾸고 다른 값은 그대로 둔다.
         assert call.cfg == TrainConfig(epochs=2, eval_every=1, lr=5e-4, seed=seed)
         assert call.device == "cpu"
         assert call.train_feats.shape == (32 + k, 4, 4, 3) and call.train_feats.dtype == torch.float16
@@ -407,7 +407,7 @@ def test_training_set_is_the_pool_normals_plus_k_label_pool_defects(env, monkeyp
         defects = label_subset(env.manifest, "toy", k, seed)
         defect_feats = supervised.extract(extractor, cache.images(defects), device="cpu")
         assert torch.equal(call.train_feats[32:], defect_feats)
-        # Targets: nothing on the normals, the one bright cell of each defect image.
+        # 정답: 정상에는 아무것도 없고, 결함 이미지마다 밝은 칸 하나.
         assert call.train_targets.shape == (32 + k, 4, 4) and call.train_targets.dtype == np.bool_
         assert not call.train_targets[:32].any()
         expected = supervised.patch_targets(cache.masks(defects), CELLS)
@@ -415,7 +415,7 @@ def test_training_set_is_the_pool_normals_plus_k_label_pool_defects(env, monkeyp
         assert expected.reshape(k, -1).sum(axis=1).tolist() == [1] * k
         bright = defect_feats[..., 0].float().reshape(k, -1).argmax(dim=1).numpy()
         assert expected.reshape(k, -1).argmax(axis=1).tolist() == bright.tolist()
-        # Validation: fold-0 normals and the dev defects.
+        # 검증: 겹 0 정상과 dev 결함.
         assert torch.equal(call.val_feats, val_feats)
         assert call.val_labels.tolist() == [0] * 8 + [1] * 6
         assert run["n_train_normal"] == 32 and run["n_train_defect"] == k
@@ -431,12 +431,12 @@ def test_training_set_is_the_pool_normals_plus_k_label_pool_defects(env, monkeyp
 def test_test_protocol_needs_permission(env, monkeypatch):
     with pytest.raises(SealedTestError):
         _run(env, "test")
-    assert env.events == []  # refused before anything was read
+    assert env.events == []  # 아무것도 읽기 전에 거절
     assert not list(env.out.rglob("*.npz"))
 
     calls = _spy_on_training(monkeypatch)
     info, runs = _run(env, "test", allow_test=True, ks=(2,), seeds=(1,))
-    # Training and validation are the same as in dev: fold 0 stays out of training.
+    # 학습과 검증은 dev와 같다: 겹 0은 학습에서 빠진다.
     assert (info["train_normal"], info["val_normal"], info["val_defect"]) == (32, 8, 6)
     assert (info["eval_normal"], info["eval_defect"]) == (10, 5)
     assert runs[0]["n_train_normal"] == 32
@@ -444,7 +444,7 @@ def test_test_protocol_needs_permission(env, monkeypatch):
     assert call.train_feats.shape[0] == 34 and call.val_feats.shape[0] == 14
 
     sealed = _images(env.manifest, "test_normal") + _images(env.manifest, "test_defect")
-    # What the selected head gives for the features of the test images (not of the validation set).
+    # 고른 헤드가 (검증 세트가 아니라) 테스트 이미지의 특징에 대해 내는 값.
     scored = supervised.predict(call.result.head, _features(env.manifest, sealed), device="cpu")
     maps = np.load(env.out / "k2-s1" / "toy_maps.npy")
     assert maps.shape == (15, 256, 256)
@@ -456,18 +456,18 @@ def test_test_protocol_needs_permission(env, monkeypatch):
         assert z["eval_score"].shape == (15,)
         np.testing.assert_array_equal(z["eval_score"], scored.image_scores)
         assert z["pro_components"].shape[0] == 5
-        # Pixel metrics: the stored maps against the masks of the test images.
+        # 픽셀 지표: 저장된 맵을 테스트 이미지의 마스크와 대조한 값.
         stored, masks = maps.astype(np.float32), _masks(env.manifest, sealed)
         assert float(z["pixel_auroc"]) == pytest.approx(pixel_auroc(stored, masks), abs=1e-12)
         assert float(z["aupro"]) == pytest.approx(aupro(stored, masks), abs=1e-12)
-        # Calibration scores: the fold-0 normals under the selected head.
+        # 보정 점수: 고른 헤드로 매긴 겹 0 정상의 점수.
         cal = z["cal_score"]
         assert cal.shape == (8,) and cal.dtype == np.float32
         expected = supervised.predict(call.result.head, call.val_feats[:8], device="cpu").image_scores
         np.testing.assert_allclose(cal, expected, rtol=1e-5, atol=1e-6)
         train_defects = z["train_defect_images"].tolist()
     assert train_defects == [r.image for r in label_subset(env.manifest, "toy", 2, 1)]
-    # Sealed images are only ever read as the evaluation set, never for training or validation.
+    # 봉인 이미지는 평가 세트로만 읽히고, 학습이나 검증에는 절대 쓰이지 않는다.
     sealed_reads = [image for kind, image, role in env.events if role in SEALED and kind == "images"]
     assert sorted(sealed_reads) == sorted(sealed)
 
@@ -497,7 +497,7 @@ def test_cli_test_protocol_records_the_ledger_before_reading(env):
     assert entry["stage"] == "2" and entry["config"] == "supervised"
     assert entry["commit"] == "test-commit"
     assert "ks=[2]" in entry["note"] and "seeds=[0]" in entry["note"]
-    # One ledger line, written to the ledger path, before the first sealed image is read.
+    # 장부 경로에 쓴 장부 줄 하나가 첫 봉인 이미지 읽기보다 먼저다.
     kinds = [kind for kind, _, _ in env.events]
     assert kinds.count("ledger") == 1
     assert env.events[kinds.index("ledger")][1] == str(env.ledger)
@@ -517,7 +517,7 @@ def test_cli_test_protocol_records_the_ledger_before_reading(env):
 # 폴더는 없앤다. 엉뚱한 파일을 지우지 않으면서 이전 결과는 빠짐없이 지우는 것이 목적이다.
 def test_previous_results_are_the_files_this_module_writes(tmp_path):
     out = tmp_path / "out"
-    assert run_supervised.previous_results(out) == []  # no directory yet
+    assert run_supervised.previous_results(out) == []  # 아직 폴더가 없다
     assert run_supervised.clear_previous_results(out) == 0
     names = ["run.json", "toy.npz", "toy_maps.npy", "notes.txt", "toy_bank.npy"]
     for folder in ("k2-s0", "k10-s12", "k2-s0-old", "xk2-s0", "plots"):
@@ -535,11 +535,11 @@ def test_previous_results_are_the_files_this_module_writes(tmp_path):
     found = run_supervised.previous_results(out)
     expected = [f"{folder}/{name}" for folder in ("k10-s12", "k2-s0", "k3-s1") for name in names[:3]]
     assert [p.relative_to(out).as_posix() for p in found] == expected
-    assert _files(out) == before  # looking removes nothing
+    assert _files(out) == before  # 찾기만 해서는 아무것도 지우지 않는다
 
     assert run_supervised.clear_previous_results(out) == 9
-    # Only run.json, *.npz and *_maps.npy directly inside a k{k}-s{seed} folder are gone, plus the
-    # top-level run.json; a folder that is empty afterwards is removed as well.
+    # k{k}-s{seed} 폴더 바로 안의 run.json, *.npz, *_maps.npy와 최상위 run.json만 지워지고, 그 뒤 빈
+    # 폴더도 없어진다.
     assert _files(out) == sorted(set(before) - set(expected) - {"run.json"})
     assert not (out / "k3-s1").exists() and (out / "k2-s0").is_dir()
     assert run_supervised.previous_results(out) == []
@@ -558,7 +558,7 @@ def test_an_interrupted_redo_leaves_nothing_of_the_previous_run(env, monkeypatch
     sub = json.loads((env.out / "k4-s0" / "run.json").read_text(encoding="utf-8"))
     assert sub["commit"] == "test-commit"
 
-    # A redo under another commit, interrupted while its second run trains.
+    # 다른 커밋에서 다시 돌리다가 두 번째 실행의 학습 중에 끊긴다.
     monkeypatch.setattr(run_supervised, "git_commit", lambda: "later-commit")
     quick = supervised.train_head
     started = []
@@ -572,12 +572,12 @@ def test_an_interrupted_redo_leaves_nothing_of_the_previous_run(env, monkeypatch
     monkeypatch.setattr(supervised, "train_head", interrupted)
     with pytest.raises(KeyboardInterrupt):
         run_supervised.main([*args, "--overwrite"])
-    # No run.json on either level, and no result of the first invocation: the analysis reads
-    # k{k}-s{seed}/<category>.npz directly, so an old file there would pass for a result of the redo.
+    # 두 수준 모두 run.json이 없고 첫 호출의 결과도 없다: 분석은 k{k}-s{seed}/<category>.npz를 바로
+    # 읽으므로, 거기 옛 파일이 남으면 재실행의 결과로 오인된다.
     left = ["k2-s0/toy.npz", "k2-s0/toy_maps.npy"]
     assert _files(env.out) == left
 
-    # The leftovers of the unfinished redo are not removed without --overwrite either.
+    # 끝나지 않은 재실행이 남긴 파일도 --overwrite 없이는 지우지 않는다.
     n_events = len(env.events)
     with pytest.raises(SystemExit):
         run_supervised.main(args)
@@ -590,13 +590,13 @@ def test_a_redo_with_other_ks_removes_the_old_run_folders(env, monkeypatch):
     _quick_training(monkeypatch)
     base = ["--categories", "toy", "--seeds", "0", "--device", "cpu", "--out", str(env.out)]
     run_supervised.main([*base, "--ks", "2", "4"])
-    # Files this module did not write stay where they are.
+    # 이 모듈이 쓰지 않은 파일은 그대로 남는다.
     (env.out / "notes.txt").write_text("keep", encoding="utf-8")
     (env.out / "k2-s0" / "notes.txt").write_text("keep", encoding="utf-8")
     before = _files(env.out)
 
-    # Arguments are checked before anything is removed.
-    with pytest.raises(SystemExit):  # the label pool of "toy" has 12 images
+    # 인자는 무엇이든 지우기 전에 검사한다.
+    with pytest.raises(SystemExit):  # "toy"의 라벨 풀은 12장
         run_supervised.main([*base, "--ks", "13", "--overwrite"])
     with pytest.raises(SystemExit):
         run_supervised.main([*base, "--ks", "6", "6", "--overwrite"])
@@ -620,12 +620,12 @@ def test_cli_refuses_to_overwrite_a_finished_run(env):
     n_events = len(env.events)
     with pytest.raises(SystemExit):
         run_supervised.main(args)
-    assert len(env.events) == n_events  # refused before anything was read
+    assert len(env.events) == n_events  # 아무것도 읽기 전에 거절
     assert (env.out / "run.json").read_text(encoding="utf-8") == first
 
     run_supervised.main([*args, "--overwrite"])
     assert json.loads((env.out / "run.json").read_text(encoding="utf-8"))["method"] == "supervised"
-    # Same inputs and seed on CPU: the redo reproduces the scores exactly.
+    # CPU에서 입력과 시드가 같으면 재실행이 점수를 정확히 재현한다.
     with np.load(env.out / "k2-s0" / "toy.npz") as z:
         np.testing.assert_array_equal(z["eval_score"], scores)
 
@@ -634,7 +634,7 @@ def test_cli_refuses_to_overwrite_a_finished_run(env):
 # 라벨 풀이 k보다 작은 경우(other는 3장).
 def test_cli_rejects_bad_arguments(env):
     base = ["--device", "cpu", "--out", str(env.out)]
-    with pytest.raises(SystemExit):  # the label pool of "toy" has 12 images
+    with pytest.raises(SystemExit):  # "toy"의 라벨 풀은 12장
         run_supervised.main([*base, "--categories", "toy", "--ks", "13", "--seeds", "0"])
     with pytest.raises(SystemExit):
         run_supervised.main([*base, "--categories", "toy", "--ks", "2", "2", "--seeds", "0"])
@@ -642,6 +642,6 @@ def test_cli_rejects_bad_arguments(env):
         run_supervised.main([*base, "--categories", "toy", "--ks", "2", "--seeds", "0", "0"])
     with pytest.raises(SystemExit):
         run_supervised.main([*base, "--categories", "nothing", "--ks", "2", "--seeds", "0"])
-    with pytest.raises(SystemExit):  # "other" only has 3 images in its label pool
+    with pytest.raises(SystemExit):  # "other"의 라벨 풀은 3장뿐
         run_supervised.main([*base, "--categories", "toy", "other", "--ks", "4", "--seeds", "0"])
     assert env.events == [] and not env.out.exists()

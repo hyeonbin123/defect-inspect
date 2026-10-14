@@ -33,7 +33,7 @@ from defect_inspect.splits import SealedTestError  # noqa: E402
 # 가짜 데이터의 크기. 16px 이미지를 GridMean이 2x2 격자로 줄이므로 이미지 한 장은 패치 4개(뱅크 4행)가 된다.
 # 학습 시편 30개는 실제 3-B 규칙(학습 시편 30개로 뱅크와 5겹 교차 적합)과 같은 수다.
 SIZE = 16
-PATCHES = 4  # GridMean gives a 2x2 grid
+PATCHES = 4
 N_TRAIN = 30
 # 테스트 시편: 정상 4개(홀수 번호, 학습 시편 짝수 번호와 겹치지 않음)와 불량 5개. 불량 가운데 하나는 어느
 # 조명에서도 결함이 안 보이는 시편(라벨 -1로 제외), 하나는 조명 05에서만 안 보이는 시편이다. 실제 M2AD 라벨
@@ -43,16 +43,16 @@ N_TRAIN = 30
 # 새면 점수가 0이 되는 상황을 일부러 만든다.
 NORMAL = [f"{2 * i + 1:03d}" for i in range(4)]
 ANOMALOUS = ["hole_1_000", "hole_1_001", "hole_1_002", "scratch_1_003", "scratch_2_004"]
-NEVER_VISIBLE = "hole_1_001"  # excluded everywhere
-HIDDEN_UNDER_05 = "hole_1_002"  # excluded under illumination 05 only
-SAME_AS_REFERENCE = "03"  # the fake images under this illumination equal those under 01
+NEVER_VISIBLE = "hole_1_001"  # 모든 조명에서 제외
+HIDDEN_UNDER_05 = "hole_1_002"  # 조명 05에서만 제외
+SAME_AS_REFERENCE = "03"  # 이 조명의 가짜 이미지는 조명 01과 같다
 
 
 # 실제 백본(WideResNet, DINOv2) 대신 쓰는 작은 특징 추출기. 2x2 칸마다 평균 색(3차원)을 패치 특징으로 낸다.
 # 학습 가중치가 없어 결정적이고 CPU에서 빠르므로, 점수를 손으로 다시 계산해 비교할 수 있다. name·dim 속성은
 # patchcore 코드가 백본에서 읽는 값을 흉내 낸다.
 class GridMean(torch.nn.Module):
-    """Tiny stand-in for a backbone: the mean colour of each cell of a 2x2 grid."""
+    """백본 대신 쓰는 작은 추출기: 2x2 격자의 칸마다 평균색을 낸다."""
 
     name = "gridmean"
     dim = 3
@@ -82,7 +82,7 @@ def make_rows(categories=("Motor",)) -> list[M2adRow]:
                         label = -1
                     path = f"{category}/NG/{name}/A{view}_I{light}.png"
                     rows.append(M2adRow(category, "test", name, view, light, path, 1, label))
-    # The run must not depend on the order in which the rows arrive.
+    # 행이 들어오는 순서가 실행 결과를 바꾸면 안 된다.
     return sorted(rows, key=lambda r: hashlib.sha256(r.img_path.encode()).hexdigest())
 
 
@@ -91,7 +91,7 @@ def make_rows(categories=("Motor",)) -> list[M2adRow]:
 # reads에는 (분할, 조명들, 장수)를 남겨 어떤 이미지를 몇 번 읽었는지 검사하고, on_test_read 훅으로 테스트
 # 이미지를 읽는 순간을 잡아 장부 줄이 그보다 먼저 있었는지 확인한다.
 class FakeCache:
-    """Images made from the row: specimen noise, an offset per illumination, a bright cell for defects."""
+    """행으로 만든 이미지: 시편별 잡음, 조명별 밝기 차이, 결함에는 밝은 칸."""
 
     size = SIZE
 
@@ -107,9 +107,9 @@ class FakeCache:
         img = rng.integers(100, 140, (SIZE, SIZE, 3), dtype=np.uint8)
         light = ILLUMINATIONS.index(row.illumination)
         if row.illumination != SAME_AS_REFERENCE:
-            img = img - np.uint8(8 * light)  # every new illumination is darker by eight more levels
+            img = img - np.uint8(8 * light)  # 새 조명마다 8단계씩 더 어둡다
         if row.label == 1:
-            img[:8, :8] = 255  # a bright cell that no normal image has
+            img[:8, :8] = 255  # 어떤 정상 이미지에도 없는 밝은 칸
         return img
 
     def images(self, rows):
@@ -174,7 +174,7 @@ def ledger_entries(path) -> list[dict]:
 # run_m2ad.inspector_rows를 쓰지 않고 같은 조건의 행을 직접 골라 시편 이름순으로 정렬한다. 기대값을 실행
 # 코드와 독립적으로 세우기 위한 도우미다.
 def pick(rows, view, split, light, category="Motor") -> list[M2adRow]:
-    """The rows of one (category, view, split, illumination) by specimen name, stated without the run."""
+    """한 (범주, 시점, 분할, 조명)의 행을 실행 코드 없이 시편 이름순으로 고른다."""
     wanted = (category, view, split, light)
     return sorted(
         (r for r in rows if (r.category, r.view, r.split, r.illumination) == wanted), key=lambda r: r.specimen
@@ -184,7 +184,7 @@ def pick(rows, view, split, light, category="Motor") -> list[M2adRow]:
 # 기대값 계산기: bank_rows로 뱅크를 만들고 shown_rows를 채점한 이미지 점수를 patchcore 함수로 바로 계산한다.
 # run_m2ad의 점수가 '이 뱅크로 이 이미지를 채점한 값'과 같은지 비교하는 데 쓴다.
 def direct_scores(bank_rows, shown_rows, cfg=CFG) -> np.ndarray:
-    """Image scores of `shown_rows` against a bank of `bank_rows`, straight from the patchcore functions."""
+    """`bank_rows`로 만든 뱅크에 대한 `shown_rows`의 이미지 점수를 patchcore 함수로 바로 계산한다."""
     from defect_inspect.patchcore import build_bank, collect_features, score_images
 
     cache = FakeCache()
@@ -251,7 +251,7 @@ def test_threshold_is_cross_fitted_over_specimens(full):
     assert info["threshold"] == {"value": thr.value, "rank": 30, "n": 30, "guaranteed": True}
     train = [f"{2 * i:03d}" for i in range(N_TRAIN)]
     assert info["folds"] == specimen_folds(train)
-    # With the whole bank kept, an image scored by a bank that holds it would score exactly 0.
+    # 뱅크 전체를 유지하므로, 자기를 가진 뱅크로 채점된 이미지는 정확히 0점이 된다.
     assert z["cal_score"].min() > 0
     assert info["bank_rows"] == {"full": 30 * PATCHES} | {f"minus_fold_{f}": 24 * PATCHES for f in range(5)}
 
@@ -270,7 +270,7 @@ def test_labels_come_from_the_image_shown(full):
         if condition == "R:05":
             expected[names.index(HIDDEN_UNDER_05)] = -1
         assert np.array_equal(z["labels"][k], expected), condition
-    # Synthetic conditions show the illumination-01 image, so they keep its labels.
+    # 합성 교란 조건은 조명 01 이미지를 보여 주므로 그 라벨을 그대로 쓴다.
     assert (z["labels"][1:16] == base).all()
     for j, key in enumerate(z["recal_keys"].tolist()):
         expected = base.copy()
@@ -290,12 +290,12 @@ def test_scores_separate_defects_and_conditions(full):
     visible = z["labels"][0] == 1
     assert s[visible].min() > threshold > 0
     assert s[visible].min() > 5 * s[z["labels"][0] == 0].max()
-    # The never-visible defect has no bright cell: it scores like a normal image.
+    # 끝내 안 보이는 결함은 밝은 칸이 없어 정상 이미지처럼 채점된다.
     assert s[z["specimens"].tolist().index(NEVER_VISIBLE)] < s[visible].min() / 5
-    # A translation of less than half a pixel at this size is the identity.
+    # 이 크기에서 반 화소보다 작은 이동은 항등이다.
     assert np.array_equal(z["scores"][conditions.index("P:shift-1")], s)
     assert not np.allclose(z["scores"][conditions.index("P:brightness-3")], s)
-    # The fake illumination 03 equals the reference, the others are darker and darker.
+    # 가짜 조명 03은 기준과 같고, 나머지는 갈수록 어둡다.
     assert np.array_equal(z["scores"][conditions.index("R:03")], s)
     normal = z["labels"][0] == 0
     darker = [z["scores"][conditions.index(f"R:{light}")][normal].mean() for light in ("02", "06", "10")]
@@ -351,16 +351,16 @@ def test_recalibration_bank_contains_the_new_illumination(full):
                 f: (30 + n - held[f]) * PATCHES for f in range(5)
             }
             assert float(z["recal_thresholds"][j]) == rec["threshold"]["value"]
-            # Normal images under the new illumination now have neighbours in the bank.
+            # 새 조명의 정상 이미지가 이제 뱅크에 이웃을 가진다.
             assert z["recal_scores"][j][normal].max() < before[normal].min() / 2
-            # Defects are still far from it.
+            # 결함은 여전히 뱅크에서 멀다.
             visible = z["recal_labels"][j] == 1
             assert z["recal_scores"][j][visible].min() > float(z["recal_thresholds"][j])
-    # n = 30 brings every normal back under the threshold; without recalibration all were flagged.
+    # n = 30이면 정상이 임계값 아래로 돌아온다(75% 이상). 재보정 전에는 모두 불량으로 판정됐다.
     j = keys.index("10:30")
     assert (z["scores"][conditions.index("R:10")][normal] > float(z["threshold"])).all()
     assert (z["recal_scores"][j][normal] <= float(z["recal_thresholds"][j])).mean() >= 0.75
-    # The train images of every new illumination were read once, 30 at a time.
+    # 새 조명마다 학습 이미지를 한 번, 30장씩 읽었다.
     train_reads = [r for r in cache.reads if r[0] == "train"]
     assert train_reads == [("train", "01", 30)] + [("train", light, 30) for light in ILLUMINATIONS[1:]]
 
@@ -374,7 +374,7 @@ def test_recalibrated_scores_are_those_of_the_new_illumination_test_images(full)
     keys = z["recal_keys"].tolist()
     ref_train, ref_test = pick(rows, "000", "train", "01"), pick(rows, "000", "test", "01")
     train = [r.specimen for r in ref_train]
-    # 05 hides one defect that the reference illumination shows; 07 only changes the brightness.
+    # 05는 기준 조명에서 보이는 결함 하나를 가리고, 07은 밝기만 바꾼다.
     for light in ("05", "07"):
         new_train, new_test = pick(rows, "000", "train", light), pick(rows, "000", "test", light)
         for n in (8, 30):
@@ -383,10 +383,9 @@ def test_recalibrated_scores_are_those_of_the_new_illumination_test_images(full)
             assert len(bank_rows) == 30 + n
             got = z["recal_scores"][keys.index(f"{light}:{n}")]
             np.testing.assert_allclose(got, direct_scores(bank_rows, new_test), rtol=1e-5)
-            # Neither the reference test images nor the reference bank give these numbers.
-            # 가짜 이미지는 조명마다 밝기만 일정하게 빼므로, 07에서 n = 30이면 기준 테스트 이미지도 같은
-            # 점수를 받을 수 있다. 그래서 이 부정 확인은 구별이 되는 조합(n = 8 또는 결함이 하나 가려지는
-            # 05)에서만 한다.
+            # 기준 테스트 이미지나 기준 뱅크로는 이 값이 나오지 않는다. 다만 가짜 이미지는 조명마다 밝기만
+            # 일정하게 빼므로, 07에서 n = 30이면 기준 테스트 이미지도 같은 점수를 받을 수 있다. 그래서 첫
+            # 부정 확인은 구별이 되는 조합(n = 8 또는 결함이 하나 가려지는 05)에서만 한다.
             if n == 8 or light == "05":
                 assert not np.allclose(got, direct_scores(bank_rows, ref_test), rtol=1e-3)
             assert not np.allclose(got, direct_scores(ref_train, new_test), rtol=1e-3)
@@ -405,8 +404,8 @@ def test_an_inspector_uses_the_images_of_its_own_view(tmp_path, monkeypatch):
     new_train, new_test = pick(rows, "120", "train", "02"), pick(rows, "120", "test", "02")
     train = [r.specimen for r in ref_train]
 
-    # Threshold: every train image is scored by the bank of the other folds, all from view 120.
-    # 교차 적합 기대값: 겹마다 나머지 겹의 이미지로 뱅크를 만들어 그 겹의 이미지를 채점한다.
+    # 임계값: 학습 이미지마다 다른 겹의 이미지(모두 시점 120)로 만든 뱅크로 채점한다. 그래서 교차 적합
+    # 기대값도 겹마다 나머지 겹의 이미지로 뱅크를 만들어 그 겹의 이미지를 채점해 얻는다.
     fold_of = specimen_folds(train)
     expected = np.empty(N_TRAIN, dtype=np.float32)
     for fold in range(5):
@@ -423,7 +422,7 @@ def test_an_inspector_uses_the_images_of_its_own_view(tmp_path, monkeypatch):
         chosen = set(recal_specimens(train, n))
         bank_rows = ref_train + [r for r in new_train if r.specimen in chosen]
         np.testing.assert_allclose(z["recal_scores"][j], direct_scores(bank_rows, new_test), rtol=1e-5)
-    # The same specimens seen from view 000 give other numbers, as test images and as bank images.
+    # 같은 시편을 시점 000에서 본 이미지는 테스트 이미지로도 뱅크 이미지로도 다른 값을 낸다.
     other_test, other_train = pick(rows, "000", "test", "02"), pick(rows, "000", "train", "02")
     assert not np.allclose(z["scores"][-1], direct_scores(ref_train, other_test), rtol=1e-3)
     assert not np.allclose(z["recal_scores"][1], direct_scores(ref_train + other_train, new_test), rtol=1e-3)
@@ -439,7 +438,7 @@ def test_config_values_reach_every_bank_and_every_scoring_call(tmp_path, monkeyp
 
     from defect_inspect import patchcore
 
-    # None of these is the default of PatchCoreConfig or of the patchcore functions.
+    # 이 값들은 하나도 PatchCoreConfig나 patchcore 함수의 기본값이 아니다.
     cfg = PatchCoreConfig(
         name="toy",
         backbone="gridmean",
@@ -475,16 +474,15 @@ def test_config_values_reach_every_bank_and_every_scoring_call(tmp_path, monkeyp
         patch.setattr(patchcore, "score_images", score)
         patch.setattr(patchcore, "collect_features", collect)
         _, z = _run(tmp_path, cfg=cfg, allow_test=True)
-    # Reference bank and two recalibrated ones, each with its five fold banks.
+    # 기준 뱅크와 재보정 뱅크 둘, 각각 겹 뱅크 다섯 개씩.
     assert len(built) == 18 and all(call == (0.25, {"seed": 5, "device": "cpu"}) for call in built)
-    # 5 folds + S + 15 P + R:02, then per recalibration 5 folds + the new test images.
+    # 겹 5 + S + P 15 + R:02, 그다음 재보정마다 겹 5 + 새 조명 테스트 이미지.
     assert len(scored) == 22 + 2 * 6
     for kwargs in scored:
         picked = (kwargs["batch_size"], kwargs["reweight_k"], kwargs["sigma"], kwargs["device"])
         assert picked == (7, 3, 2.0, "cpu")
     assert len(collected) == 2 and all(k == {"batch_size": 7, "device": "cpu"} for k in collected)
 
-    # The numbers are those of a direct call with the config's values, and the values matter.
     # 기록된 인자뿐 아니라 숫자도 확인한다: 같은 구성으로 직접 계산한 점수와 같고,
     # seed·reweight_k·coreset_ratio 중 하나만 바꿔도 달라진다(값이 실제로 결과에 영향을 준다는 뜻).
     rows = make_rows()
@@ -500,9 +498,6 @@ def test_config_values_reach_every_bank_and_every_scoring_call(tmp_path, monkeyp
 def test_reference_and_new_images_of_a_specimen_are_held_out_together(full):
     info, z, _ = full
     keys = z["recal_keys"].tolist()
-    # Under the fake illumination 03 the new image of a specimen equals its reference image. If one of
-    # them stayed in the bank while the other was scored, all 60 cross-fitted scores (and so the
-    # threshold) would be exactly 0, because the whole bank is kept.
     assert info["recal"]["03:30"]["threshold"]["rank"] == 58
     assert float(z["recal_thresholds"][keys.index("03:30")]) > 0
 
@@ -534,15 +529,14 @@ def test_recalibration_crossfit_gets_aligned_inputs_and_leaks_nothing(tmp_path, 
     assert [len(images) for _, images, _, _ in calls] == [30, 38, 60]
     for (feats, images, folds, oof), n in zip(calls, (0, 8, 30), strict=True):
         added = recal_specimens(train, n)
-        # Image i, feature i and fold i belong to one specimen: the 30 reference images, then the new ones.
+        # 이미지 i, 특징 i, 겹 i는 같은 시편의 것이다: 기준 이미지 30장, 그다음 새 이미지.
         assert np.array_equal(images, cache.images(ref_train + [new_train[name] for name in added]))
         direct, _ = collect_features(GridMean(), images, batch_size=16, device="cpu")
         assert torch.equal(feats.reshape(-1, feats.shape[-1]), direct)
         assert folds.tolist() == [fold_of[name] for name in train + added]
-        # The new image of a specimen equals its reference image under this fake illumination, and the
-        # whole bank is kept: a score of 0 (below 1e-3 after fp16 rounding, see the crossfit test) would
-        # mean that one of the two stayed in the bank while the other was scored. Every one of the
-        # cross-fitted scores must be clear of that.
+        # 이 가짜 조명에서는 시편의 새 이미지가 기준 이미지와 같고 뱅크 전체를 유지한다. 그래서 점수 0(fp16
+        # 반올림 뒤 1e-3 미만, crossfit 테스트 참고)은 둘 중 하나가 뱅크에 남은 채 다른 하나가 채점됐다는
+        # 뜻이다. 교차 적합 점수는 하나도 그 근처에 있으면 안 된다.
         assert oof.shape == (30 + n,) and oof.min() > 5e-3
     assert np.array_equal(calls[0][3], z["cal_score"])
 
@@ -556,7 +550,7 @@ def test_crossfit_holds_out_by_fold():
 
     rng = np.random.default_rng(0)
     images = rng.integers(0, 255, (10, SIZE, SIZE, 3), dtype=np.uint8)
-    images[5:] = images[:5]  # image i + 5 is a copy of image i
+    images[5:] = images[:5]  # 이미지 i + 5는 이미지 i의 복사본
     feats, _ = collect_features(GridMean(), images, batch_size=4, device="cpu")
     feats = feats.view(10, PATCHES, 3)
     calls = []
@@ -574,9 +568,9 @@ def test_crossfit_holds_out_by_fold():
     assert calls == [40, 32, 32, 32, 32, 32] and bank.shape == (40, 3)
     assert bank_rows == {"full": 40} | {f"minus_fold_{f}": 32 for f in range(5)}
     assert oof.shape == (10,) and thr.value == conformal_threshold(oof, 0.05).value
-    assert oof.min() > 0.01  # no image was scored by a bank that holds it or its copy
-    assert np.array_equal(oof[:5], oof[5:])  # copies in the same fold get the same score
-    # With the copies in different folds every image finds itself in the bank.
+    assert oof.min() > 0.01  # 자기나 복사본을 가진 뱅크로 채점된 이미지가 없다
+    assert np.array_equal(oof[:5], oof[5:])  # 같은 겹의 복사본은 같은 점수를 받는다
+    # 복사본을 다른 겹에 두면 모든 이미지가 뱅크에서 자기 자신을 찾는다.
     apart = np.array([0, 1, 2, 3, 4, 1, 2, 3, 4, 0])
     _, leaked, _, _ = run_m2ad.crossfit(build, score, feats, images, apart)
     assert np.abs(leaked).max() < 1e-3
@@ -617,11 +611,11 @@ def test_check_runs_one_inspector_without_recalibration(tmp_path, full):
     assert c["recal_keys"].shape == (0,) and c["recal_thresholds"].shape == (0,)
     assert c["recal_scores"].shape == (0, 9) and c["recal_labels"].shape == (0, 9)
     assert info["recal"] == {}
-    # Same inspector, same numbers as in the full run.
+    # 같은 검사기이므로 전체 실행과 같은 값이다.
     assert float(c["threshold"]) == float(z["threshold"])
     assert np.array_equal(c["scores"][0], z["scores"][0])
     assert np.array_equal(c["scores"][1], z["scores"][z["conditions"].tolist().index("R:02")])
-    # Only the two conditions of the check were read from the test split, and only reference train images.
+    # test 분할에서는 점검의 두 조건만, 학습 분할에서는 기준 조명 이미지만 읽었다.
     assert cache.reads == [("train", "01", 30), ("test", "01", 9), ("test", "02", 9)]
 
 
@@ -633,7 +627,7 @@ def test_test_images_need_permission(tmp_path):
         _run(tmp_path, cache=cache)
     with pytest.raises(SealedTestError):
         _run(tmp_path, cache=cache, allow_test="yes")
-    # The check exempts one inspector only.
+    # 점검 예외는 검사기 하나에만 적용된다.
     with pytest.raises(SealedTestError):
         _run(tmp_path, view="120", cache=cache, check=True)
     assert cache.reads == [] and not list(tmp_path.glob("*.npz"))
@@ -657,7 +651,7 @@ def test_specimens_must_match_across_illuminations(tmp_path):
         )
 
 
-# ----------------------------------------------------------------------------------------------------- CLI
+# --------------------------------------------------------------------------------------------- 명령줄(CLI)
 
 
 # CLI(main) 테스트용 준비. 메타데이터 읽기, 캐시, 구성, 백본 생성을 모두 가짜로 바꿔 데이터 파일과 GPU 없이
@@ -689,7 +683,7 @@ def test_cli_check_needs_no_permission_and_writes_no_ledger_line(tmp_path, cli, 
     assert [(i["category"], i["view"]) for i in meta["inspectors"]] == [("Motor", "000")]
     assert meta["inspectors"][0]["seconds"] >= 0 and meta["inspectors"][0]["bank_rows"]["full"] == 120
     assert json.loads(capsys.readouterr().out.splitlines()[0])["view"] == "000"
-    # A finished run is not redone without --overwrite.
+    # 끝난 실행은 --overwrite 없이 다시 하지 않는다.
     with pytest.raises(SystemExit):
         run_m2ad.main([*argv, "--check"])
     run_m2ad.main([*argv, "--check", "--overwrite"])
@@ -711,7 +705,7 @@ def test_cli_check_stays_the_check_when_the_full_run_flags_are_given(
 
     monkeypatch.setattr(run_m2ad, "run_inspector", watching)
     run_m2ad.main([*argv, "--check", "--allow-test", "--stage", "3-m2ad"])
-    # One inspector, without the permission of the full run, no ledger line, only the check's reads.
+    # 검사기 하나, 전체 실행 허락 없음, 장부 줄 없음, 점검에 필요한 읽기만.
     assert calls == [("Motor", "000", False, True)]
     assert not temporary_ledger.exists() and not (tmp_path / "m2ad-p0").exists()
     assert cache.reads == [("train", "01", 30), ("test", "01", 9), ("test", "02", 9)]
@@ -736,7 +730,7 @@ def test_cli_full_run_needs_the_flags(tmp_path, cli, temporary_ledger):
 # 검사기는 점수를 공유하지 않는지도 본다.
 def test_cli_full_run_records_the_ledger_line_first(tmp_path, cli, temporary_ledger, monkeypatch):
     cache, argv = cli
-    # Three illuminations keep the six inspectors quick; the full condition list is tested above.
+    # 조명 셋으로 줄여 검사기 여섯 개를 빨리 돌린다. 전체 조건 목록은 위에서 시험했다.
     monkeypatch.setattr(run_m2ad, "ILLUMINATIONS", ("01", "02", "03"))
     seen = []
     cache.on_test_read = lambda: seen.append(len(ledger_entries(temporary_ledger)))
@@ -749,7 +743,7 @@ def test_cli_full_run_records_the_ledger_line_first(tmp_path, cli, temporary_led
         "config": "m2ad-p0",
         "note": "full",
     }
-    assert seen and set(seen) == {1}  # the line was there before every read of test images
+    assert seen and set(seen) == {1}  # 테스트 이미지를 읽을 때마다 장부 줄이 이미 있었다
     out_dir = tmp_path / "m2ad-p0"
     inspectors = [f"{category}_{view}" for category in ("Motor", "Bird") for view in VIEWS]
     assert sorted(p.name for p in out_dir.iterdir()) == sorted(
@@ -765,7 +759,7 @@ def test_cli_full_run_records_the_ledger_line_first(tmp_path, cli, temporary_led
             assert z["conditions"].tolist() == meta["conditions"]
             assert z["recal_keys"].tolist() == meta["recal_keys"]
             assert z["scores"].shape == (18, 9) and z["recal_scores"].shape == (4, 9)
-    # The two categories are different objects: their inspectors do not share scores.
+    # 두 범주는 다른 물체라 검사기끼리 점수를 공유하지 않는다.
     with np.load(out_dir / "Motor_120.npz") as a, np.load(out_dir / "Bird_120.npz") as b:
         assert not np.array_equal(a["scores"], b["scores"])
 
@@ -798,7 +792,7 @@ def test_cli_one_category_and_overwrite(tmp_path, cli, temporary_ledger, monkeyp
         run_m2ad.main(full)
     assert len(ledger_entries(temporary_ledger)) == 1
 
-    # A rerun that dies half-way leaves no run.json behind, so it cannot pass for the finished run.
+    # 중간에 죽은 재실행은 run.json을 남기지 않으므로 끝난 실행으로 보일 수 없다.
     def dying(*args, **kwargs):
         raise RuntimeError("stopped")
 
@@ -806,7 +800,7 @@ def test_cli_one_category_and_overwrite(tmp_path, cli, temporary_ledger, monkeyp
     with pytest.raises(RuntimeError, match="stopped"):
         run_m2ad.main([*full, "--overwrite"])
     assert not (out_dir / "run.json").exists()
-    assert len(ledger_entries(temporary_ledger)) == 2  # the rerun was allowed to read test images
+    assert len(ledger_entries(temporary_ledger)) == 2  # 재실행도 테스트 이미지를 읽을 수 있었다
     with pytest.raises(SystemExit):
         run_m2ad.main([*argv, "--allow-test", "--stage", "3-m2ad", "--categories", "Car"])
 
@@ -831,7 +825,7 @@ def test_cli_overwrite_keeps_the_finished_run_when_the_ledger_cannot_be_written(
     monkeypatch.setattr(run_m2ad, "run_inspector", lambda *args, **kwargs: started.append(args[1:3]))
     with pytest.raises(TimeoutError, match="ledger lock"):
         run_m2ad.main([*argv, "--allow-test", "--stage", "3-m2ad", "--overwrite"])
-    # The rerun never started: no inspector, no read, and the finished run can still be analysed.
+    # 재실행은 시작조차 하지 않았다: 검사기도 읽기도 없고, 끝난 실행은 여전히 분석할 수 있다.
     assert started == [] and cache.reads == [] and not temporary_ledger.exists()
     assert (out_dir / "run.json").read_text(encoding="utf-8") == '{"finished": true}\n'
     assert (out_dir / "Motor_000.npz").read_bytes() == b"old scores"

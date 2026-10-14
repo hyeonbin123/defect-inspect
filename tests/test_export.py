@@ -31,7 +31,7 @@ DIM = 12
 # 추출기. 생성자에서 seed를 고정해 몇 번 만들어도 같은 가중치가 된다(torch 모델과 내보낸 ONNX를 따로 만들어
 # 비교할 수 있게).
 class TinyPatches(torch.nn.Module):
-    """A small conv extractor with the interface of backbones.py: [B, 3, S, S] -> [B, S/8, S/8, DIM]."""
+    """backbones.py와 같은 인터페이스의 작은 합성곱 추출기: [B, 3, S, S] -> [B, S/8, S/8, DIM]."""
 
     name = "tiny"
     dim = DIM
@@ -109,7 +109,7 @@ def test_export_matches_the_torch_extractor(tiny_onnx):
 # 쓸 수 있다(README: CPU로 옮겨도 점수는 같다).
 @pytest.mark.parametrize("size", [64, 256])
 def test_inspector_reproduces_the_torch_pipeline(tiny_onnx, size):
-    """Image scores and 256-grid maps of the numpy/onnxruntime path against patchcore.score_images on CPU."""
+    """numpy/onnxruntime 경로의 이미지 점수와 256 격자 맵을 CPU의 patchcore.score_images와 대조한다."""
     ext = TinyPatches()
     train = _images(10, size, seed=2)
     feats, grid = collect_features(ext, train, batch_size=4, device="cpu")
@@ -135,10 +135,10 @@ def test_inspector_loads_a_saved_artifact_set(tiny_onnx, tmp_path):
     feats, grid = collect_features(ext, _images(6, 64, seed=5), batch_size=4, device="cpu")
     bank = build_bank(feats, 0.5, seed=0, device="cpu").numpy()
     meta = {k: v for k, v in _meta(64, grid[0], threshold=1.25).items() if k != "version"}
-    # Single-folder layout.
+    # 한 폴더 배치: 모델·뱅크·meta가 한 폴더에 다 있다.
     inspector.save_artifact(tmp_path / "one", onnx_fp32=tiny_onnx[64], bank=bank, meta=meta)
     a = Inspector.load(tmp_path / "one", threads=1)
-    # Set layout: the model next to the category folders.
+    # 세트 배치: 모델은 범주 폴더들과 나란히 상위 폴더에 둔다.
     (tmp_path / "set" / "toy").mkdir(parents=True)
     (tmp_path / "set" / "model_fp32.onnx").write_bytes(tiny_onnx[64].read_bytes())
     for name in ("bank.npy", "meta.json"):
@@ -147,7 +147,7 @@ def test_inspector_loads_a_saved_artifact_set(tiny_onnx, tmp_path):
     images = _images(3, 64, seed=6)
     np.testing.assert_array_equal(a.scores(images), b.scores(images))
     assert a.threshold == 1.25 and a.bank_rows == bank.shape[0] and a.precision == "fp32"
-    assert a.threads == 1 and b.threads is None  # None = onnxruntime's default
+    assert a.threads == 1 and b.threads is None  # None = onnxruntime 기본값
     with pytest.raises(ValueError, match="missing"):
         Inspector.load(tmp_path / "one", precision="int8")
 
@@ -193,12 +193,12 @@ def test_a_graph_the_preprocessing_cannot_handle_is_refused_with_the_reason(tiny
     monkeypatch.setattr(shape_inference, "quant_pre_process", broken)
     with pytest.raises(NotImplementedError, match="pre-processing failed .*TypeError.*NoneType"):
         export.quantize_static_int8(tiny_onnx[64], tmp_path / "model_int8.onnx", _images(2, 64))
-    assert list(tmp_path.iterdir()) == []  # neither a model nor the intermediate file
+    assert list(tmp_path.iterdir()) == []  # 모델도 중간 파일도 남지 않는다
 
     def disk_full(*args, **kwargs):
         raise OSError("no space left on device")
 
-    # A failure of the machine is not "this graph cannot be quantized": it must not be downgraded.
+    # 기계 쪽 실패는 '이 그래프는 양자화할 수 없음'이 아니므로 NotImplementedError로 낮춰 처리하면 안 된다.
     monkeypatch.setattr(shape_inference, "quant_pre_process", disk_full)
     with pytest.raises(OSError, match="no space"):
         export.quantize_static_int8(tiny_onnx[64], tmp_path / "model_int8.onnx", _images(2, 64))
@@ -210,7 +210,7 @@ def test_a_graph_the_preprocessing_cannot_handle_is_refused_with_the_reason(tiny
 # 왜: 규칙 변경 5에 'DINOv2 내보내기는 INT8로 양자화할 수 없다'가 기록돼 있다. onnxruntime이 바뀌어 양자화가
 # 되더라도 테스트가 깨지지 않게 두 결과를 모두 받는다.
 def test_dinov2_exports_and_its_int8_quantization_is_refused_or_usable(tmp_path):
-    """The ViT graph must export; onnxruntime's static quantization either refuses it or gives a model."""
+    """ViT 그래프는 내보내져야 하고, onnxruntime 정적 양자화는 거부하거나 쓸 수 있는 모델을 내야 한다."""
     pytest.importorskip("timm")
     from defect_inspect.backbones import make_extractor
 
@@ -225,7 +225,7 @@ def test_dinov2_exports_and_its_int8_quantization_is_refused_or_usable(tmp_path)
     try:
         export.quantize_static_int8(path, int8, _images(4, 56, seed=11))
     except NotImplementedError as err:
-        # onnxruntime 1.30: symbolic shape inference fails at the Expand of the class/register tokens.
+        # onnxruntime 1.30: symbolic shape inference가 class·register 토큰의 Expand에서 실패한다.
         assert "pre-processing failed" in str(err) and not int8.exists()
     else:
         out = export._session(int8).run(["features"], {"image": inspector.preprocess(_images(1, 56)[0], 56)})
@@ -243,11 +243,11 @@ def test_export_and_parity_leave_the_callers_module_alone(tmp_path):
     path = export.export_onnx(ext, 64, tmp_path / "model.onnx")
     export.check_parity(ext, path, _images(1, 64))
     assert ext.training and all(p.dtype == torch.float16 for p in ext.parameters())
-    # The exported model is the fp32 version of it.
+    # 내보낸 모델은 그 모듈의 fp32 판이다.
     reference = TinyPatches()
     reference.load_state_dict({k: v.float() for k, v in ext.state_dict().items()})
     assert export.check_parity(reference, path, _images(2, 64, seed=3))["max_abs"] < 1e-4
-    # A module that is ready is used as it is (no copy of a large backbone).
+    # 이미 준비된(CPU·fp32·eval) 모듈은 그대로 쓴다(큰 백본을 복사하지 않는다).
     ready = TinyPatches().eval()
     assert export._cpu_fp32(ready) is ready and export._cpu_fp32(ext) is not ext
 
@@ -276,10 +276,10 @@ def test_load_checks_the_meta_against_the_models_declared_shapes(tiny_onnx, tmp_
     inspector.save_artifact(art, onnx_fp32=tiny_onnx[64], bank=bank[:, :5], meta={**good, "dim": 5})
     with pytest.raises(ValueError, match="the model's output"):
         Inspector.load(art)
-    # The session built by hand goes through the same check.
+    # 손으로 만든 세션도 같은 검사를 거친다.
     with pytest.raises(ValueError, match="the model's"):
         Inspector(export._session(tiny_onnx[64]), bank, _meta(64, 4))
-    # A broken model file is a ValueError too, not an onnxruntime exception.
+    # 깨진 모델 파일도 onnxruntime 예외가 아니라 ValueError가 된다.
     art = tmp_path / "broken"
     inspector.save_artifact(art, onnx_fp32=tiny_onnx[64], bank=bank, meta=good)
     (art / "model_fp32.onnx").write_bytes(tiny_onnx[64].read_bytes()[:200])

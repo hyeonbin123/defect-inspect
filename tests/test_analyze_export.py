@@ -22,7 +22,7 @@ SUPPORTED, REJECTED, UNDECIDED = "지지", "기각", "판정 불가"
 # 등록한 상수(목표 오검출률 5%, 최소 효과 2.0%p)가 코드에 그대로 있는지 확인한다. 누가 값을 바꾸면 이 테스트가
 # 먼저 깨진다.
 def test_the_registered_constants():
-    # docs/experiments.md, stage 4: thresholds at a target of 5%, minimum effect 2.0 points.
+    # docs/experiments.md 4단계: 목표 5%의 임계값, 최소 효과 2.0%p.
     assert ae.ALPHA == 0.05
     assert ae.MIN_EFFECT_FPR == 0.02
 
@@ -37,27 +37,27 @@ def test_the_registered_constants():
 @pytest.mark.parametrize(
     ("fp_diff", "ci", "n_neg", "expected"),
     [
-        # Supported: the interval excludes 0 and the change is at least 2.0 points.
+        # 지지: 구간이 0을 제외하고 변화가 2.0%p 이상.
         (3, (1, 5), 100, SUPPORTED),
         (-3, (-5, -1), 100, SUPPORTED),
-        (2, (1, 3), 100, SUPPORTED),  # exactly 2.0 points counts as "at least"
+        (2, (1, 3), 100, SUPPORTED),  # 정확히 2.0%p도 "이상"에 든다
         (-2, (-3, -1), 100, SUPPORTED),
         (3, (2.5, 3.0), 100, SUPPORTED),
-        (77, (40, 110), 3848, SUPPORTED),  # 2.0 points of 3,848 normals are 76.96 images
-        # Rejected: the whole interval lies strictly inside +-2.0 points.
+        (77, (40, 110), 3848, SUPPORTED),  # 정상 3,848장의 2.0%p는 76.96장
+        # 기각: 구간 전체가 ±2.0%p 안쪽에 엄격히 들어 있다.
         (1, (0.5, 1.5), 100, REJECTED),
         (0, (-1, 1), 100, REJECTED),
         (0, (0, 0), 100, REJECTED),
         (1, (0.1, 1.99), 100, REJECTED),
         (76, (40, 76.9), 3848, REJECTED),
         (-76, (-76.9, -40), 3848, REJECTED),
-        # Undecided: everything else.
-        (1, (0.5, 3), 100, UNDECIDED),  # excludes 0, too small, but may be larger than 2.0 points
-        (3, (-0.5, 6), 100, UNDECIDED),  # large, but the interval holds 0
+        # 판정 불가: 그 밖의 모든 경우.
+        (1, (0.5, 3), 100, UNDECIDED),  # 0은 제외하고 작지만, 2.0%p보다 클 수도 있다
+        (3, (-0.5, 6), 100, UNDECIDED),  # 크지만 구간이 0을 포함한다
         (1, (-3, 1.5), 100, UNDECIDED),
-        (1, (0.1, 2), 100, UNDECIDED),  # an end exactly at 2.0 points is not inside
+        (1, (0.1, 2), 100, UNDECIDED),  # 끝이 정확히 2.0%p면 안쪽이 아니다
         (-1, (-2, -0.1), 100, UNDECIDED),
-        (3, (0, 6), 100, UNDECIDED),  # an end exactly at 0 does not exclude 0
+        (3, (0, 6), 100, UNDECIDED),  # 끝이 정확히 0이면 0을 제외한 것이 아니다
         (-3, (-6, 0), 100, UNDECIDED),
         (76, (40, 77), 3848, UNDECIDED),
         (0, (float("nan"), float("nan")), 100, UNDECIDED),
@@ -116,7 +116,7 @@ def few_draws(monkeypatch):
 # 검증용 독립 구현: conformal 순위 l = ceil((n+1)(1−α))를 직접 써서(부동소수 오차를 round로 정리, l > n이면
 # 최댓값) 합산 오검출률·검출률을 계산한다. 모듈의 결과를 이것과 비교한다.
 def _independent_rates(scores, thresholds_from, alpha=0.05):
-    """Pooled false alarm and detection rates with the conformal rank written out."""
+    """conformal 순위를 직접 풀어 쓴 합산 오검출률과 검출률."""
     fp = tp = n_neg = n_pos = 0
     for name, cat in scores.items():
         cal = np.sort(thresholds_from[name]["cal_score"].astype(np.float64))
@@ -161,10 +161,10 @@ def test_a_clear_shift_of_the_int8_scores_supports_the_claim_and_recalibration_u
     lo, hi = shift["d_fpr_ci"]
     assert 0.02 < lo < shift["d_fpr"] < hi
     assert shift["verdict"] == SUPPORTED
-    # Every score moved by the same amount: thresholds from the INT8 scores give the fp32 rates back.
+    # 모든 점수가 같은 만큼 움직였다: INT8 점수로 다시 잡은 임계값은 fp32 비율을 되돌려 준다.
     assert shift["int8_recalibrated"]["fpr"] == pytest.approx(fp32_fpr)
     assert shift["int8_recalibrated"]["tpr"] == pytest.approx(fp32_tpr)
-    # A shift downwards is a change as well (fewer false alarms, fewer detections).
+    # 아래로 밀리는 것도 변화다(오검출도 검출도 줄어든다).
     lower = ae.build_report(_run({"torch": base, "fp32": base, "int8": _shifted(base, eval_shift=-0.3)}))
     assert lower["int8_at_fp32_thresholds"]["d_fpr"] < -0.02
     assert lower["int8_at_fp32_thresholds"]["verdict"] == SUPPORTED
@@ -174,16 +174,16 @@ def test_a_clear_shift_of_the_int8_scores_supports_the_claim_and_recalibration_u
 # 0.36이라 구간 하한이 0이 된다. 그래서 판정 불가여야 한다. 점 추정만 크다고 지지하지 않고 구간이 0을 제외해야
 # 한다는 규칙을 지키는지 본다.
 def test_one_flipped_image_among_few_normals_is_undecided():
-    # 20 normals below the threshold 2.0 (rank 96 of 100 calibration scores), 5 defects above it.
+    # 정상 20장은 임계값 2.0(보정 점수 100개 중 96번째) 아래, 결함 5장은 그 위에 있다.
     cal = np.linspace(1.0, 2.0 + 4 / 95, 100)
     assert np.sort(cal)[95] == pytest.approx(2.0)
     fp32 = {"a": _category("a", np.full(20, 1.5), np.full(5, 3.0), cal)}
     int8 = {"a": {**fp32["a"], "eval_score": fp32["a"]["eval_score"].copy()}}
-    int8["a"]["eval_score"][7] = 2.5  # one normal crosses the fp32 threshold: +5 points
+    int8["a"]["eval_score"][7] = 2.5  # 정상 한 장이 fp32 임계값을 넘는다: +5%p
     report = ae.build_report(_run({"torch": fp32, "fp32": fp32, "int8": int8}))
     shift = report["int8_at_fp32_thresholds"]
     assert shift["fp32"]["fpr"] == 0.0 and shift["d_fpr"] == pytest.approx(0.05)
-    # A resample misses that one image with probability 0.95 ** 20 = 0.36: the interval starts at 0.
+    # 재표본이 그 한 장을 빠뜨릴 확률이 0.95 ** 20 = 0.36이다: 구간이 0에서 시작한다.
     assert shift["d_fpr_ci"][0] == 0.0 and shift["d_fpr_ci"][1] > 0.02
     assert shift["verdict"] == UNDECIDED
 
@@ -194,9 +194,9 @@ def test_one_flipped_image_among_few_normals_is_undecided():
 # 의도한 출처를 쓰는지 본다.
 def test_the_int8_rates_are_taken_at_the_fp32_thresholds():
     base = _base()
-    # INT8 evaluation scores are unchanged; only its own calibration scores moved far up.
+    # INT8 평가 점수는 그대로이고, 자기 보정 점수만 크게 올렸다.
     int8 = _shifted(base, cal_shift=10.0)
-    torch_side = _shifted(base, cal_shift=-10.0)  # thresholds below every score: everything is flagged
+    torch_side = _shifted(base, cal_shift=-10.0)  # 임계값이 모든 점수보다 낮다: 전부 불량으로 표시
     report = ae.build_report(_run({"torch": torch_side, "fp32": base, "int8": int8}))
     shift = report["int8_at_fp32_thresholds"]
     assert shift["fp32"]["fpr"] > 0.0

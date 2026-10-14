@@ -32,7 +32,7 @@ RATIOS = [0.5, 0.25, 0.1]
 # 백본 대신 쓰는 작은 추출기: 8px 칸마다 평균색을 내 [B, 4, 4, 3] 특징을 만든다. name·dim 속성은 실제 추출기와
 # 같은 형태다.
 class GridMean(torch.nn.Module):
-    """Tiny stand-in for a backbone: the mean colour of each cell of a 4x4 grid."""
+    """백본 대신 쓰는 작은 추출기: 4x4 격자의 칸마다 평균색을 낸다."""
 
     name = "gridmean"
     dim = 3
@@ -51,7 +51,7 @@ class FakeCache:
         rng = np.random.default_rng(0)
         self._images, self._masks = {}, {}
         self._role = {row.image: row.role for row in manifest}
-        self.log = [] if log is None else log  # ("images" | "masks", roles read), in call order
+        self.log = [] if log is None else log  # 호출 순서대로 ("images" | "masks", 읽은 역할들)
         for row in manifest:
             img = rng.integers(100, 140, (SIZE, SIZE, 3), dtype=np.uint8)
             mask = np.zeros((256, 256), dtype=np.uint8)
@@ -124,7 +124,7 @@ def _run(tmp_path, protocol="dev", allow_test=False, save_banks=False):
 def test_ratio_names_and_rows():
     assert [run_grid.ratio_name(r) for r in (0.1, 0.01, 0.001, 1)] == ["r0.1", "r0.01", "r0.001", "r1.0"]
     assert run_grid.ratio_rows(512, 0.5) == 256
-    assert run_grid.ratio_rows(96, 0.3) == 29  # 28.8 rounds to nearest, like build_bank
+    assert run_grid.ratio_rows(96, 0.3) == 29  # build_bank처럼 28.8을 반올림
     assert run_grid.ratio_rows(94, 0.1) == 9
     assert run_grid.ratio_rows(4, 0.001) == 1
     assert run_grid.ratio_rows(7, 1.0) == 7
@@ -155,7 +155,7 @@ def test_largest_ratio_equals_run_patchcore(tmp_path):
 # 탐욕적 k-center 선택의 중첩 성질에 기대는 설계가 실제로 맞는지 확인하는 핵심 테스트다.
 @pytest.mark.parametrize("ratio", RATIOS)
 def test_smaller_ratios_equal_a_fresh_selection(tmp_path, ratio):
-    """A prefix of the largest bank gives the same scores as building that ratio from scratch."""
+    """가장 큰 뱅크의 앞부분이 그 비율로 처음부터 만든 뱅크와 같은 점수를 낸다."""
     infos = _run(tmp_path)
     manifest = _manifest()
     cache, ext, cfg = FakeCache(manifest), GridMean(), _cfg(ratio)
@@ -178,7 +178,7 @@ def test_smaller_ratios_equal_a_fresh_selection(tmp_path, ratio):
         np.testing.assert_allclose(z["eval_score_full"], direct.image_scores, rtol=1e-6)
         assert int(z["bank_rows"]) == bank.shape[0]
 
-        # Cross-fitting at this ratio: fold 2's images against a fresh bank built without fold 2.
+        # 이 비율의 교차 적합: 겹 2 이미지를 겹 2를 빼고 새로 만든 뱅크로 채점한다.
         rest = [r for r in pool if r.fold != 2]
         held = [r for r in pool if r.fold == 2]
         feats, _ = collect_features(ext, cache.images(rest), batch_size=8, device="cpu")
@@ -203,7 +203,7 @@ def test_smaller_banks_change_the_scores(tmp_path):
     with np.load(tmp_path / "r0.5" / "toy.npz") as a, np.load(tmp_path / "r0.1" / "toy.npz") as b:
         assert not np.allclose(a["eval_score_full"], b["eval_score_full"])
         assert int(a["bank_rows"]) > int(b["bank_rows"])
-        # A smaller bank covers the normal patches less well: normal scores do not go down.
+        # 작은 뱅크는 정상 패치를 덜 덮으므로 정상 점수가 내려가지 않는다.
         assert b["pool_score_oof"].mean() >= a["pool_score_oof"].mean()
     assert not list(tmp_path.glob("**/*_maps.npy"))
 
@@ -241,7 +241,7 @@ def test_saved_banks_reproduce_every_ratio(tmp_path):
         f"toy_minus_fold_{f}.npy" for f in (1, 2, 3, 4)
     ]
 
-    # The cross-fitted score of a pool image comes from the saved bank that was built without its fold.
+    # 풀 이미지의 교차 적합 점수는 자기 겹을 빼고 만들어 저장한 뱅크에서 나온다.
     pool = [r for r in manifest if r.role == "pool_normal" and r.fold != 0]
     for fold in (1, 2, 3, 4):
         bank = torch.from_numpy(np.load(tmp_path / "banks" / f"toy_minus_fold_{fold}.npy"))
@@ -295,7 +295,7 @@ def test_largest_ratio_must_be_the_config_ratio(tmp_path):
 # 쓴다.
 @pytest.fixture
 def calls():
-    """Ledger writes and cache reads of the CLI runs, in the order they happen."""
+    """CLI 실행의 장부 쓰기와 캐시 읽기를 일어난 순서대로 담는다."""
     return []
 
 
@@ -306,7 +306,7 @@ def calls():
 @pytest.fixture
 def cli(tmp_path, monkeypatch, calls):
     manifest = _manifest(("toy", "two"))
-    # A category with pool normals but no defects to evaluate on.
+    # 정상 풀은 있지만 평가할 결함이 없는 범주.
     manifest += [
         ManifestRow(f"bare/n{i}.JPG", "", "bare", "normal", "pool_normal", i % 5, "") for i in range(10)
     ]
@@ -349,7 +349,7 @@ def test_cli_writes_a_run_per_ratio_that_compare_can_read(cli, capsys):
     assert run.name == "wrn50-32-r0.1" and list(run.cats) == ["toy", "two"]
     assert not (cli / "reports" / "test_ledger.jsonl").exists()
 
-    for ratio in (0.5, 0.1):  # every ratio folder describes its own ratio, not the largest one
+    for ratio in (0.5, 0.1):  # 비율 폴더마다 가장 큰 비율이 아니라 자기 비율을 적는다
         folder = out / run_grid.ratio_name(ratio)
         with open(folder / "run.json", encoding="utf-8") as f:
             ratio_meta = json.load(f)
@@ -365,7 +365,7 @@ def test_cli_writes_a_run_per_ratio_that_compare_can_read(cli, capsys):
             with np.load(folder / f"{info['category']}.npz") as z:
                 assert info["bank_rows"]["full"] == int(z["bank_rows"]) == run_grid.ratio_rows(32 * 16, ratio)
 
-    with pytest.raises(SystemExit):  # a finished run is not overwritten silently
+    with pytest.raises(SystemExit):  # 끝난 실행은 조용히 덮어쓰지 않는다
         run_grid.main([*BASE, "--protocol", "dev"])
     run_grid.main([*BASE, "--protocol", "dev", "--overwrite"])
 
@@ -395,12 +395,12 @@ def test_cli_test_protocol_needs_flags_and_writes_the_ledger(cli, calls):
     assert len(lines) == 1
     entry = json.loads(lines[0])
     assert entry["stage"] == "4" and entry["config"] == "grid-wrn50-32"
-    # The ledger line exists before the first image of any kind is read, and it is the only one.
+    # 장부 줄은 어떤 이미지든 처음 읽기 전에 이미 있고, 그 한 줄뿐이다.
     assert calls[0] == ("ledger", "grid-wrn50-32") and [c for c in calls if c[0] == "ledger"] == calls[:1]
     assert ("images", ["test_defect", "test_normal"]) in calls[1:]
 
     calls.clear()
-    with pytest.raises(SystemExit):  # a finished test run is not read again without --overwrite
+    with pytest.raises(SystemExit):  # 끝난 test 실행은 --overwrite 없이 다시 읽지 않는다
         run_grid.main([*BASE, "--protocol", "test", "--allow-test", "--stage", "4"])
     assert not calls and len(ledger.read_text(encoding="utf-8").splitlines()) == 1
 
@@ -419,8 +419,8 @@ def test_cli_dev_protocol_reads_no_sealed_image(cli, calls):
 @pytest.mark.parametrize(
     ("categories", "named"),
     [
-        (["toy", "tyo"], "tyo"),  # a typo
-        (["bare"], "eval_defect"),  # pool normals but nothing to evaluate on
+        (["toy", "tyo"], "tyo"),  # 오타
+        (["bare"], "eval_defect"),  # 정상 풀은 있지만 평가할 것이 없음
         (["toy", "toy"], "twice"),
     ],
 )
@@ -437,7 +437,7 @@ def test_cli_checks_the_categories_before_the_ledger(cli, calls, capsys, categor
 # 이전 출력을 지우다 실패하면(파일이 다른 곳에서 열려 있음을 PermissionError로 흉내 냄) 장부 줄 없이 멈추는지
 # 본다. main은 clear_outputs를 장부 기록 전에 부른다.
 def test_cli_clears_old_outputs_before_the_ledger(cli, calls, monkeypatch):
-    """Old outputs that cannot be deleted (a file in use) stop the run without a ledger line."""
+    """지울 수 없는 이전 출력(사용 중인 파일)은 장부 줄 없이 실행을 멈춘다."""
 
     def in_use(out_dir):
         raise PermissionError(f"{out_dir} is in use")
@@ -462,7 +462,7 @@ def test_cli_overwrite_removes_what_the_earlier_call_wrote(cli):
     first = [*SETTING, "--protocol", "dev", "--categories", "toy", "two", "--ratios", "0.5", "0.25", "0.1"]
     run_grid.main([*first, "--save-banks"])
     assert (out / "r0.25" / "two.npz").exists() and (out / "banks" / "two_minus_fold_1.npy").exists()
-    # Files that are not grid outputs survive, also in folders that are cleaned or merely start with "r".
+    # 격자 출력이 아닌 파일은 남는다. 정리되는 폴더 안이나 이름이 "r"로 시작할 뿐인 폴더 안에서도 그렇다.
     kept = ["notes.txt", "r0.5/notes.txt", "banks/notes.txt", "reports/toy.npz", "r0.5x/run.json"]
     for name in kept:
         (out / name).parent.mkdir(exist_ok=True)
@@ -472,7 +472,7 @@ def test_cli_overwrite_removes_what_the_earlier_call_wrote(cli):
     run_grid.main(second)
     written = ["run.json", "r0.5/run.json", "r0.5/toy.npz", "r0.1/run.json", "r0.1/toy.npz"]
     assert _files(out) == sorted(written + kept)
-    assert not (out / "r0.25").exists()  # a stale ratio folder no longer loads as a finished run
+    assert not (out / "r0.25").exists()  # 낡은 비율 폴더가 더는 끝난 실행으로 읽히지 않는다
     assert list(compare.load_patchcore(out / "r0.5").cats) == ["toy"]
 
 
@@ -495,13 +495,13 @@ def test_interrupted_overwrite_does_not_leave_a_finished_looking_run(cli, monkey
     with pytest.raises(KeyboardInterrupt):
         run_grid.main([*BASE, "--protocol", "dev", "--overwrite"])
     assert seen == ["toy", "two"]
-    assert _files(out) == ["r0.1/toy.npz", "r0.5/toy.npz"]  # no run.json at any level
+    assert _files(out) == ["r0.1/toy.npz", "r0.5/toy.npz"]  # 어느 수준에도 run.json이 없다
     with pytest.raises(FileNotFoundError):
         analyze_grid.load_grid(out)
     with pytest.raises(FileNotFoundError):
         compare.load_patchcore(out / "r0.5")
 
-    # The next call starts from a clean folder; nothing finished is there, so it needs no --overwrite.
+    # 다음 호출은 깨끗한 폴더에서 시작한다. 끝난 실행이 없으므로 --overwrite가 필요 없다.
     monkeypatch.setattr(run_grid, "run_category", real)
     run_grid.main([*SETTING, "--protocol", "dev", "--categories", "two", "--ratios", "0.5"])
     assert _files(out) == ["r0.5/run.json", "r0.5/two.npz", "run.json"]

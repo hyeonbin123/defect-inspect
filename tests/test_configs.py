@@ -38,7 +38,7 @@ def test_same_config_accepts_runs_recorded_before_the_centre_field():
     assert same_config(recorded, cfg)
     old = {k: v for k, v in recorded.items() if k != "centre"}
     assert same_config(old, cfg)
-    # A centred run is not the plain config, and an old record is never the centred one.
+    # 중심화 실행은 일반 구성과 같지 않고, centre 키가 없는 옛 기록은 결코 중심화 구성으로 인정되지 않는다.
     assert not same_config(asdict(get_config("p0-c")), cfg)
     assert not same_config(old | {"name": "p0-c"}, get_config("p0-c"))
     assert same_config(asdict(get_config("p0-c")), get_config("p0-c"))

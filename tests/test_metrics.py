@@ -1,4 +1,4 @@
-"""Metric tests against independent references: scikit-learn and brute-force sweeps written here."""
+"""독립된 기준값(scikit-learn, 그리고 이 파일에서 직접 쓴 전수 탐색)과 대조하는 지표 테스트."""
 
 # [파일 역할] src/defect_inspect/metrics.py의 지표(이미지 AUROC, FPR@TPR95, 고정 임계값 개수, 픽셀 AUROC,
 # AUPRO, 부트스트랩용 구간 AUPRO)를 독립된 기준값과 대조하는 테스트 묶음이다.
@@ -36,7 +36,7 @@ from defect_inspect.metrics import (
 )
 
 # ---------------------------------------------------------------------------------------------------
-# references
+# 기준 구현(references)
 # ---------------------------------------------------------------------------------------------------
 
 
@@ -56,7 +56,7 @@ def pairwise_auroc(neg: np.ndarray, pos: np.ndarray) -> float:
 # FPR@TPR의 기준 구현: 나타난 모든 점수를 임계값으로 시도해 결함의 tpr 이상을 잡는(score >= t) 가장 높은 t를
 # 고른다. 비율 비교를 Fraction으로 해 부동소수 오차가 끼지 않게 한다.
 def fpr_at_tpr_bruteforce(neg: np.ndarray, pos: np.ndarray, tpr: float) -> tuple[float, float, int]:
-    """Try every score as a threshold; keep the highest one that catches at least `tpr` of `pos`."""
+    """모든 점수를 임계값으로 시도해, `pos`의 `tpr` 이상을 잡는 가장 높은 임계값을 고른다."""
     target = Fraction(str(tpr))
     best = None
     for t in sorted(set(pos.tolist()) | set(neg.tolist())):
@@ -71,7 +71,7 @@ def fpr_at_tpr_bruteforce(neg: np.ndarray, pos: np.ndarray, tpr: float) -> tuple
 # connectivity로 8방향(정의)과 4방향을 바꿀 수 있어 8방향 규칙을 검증하는 데 쓴다. 영역은 첫 화소의 래스터
 # 순서로 나온다.
 def flood_fill_components(mask: np.ndarray, connectivity: int = 8) -> list[list[tuple[int, int]]]:
-    """Connected regions of a 2-D mask by flood fill, in raster order of their first pixel."""
+    """flood fill로 찾은 2차원 마스크의 연결 영역들. 첫 화소의 래스터 순서로 나온다."""
     h, w = mask.shape
     if connectivity == 8:
         steps = [(dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dy, dx) != (0, 0)]
@@ -118,7 +118,7 @@ def clipped_area(points: list[tuple[float, float]], x_max: float) -> float:
 def aupro_bruteforce(
     maps: np.ndarray, masks: np.ndarray, max_fpr: float = 0.3, connectivity: int = 8
 ) -> float:
-    """Sweep every distinct score as a threshold (score >= t) and integrate the PRO curve."""
+    """서로 다른 모든 점수를 임계값(score >= t)으로 훑어 PRO 곡선을 적분한다."""
     maps = np.asarray(maps, dtype=np.float64)
     masks = np.asarray(masks).astype(bool)
     regions = []
@@ -141,7 +141,7 @@ def aupro_bruteforce(
 # 점수 내림차순으로 정렬해 누적합으로 FPR과 PRO를 만든다. 동점 묶음의 끝 위치에서만 점을 찍는다. 구현(결함
 # 점수에서만 곡선을 계산)과 방식이 달라 독립 대조가 된다.
 def aupro_fullsort(maps: np.ndarray, masks: np.ndarray, max_fpr: float = 0.3) -> float:
-    """Second reference for larger inputs: label image by image, sort all pixels, cumulative sums."""
+    """더 큰 입력용 두 번째 기준: 이미지마다 영역을 라벨링하고, 모든 픽셀을 정렬해 누적합을 낸다."""
     maps = np.asarray(maps, dtype=np.float64)
     masks = np.asarray(masks).astype(bool)
     weight = np.zeros(maps.shape)
@@ -165,10 +165,10 @@ def aupro_fullsort(maps: np.ndarray, masks: np.ndarray, max_fpr: float = 0.3) ->
 # 반올림 후 fp16, 실제 저장 맵 형식), few_values(-1~2 정수, 정상·결함 사이 동점이 많음), binary(0/1). 동점
 # 처리를 집중적으로 시험하려는 것이다.
 def random_case(seed: int, kind: str, n: int = 5, size: int = 9) -> tuple[np.ndarray, np.ndarray]:
-    """Small random maps/masks: scattered defect pixels (many regions, diagonal contacts), clean images."""
+    """작은 무작위 맵·마스크: 흩뿌린 결함 픽셀(영역 여러 개, 대각선 접촉)과 결함 없는 이미지."""
     rng = np.random.default_rng(seed)
     masks = rng.random((n, size, size)) < rng.choice([0.08, 0.2, 0.4])
-    masks[rng.integers(n)] = False  # at least one image without defects
+    masks[rng.integers(n)] = False  # 결함 없는 이미지가 적어도 한 장
     signal = rng.normal(size=(n, size, size)) + rng.choice([0.0, 1.0, 2.5]) * masks
     if kind == "continuous":
         maps = signal.astype(np.float32)
@@ -187,7 +187,7 @@ KINDS = ("continuous", "float16", "few_values", "binary")
 
 
 # ---------------------------------------------------------------------------------------------------
-# auroc
+# auroc 테스트
 # ---------------------------------------------------------------------------------------------------
 
 
@@ -220,8 +220,8 @@ def test_auroc_matches_sklearn_and_pairs_with_ties(seed):
 def test_auroc_simple_values():
     assert auroc(np.array([0.0, 1.0]), np.array([2.0, 3.0])) == 1.0
     assert auroc(np.array([2.0, 3.0]), np.array([0.0, 1.0])) == 0.0
-    assert auroc(np.full(7, 0.3), np.full(4, 0.3)) == 0.5  # constant scores
-    # one tie out of four pairs: (1 + 1 + 1 + 0.5) / 4
+    assert auroc(np.full(7, 0.3), np.full(4, 0.3)) == 0.5  # 모든 점수가 같음
+    # 네 쌍 중 하나가 동점: (1 + 1 + 1 + 0.5) / 4
     assert auroc(np.array([1.0, 2.0]), np.array([2.0, 3.0])) == pytest.approx(0.875)
 
 
@@ -242,7 +242,7 @@ def test_auroc_empty_is_nan_and_nan_raises():
 
 
 # ---------------------------------------------------------------------------------------------------
-# fpr_at_tpr, rates_at_threshold
+# fpr_at_tpr, rates_at_threshold 테스트
 # ---------------------------------------------------------------------------------------------------
 
 
@@ -254,7 +254,7 @@ def test_auroc_empty_is_nan_and_nan_raises():
 def test_fpr_at_tpr_matches_bruteforce(seed, tpr):
     rng = np.random.default_rng(seed)
     n_pos = int(rng.choice([1, 7, 20, 40, 41]))
-    if seed % 2:  # heavy ties
+    if seed % 2:  # 동점이 많은 경우
         neg = rng.integers(0, 6, size=120).astype(np.float64)
         pos = rng.integers(2, 9, size=n_pos).astype(np.float64)
     else:
@@ -271,22 +271,22 @@ def test_fpr_at_tpr_matches_bruteforce(seed, tpr):
 # 구현은 Fraction으로 정확히 계산하므로 20장이면 19번째, 40장이면 38번째로 큰 결함 점수가 임계값이어야 한다.
 # 39장은 ceil(37.05) = 38, tpr = 1이면 가장 작은 결함 점수다.
 def test_fpr_at_tpr_rank_is_exact():
-    # 0.95 * 20 = 19 and 0.95 * 40 = 38: the threshold is the 19th / 38th largest positive, never the next.
+    # 0.95 * 20 = 19, 0.95 * 40 = 38: 임계값은 19번째 / 38번째로 큰 결함 점수이고 그다음 것이 아니다.
     pos20 = np.arange(1.0, 21.0)
     assert fpr_at_tpr(np.array([0.0]), pos20, 0.95)[1] == 2.0
     pos40 = np.arange(1.0, 41.0)
     assert fpr_at_tpr(np.array([0.0]), pos40, 0.95)[1] == 3.0
-    # 39 positives need ceil(37.05) = 38 of them
+    # 결함 39장은 ceil(37.05) = 38장을 잡아야 한다
     assert fpr_at_tpr(np.array([0.0]), np.arange(1.0, 40.0), 0.95)[1] == 2.0
-    # tpr = 1 uses the smallest positive
+    # tpr = 1이면 가장 작은 결함 점수를 쓴다
     assert fpr_at_tpr(np.array([0.0]), pos40, 1.0)[1] == 1.0
 
 
 # 기본 tpr이 docs/experiments.md의 정의(검출률 95%)와 같은지 본다. 90%였다면 임계값이 높아져 오검출이 적게
 # 나오므로 값으로 구별된다.
 def test_fpr_at_tpr_default_is_95_percent():
-    # docs/experiments.md: FPR at TPR 95%. With 40 positives that needs 38 of them (t = 3);
-    # 90% would need only 36 (t = 5) and flag fewer negatives.
+    # docs/experiments.md: 검출률(TPR) 95%에서의 FPR. 결함 40장이면 38장을 잡아야 하고(t = 3),
+    # 90%라면 36장만 잡으면 되어(t = 5) 정상을 더 적게 오검출한다.
     neg = np.array([0.0, 3.5, 4.5, 10.0])
     pos = np.arange(1.0, 41.0)
     assert fpr_at_tpr(neg, pos) == (0.75, 3.0, 3)
@@ -299,9 +299,9 @@ def test_fpr_at_tpr_default_is_95_percent():
 def test_fpr_at_tpr_counts_ties_as_flagged():
     neg = np.array([1.0, 2.0, 2.0, 3.0])
     pos = np.array([2.0, 2.0, 5.0, 6.0])
-    rate, t, fp = fpr_at_tpr(neg, pos, 0.75)  # k = 3 -> t = 2.0, and both tied negatives are flagged
+    rate, t, fp = fpr_at_tpr(neg, pos, 0.75)  # k = 3 -> t = 2.0이고, 동점인 정상 둘도 오검출
     assert (rate, t, fp) == (0.75, 2.0, 3)
-    rate, t, fp = fpr_at_tpr(np.full(5, 1.0), np.full(3, 1.0), 0.95)  # constant scores
+    rate, t, fp = fpr_at_tpr(np.full(5, 1.0), np.full(3, 1.0), 0.95)  # 모든 점수가 같음
     assert (rate, t, fp) == (1.0, 1.0, 5)
 
 
@@ -323,7 +323,7 @@ def test_fpr_at_tpr_edge_cases():
 def test_rates_at_threshold_is_strict():
     neg = np.array([0.1, 0.5, 0.5, 0.9])
     pos = np.array([0.5, 0.7, 1.0])
-    assert rates_at_threshold(neg, pos, 0.5) == (1, 4, 2, 3)  # scores equal to the threshold pass
+    assert rates_at_threshold(neg, pos, 0.5) == (1, 4, 2, 3)  # 임계값과 같은 점수는 통과
     assert rates_at_threshold(neg, pos, 0.0) == (4, 4, 3, 3)
     assert rates_at_threshold(neg, pos, 1.0) == (0, 4, 0, 3)
     assert rates_at_threshold(np.array([]), np.array([]), 0.5) == (0, 0, 0, 0)
@@ -334,7 +334,7 @@ def test_rates_at_threshold_is_strict():
 # 크다(결함 판정). 임계값을 그 float32 값 자체로 주면 같은 값이라 통과다. 임계값을 float32로 반올림해 비교하면
 # 이 구별이 사라진다.
 def test_rates_at_threshold_float32_scores_compare_exactly():
-    # The threshold is compared in float64: a float32 score equal to float32(0.1) is above 0.1.
+    # 임계값은 float64로 비교한다: float32(0.1)과 같은 float32 점수는 0.1보다 크다.
     scores = np.array([0.1], dtype=np.float32)
     assert float(scores[0]) > 0.1
     assert rates_at_threshold(scores, scores, 0.1) == (1, 1, 1, 1)
@@ -342,7 +342,7 @@ def test_rates_at_threshold_float32_scores_compare_exactly():
 
 
 # ---------------------------------------------------------------------------------------------------
-# pixel_auroc
+# pixel_auroc 테스트
 # ---------------------------------------------------------------------------------------------------
 
 
@@ -369,7 +369,7 @@ def test_pixel_auroc_more_defect_than_normal_pixels():
 def test_pixel_auroc_degenerate():
     masks = np.zeros((2, 4, 4), dtype=bool)
     masks[0, 1:3, 1:3] = True
-    assert pixel_auroc(np.ones((2, 4, 4), dtype=np.float32), masks) == 0.5  # constant maps
+    assert pixel_auroc(np.ones((2, 4, 4), dtype=np.float32), masks) == 0.5  # 상수 맵
     assert pixel_auroc(masks.astype(np.float32), masks) == 1.0
     assert pixel_auroc(1.0 - masks, masks) == 0.0
     assert math.isnan(pixel_auroc(np.ones((2, 4, 4)), np.zeros((2, 4, 4), dtype=bool)))
@@ -398,7 +398,7 @@ def test_pixel_metrics_reject_bad_input():
 
 
 # ---------------------------------------------------------------------------------------------------
-# aupro (exact)
+# aupro(정확한 계산) 테스트
 # ---------------------------------------------------------------------------------------------------
 
 
@@ -418,7 +418,7 @@ def test_aupro_matches_bruteforce(kind, seed):
 # 미만부터 0.6 초과까지), 한 이미지에 영역이 2개 이상인 경우와 결함 없는 이미지가 있으며, 정상·결함 픽셀 사이
 # 동점이 실제로 생겨야 한다. 이 조건이 없으면 대조 테스트가 통과해도 의미가 약하다.
 def test_aupro_bruteforce_cases_are_not_trivial():
-    # The random cases must exercise ties between normal and defect pixels and multi-region images.
+    # 무작위 사례에 정상·결함 픽셀 사이의 동점과 영역이 여러 개인 이미지가 실제로 있어야 한다.
     values = [aupro_bruteforce(*random_case(seed, kind)) for kind in KINDS for seed in range(8)]
     assert len({round(v, 6) for v in values}) > 20
     assert min(values) < 0.3 and max(values) > 0.6
@@ -453,15 +453,15 @@ def test_aupro_matches_fullsort_reference_on_larger_maps(seed):
 # 낮으면 0.
 def test_aupro_hand_computed():
     mask = np.array([[[1, 0, 0, 0]]])
-    # defect pixel scores highest: PRO = 1 at FPR = 0
+    # 결함 픽셀 점수가 가장 높다: FPR = 0에서 PRO = 1
     assert aupro(np.array([[[4.0, 3.0, 2.0, 1.0]]]), mask) == pytest.approx(1.0)
-    # one normal pixel scores higher: PRO jumps to 1 at FPR = 1/3, after the [0, 0.3] window
+    # 정상 픽셀 하나가 더 높다: PRO는 [0, 0.3] 구간을 지난 FPR = 1/3에서야 1로 뛴다
     maps = np.array([[[3.0, 4.0, 2.0, 1.0]]])
     assert aupro(maps, mask) == pytest.approx(0.0)
     assert aupro(maps, mask, max_fpr=0.5) == pytest.approx((0.5 - 1 / 3) / 0.5)
-    # tie between the defect pixel and one normal pixel: straight line from (0, 0) to (1/3, 1)
+    # 결함 픽셀과 정상 픽셀 하나가 동점: (0, 0)에서 (1/3, 1)로 가는 직선
     assert aupro(np.array([[[2.0, 2.0, 1.0, 1.0]]]), mask) == pytest.approx(0.3 * 0.9 / 2 / 0.3)
-    # the defect pixel scores lowest: PRO = 0 until FPR = 1
+    # 결함 픽셀 점수가 가장 낮다: FPR = 1이 될 때까지 PRO = 0
     assert aupro(np.array([[[0.0, 3.0, 2.0, 1.0]]]), mask, max_fpr=1.0) == pytest.approx(0.0)
 
 
@@ -471,7 +471,7 @@ def test_aupro_constant_maps():
     masks = np.zeros((3, 6, 6), dtype=bool)
     masks[0, 1:3, 1:4] = True
     masks[1, 4, 4] = True
-    # a single threshold: the curve is the diagonal, area 0.3^2 / 2 over 0.3
+    # 임계값이 하나뿐: 곡선은 대각선이고 넓이 0.3^2 / 2를 0.3으로 나눈다
     for dtype in (np.float32, np.float16, np.float64):
         assert aupro(np.full(masks.shape, 0.7, dtype=dtype), masks) == pytest.approx(0.15)
     assert aupro(np.zeros(masks.shape), masks, max_fpr=1.0) == pytest.approx(0.5)
@@ -482,25 +482,25 @@ def test_aupro_constant_maps():
 # 결함이 지표를 지배하지 않게 하는 AUPRO의 정의(experiments.md '지표')를 확인한다.
 def test_aupro_averages_over_regions_not_pixels():
     masks = np.zeros((1, 8, 8), dtype=bool)
-    masks[0, 0, 0] = True  # region of 1 pixel, found
-    masks[0, 4:7, 4:7] = True  # region of 9 pixels, missed
+    masks[0, 0, 0] = True  # 1픽셀 영역, 찾음
+    masks[0, 4:7, 4:7] = True  # 9픽셀 영역, 놓침
     maps = np.full((1, 8, 8), 0.5)
     maps[0, 0, 0] = 1.0
     maps[0, 4:7, 4:7] = 0.0
-    assert aupro(maps, masks) == pytest.approx(0.5)  # pixel-weighted overlap would give 0.1
+    assert aupro(maps, masks) == pytest.approx(0.5)  # 픽셀 수로 가중한 겹침이면 0.1
     assert aupro(maps, masks) == pytest.approx(aupro_bruteforce(maps, masks))
 
 
 # 대각선으로만 닿은 픽셀이 같은 영역에 묶이는지(8방향 연결, experiments.md 정의) 본다. 4방향이면 영역 2개라
 # PRO 0.5, 8방향이면 4픽셀 영역 하나라 0.25다. 히스토그램 쪽(pro_histograms)도 같은 영역 하나로 세야 한다.
 def test_aupro_uses_8_connectivity():
-    # Three pixels in a row plus one pixel touching only diagonally: one region of 4 pixels.
+    # 한 줄로 놓인 세 픽셀과 대각선으로만 닿는 한 픽셀: 4픽셀 영역 하나.
     masks = np.zeros((1, 4, 4), dtype=bool)
     masks[0, 0, 0:3] = True
     masks[0, 1, 3] = True
     maps = np.zeros((1, 4, 4))
     maps[0][~masks[0]] = np.arange(1.0, 13.0)
-    maps[0, 1, 3] = 100.0  # only the diagonal pixel is found
+    maps[0, 1, 3] = 100.0  # 대각선 픽셀만 찾는다
     assert aupro_bruteforce(maps, masks, connectivity=8) == pytest.approx(0.25)
     assert aupro_bruteforce(maps, masks, connectivity=4) == pytest.approx(0.5)
     assert aupro(maps, masks) == pytest.approx(0.25)
@@ -512,7 +512,7 @@ def test_aupro_uses_8_connectivity():
 # 연결 구조(_STRUCTURE)는 이미지 축으로 잇지 않으므로 영역 3개, 각 영역의 이미지 번호 0, 1, 2여야 한다.
 def test_aupro_regions_never_span_images():
     masks = np.zeros((3, 5, 5), dtype=bool)
-    masks[:, 2, 2] = True  # same pixel in consecutive images: three regions, not one
+    masks[:, 2, 2] = True  # 연속한 이미지의 같은 픽셀: 영역 하나가 아니라 셋
     rng = np.random.default_rng(0)
     maps = rng.normal(size=masks.shape)
     assert aupro(maps, masks) == pytest.approx(aupro_bruteforce(maps, masks))
@@ -531,13 +531,13 @@ def test_aupro_counts_normal_images_and_normal_pixels_of_defect_images():
     maps = rng.normal(size=masks.shape) + 1.5 * masks
     base = aupro(maps, masks)
     assert base == pytest.approx(aupro_bruteforce(maps, masks))
-    # high-scoring defect-free images add false positives and lower the value
+    # 점수가 높은 결함 없는 이미지는 오검출을 더해 값을 낮춘다
     extra = np.full((4, 8, 8), 5.0) + rng.normal(size=(4, 8, 8)) * 0.01
     maps2 = np.concatenate([maps, extra])
     masks2 = np.concatenate([masks, np.zeros((4, 8, 8), dtype=bool)])
     assert aupro(maps2, masks2) == pytest.approx(aupro_bruteforce(maps2, masks2))
     assert aupro(maps2, masks2) < base
-    # high scores on the normal pixels of the defect image itself count too
+    # 결함 이미지 자신의 정상 픽셀에 준 높은 점수도 센다
     maps3 = maps.copy()
     maps3[0, 7, :] = 50.0
     assert aupro(maps3, masks) == pytest.approx(aupro_bruteforce(maps3, masks))
@@ -570,7 +570,7 @@ def test_aupro_accepts_uint8_masks_and_does_not_modify_inputs():
 
 
 # ---------------------------------------------------------------------------------------------------
-# binned AUPRO
+# 구간(히스토그램) AUPRO 테스트
 # ---------------------------------------------------------------------------------------------------
 
 
@@ -602,7 +602,7 @@ def test_pro_histograms_layout(kind):
     assert h.components.dtype == np.int64 and h.component_image.dtype == np.int64
     expected_regions = []
     for i, (image, mask) in enumerate(zip(maps, masks, strict=True)):
-        # per-image counts agree with numpy's histogram on the same edges (last bin closed)
+        # 이미지별 개수가 같은 경계로 낸 numpy 히스토그램(마지막 칸 닫힘)과 같다
         expected = np.histogram(image[~mask].astype(np.float64), bins=h.edges)[0]
         assert np.array_equal(h.normal[i], expected)
         for region in flood_fill_components(mask):
@@ -623,8 +623,8 @@ def test_pro_histograms_range_handling():
     h = pro_histograms(maps, masks, bins=4)
     assert h.edges.tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
     assert h.normal.tolist() == [[1, 1, 1, 0]]
-    assert h.components.tolist() == [[0, 0, 0, 1]]  # the maximum falls in the last bin
-    # explicit range: values outside are clipped into the first / last bin
+    assert h.components.tolist() == [[0, 0, 0, 1]]  # 최댓값은 마지막 칸에 들어간다
+    # 범위를 직접 주면 범위 밖 값은 첫 칸 / 마지막 칸으로 잘린다
     h = pro_histograms(maps, masks, bins=2, lo=1.0, hi=3.0)
     assert h.edges.tolist() == [1.0, 2.0, 3.0]
     assert h.normal.tolist() == [[2, 1]]
@@ -651,14 +651,13 @@ def test_pro_histograms_default_is_2000_bins_over_the_score_range():
 # 구간 경계 바로 아래 점수의 칸 번호를 고치는 처리(metrics._bin_index의 보정 두 줄)를 확인한다. 정상 이미지와
 # 같은 점수의 결함 영역 이미지를 나란히 두어 두 히스토그램이 numpy.histogram과 똑같이 나와야 한다.
 def test_pro_histograms_scores_on_bin_edges():
-    # linspace(0, 1, 11) has edges such as 0.30000000000000004. The scores 0.3, 0.6 and 0.7 lie just below
-    # their edge, so they belong to the bin before it; floor((v - lo) * bins / (hi - lo)) alone puts them
-    # one bin too high.
+    # linspace(0, 1, 11)에는 0.30000000000000004 같은 경계가 있다. 점수 0.3, 0.6, 0.7은 자기 경계 바로
+    # 아래라 그 앞 칸에 속하는데, floor((v - lo) * bins / (hi - lo))만 쓰면 한 칸 위에 넣는다.
     values = np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
     expected = [1, 1, 2, 0, 1, 2, 1, 0, 1, 2]
     maps = np.stack([values.reshape(1, 11), values.reshape(1, 11)])
     masks = np.zeros((2, 1, 11), dtype=bool)
-    masks[1] = True  # the second image is one defect region with the same scores
+    masks[1] = True  # 두 번째 이미지는 같은 점수로 된 결함 영역 하나
     h = pro_histograms(maps, masks, bins=10)
     assert np.histogram(values, bins=h.edges)[0].tolist() == expected
     assert h.normal.tolist() == [expected, [0] * 10]
@@ -671,21 +670,21 @@ def test_pro_histograms_scores_on_bin_edges():
 @pytest.mark.parametrize(
     "lo,hi,bins",
     [
-        (0.0, 1.0, 10),  # plain floor() is one bin too high for some scores
-        (3.0, 3.3, 100),  # ... one bin too low
-        (0.1, 0.7, 49),  # ... both
+        (0.0, 1.0, 10),  # 단순 floor()가 일부 점수를 한 칸 높게 넣는다
+        (3.0, 3.3, 100),  # ... 한 칸 낮게
+        (0.1, 0.7, 49),  # ... 둘 다
         (0.0, 1.0, 2000),
         (-0.219, 36.266, 2000),
     ],
 )
 def test_pro_histograms_counts_match_edges_for_scores_next_to_an_edge(lo, hi, bins):
-    # Every edge, and the floats just below and just above it: the counts must describe `edges` exactly
-    # (edges[i] <= v < edges[i + 1], last bin closed, scores outside [lo, hi] in the first / last bin).
+    # 모든 경계값과 그 바로 아래·위 부동소수: 개수가 `edges`의 정의(edges[i] <= v < edges[i + 1], 마지막
+    # 칸 닫힘, [lo, hi] 밖 점수는 첫 칸 / 마지막 칸)를 정확히 따라야 한다.
     edges = np.linspace(lo, hi, bins + 1)
     values = np.concatenate([edges, np.nextafter(edges, -np.inf), np.nextafter(edges, np.inf)])
     bin_of = np.clip(np.searchsorted(edges, values, side="right") - 1, 0, bins - 1)
     expected = np.bincount(bin_of, minlength=bins)
-    # the plain floor() formula really is wrong for some of these values: the case is not vacuous
+    # 단순 floor() 공식이 이 값들 일부에서 실제로 틀린다: 헛도는 사례가 아니다
     plain = np.floor((np.clip(values, lo, hi) - lo) * (bins / (hi - lo))).astype(np.int64)
     assert (np.clip(plain, 0, bins - 1) != bin_of).any()
 
@@ -717,7 +716,7 @@ def test_binned_aupro_is_exact_when_every_bin_holds_one_value(seed):
     masks[0] = False
     maps = np.clip(np.round(rng.normal(4.5, 2.0, size=masks.shape) + 2.0 * masks), 0, 9).astype(np.float32)
     maps[0, 0, 0], maps[0, 0, 1] = 0.0, 9.0
-    h = pro_histograms(maps, masks, bins=10)  # edges 0, 0.9, ..., 9: one integer per bin
+    h = pro_histograms(maps, masks, bins=10)  # 경계 0, 0.9, ..., 9: 칸마다 정수 하나
     for max_fpr in (0.3, 1.0):
         assert aupro_from_histograms(h, max_fpr=max_fpr) == pytest.approx(
             aupro(maps, masks, max_fpr), abs=1e-12
@@ -734,10 +733,10 @@ def test_binned_aupro_is_exact_when_every_bin_holds_one_value(seed):
 def test_binned_aupro_close_to_exact_on_smooth_maps(seed):
     maps, masks = smooth_case(seed)
     exact = aupro(maps, masks)
-    assert 0.2 < exact < 0.98  # an informative case, not a saturated one
+    assert 0.2 < exact < 0.98  # 포화되지 않은, 정보가 있는 사례
     binned = aupro_from_histograms(pro_histograms(maps, masks))
     assert abs(binned - exact) < 0.002
-    # fewer bins are visibly coarser but still converge
+    # 칸이 적으면 눈에 띄게 거칠지만 여전히 가깝다
     coarse = aupro_from_histograms(pro_histograms(maps, masks, bins=20))
     assert abs(coarse - exact) < 0.05
 
@@ -750,18 +749,18 @@ def test_binned_aupro_close_to_exact_on_smooth_maps(seed):
 def test_binned_aupro_image_counts_equal_replicated_images(seed):
     maps, masks = smooth_case(seed, n=16, size=40)
     rng = np.random.default_rng(seed)
-    idx = rng.integers(0, len(maps), size=len(maps))  # one bootstrap sample of images
+    idx = rng.integers(0, len(maps), size=len(maps))  # 이미지의 부트스트랩 재표본 하나
     counts = np.bincount(idx, minlength=len(maps))
     assert (counts == 0).any() and (counts > 1).any()
     h = pro_histograms(maps, masks)
     value = aupro_from_histograms(h, counts)
-    # same histogram range on the replicated images: identical up to rounding
+    # 복제한 이미지에 같은 히스토그램 범위를 쓰면 반올림 오차 말고는 같다
     lo, hi = float(maps.min()), float(maps.max())
     replicated = pro_histograms(maps[idx], masks[idx], lo=lo, hi=hi)
     assert value == pytest.approx(aupro_from_histograms(replicated), abs=1e-12)
-    # and close to the exact value on the replicated images
+    # 복제한 이미지의 정확한 값과도 가깝다
     assert abs(value - aupro(maps[idx], masks[idx])) < 0.002
-    # counts of one are the default
+    # counts가 모두 1이면 기본값과 같다
     assert aupro_from_histograms(h, np.ones(len(maps), dtype=int)) == aupro_from_histograms(h)
 
 
@@ -772,13 +771,13 @@ def test_binned_aupro_image_counts_edge_cases():
     h = pro_histograms(maps, masks, bins=200)
     has_defect = masks.any(axis=(1, 2))
     assert has_defect.any() and not has_defect.all()
-    assert math.isnan(aupro_from_histograms(h, (~has_defect).astype(int)))  # no region in the sample
+    assert math.isnan(aupro_from_histograms(h, (~has_defect).astype(int)))  # 재표본에 영역이 없다
     assert math.isnan(aupro_from_histograms(h, np.zeros(len(maps), dtype=int)))
     with pytest.raises(ValueError):
         aupro_from_histograms(h, np.ones(len(maps) + 1))
     with pytest.raises(ValueError):
         aupro_from_histograms(h, -np.ones(len(maps)))
-    # doubling every image changes nothing
+    # 모든 이미지를 두 배로 세도 값은 그대로다
     assert aupro_from_histograms(h, np.full(len(maps), 2)) == pytest.approx(
         aupro_from_histograms(h), abs=1e-12
     )
@@ -787,7 +786,7 @@ def test_binned_aupro_image_counts_edge_cases():
 # 구간 AUPRO의 반복문 기준 구현. 맨 위 칸부터 한 칸씩 내려오며 정상 오검출 수와 영역 겹침을 counts만큼 가중해
 # 더하고, 칸마다 곡선 점을 찍는다. 구현의 행렬곱·누적합 계산과 독립적으로 같은 정의를 따른다.
 def binned_aupro_loop(h: ProHistograms, counts: np.ndarray, max_fpr: float = 0.3) -> float:
-    """Plain-loop reference for the binned curve: add one bin at a time, from the top bin downwards."""
+    """구간 곡선의 단순 반복문 기준: 맨 위 칸부터 아래로 한 칸씩 더한다."""
     n_regions = sum(int(counts[i]) for i in h.component_image.tolist())
     n_normal = sum(int(c) * int(row.sum()) for c, row in zip(counts.tolist(), h.normal, strict=True))
     if n_regions == 0 or n_normal == 0:
@@ -806,7 +805,7 @@ def binned_aupro_loop(h: ProHistograms, counts: np.ndarray, max_fpr: float = 0.3
 @pytest.mark.parametrize("seed", range(3))
 def test_binned_aupro_matches_plain_loop(seed):
     maps, masks = random_case(seed, "float16", n=6, size=12)
-    h = pro_histograms(maps, masks, bins=7)  # coarse bins: many ties between normal and defect pixels
+    h = pro_histograms(maps, masks, bins=7)  # 거친 칸: 정상·결함 픽셀이 같은 칸에 많이 섞임
     rng = np.random.default_rng(seed)
     for max_fpr in (0.3, 1.0):
         ones = np.ones(len(maps), dtype=int)
@@ -831,10 +830,10 @@ def test_aupro_bootstrap_matches_single_calls():
     has_defect = masks.any(axis=(1, 2))
     h = pro_histograms(maps, masks, bins=300)
     rng = np.random.default_rng(0)
-    n_boot = 300  # more than one internal chunk
+    n_boot = 300  # 내부 묶음 하나(256)보다 많다
     idx = rng.integers(0, len(maps), size=(n_boot, len(maps)))
     counts = np.stack([np.bincount(row, minlength=len(maps)) for row in idx])
-    counts[7] = ~has_defect  # a resample without any region
+    counts[7] = ~has_defect  # 영역이 하나도 없는 재표본
     counts[8] = 0
     out = aupro_bootstrap(h, counts)
     assert out.shape == (n_boot,) and out.dtype == np.float64
@@ -842,9 +841,9 @@ def test_aupro_bootstrap_matches_single_calls():
     for b in range(n_boot):
         single = aupro_from_histograms(h, counts[b])
         assert (math.isnan(single) and math.isnan(out[b])) or out[b] == pytest.approx(single, abs=1e-12)
-    # rows are independent of each other and of the chunking
+    # 행은 서로, 그리고 묶음 나누기와 무관하다
     assert np.array_equal(aupro_bootstrap(h, counts[5:6]), out[5:6])
-    # against the exact value on explicitly replicated images
+    # 실제로 복제한 이미지의 정확한 값과 대조한다
     for b in (0, 1, 2):
         assert abs(out[b] - aupro(maps[idx[b]], masks[idx[b]])) < 0.01
     assert np.allclose(

@@ -1,4 +1,4 @@
-"""Stage 7 analysis on hand-made arrays (no torch, no data)."""
+"""손으로 만든 배열로 7단계 분석을 시험한다(torch도 데이터도 쓰지 않는다)."""
 
 # [파일 역할] 7단계 분석 모듈(`defect_inspect.analyze_m2ad_enrol`)을 검증하는 테스트 묶음이다. M2AD 학습
 # 시편만 쓰는 검증에서 후보(E0 그대로, E1 이미지별 중심화, E2 조명 여럿 등록, E3 둘 다) 고르기, 봉인 test의
@@ -28,7 +28,7 @@ N_SPEC = 10
 # OUTPUTS를 tmp_path로 돌려, 로컬 outputs/에 있는 실제 3-B 실행 결과가 테스트에 섞이지 않게 한다(autouse).
 @pytest.fixture(autouse=True)
 def no_real_outputs(tmp_path, monkeypatch):
-    """The stage 3-B comparison must not find the real runs of this machine."""
+    """3-B 대조가 이 PC의 실제 실행 결과를 찾으면 안 된다."""
     monkeypatch.setattr(an.paths, "OUTPUTS", tmp_path / "outputs")
 
 
@@ -41,7 +41,7 @@ INSPECTORS = ["Motor_000", "Motor_120", "Bird_000"]
 # 점수를 두고, 등록한 조명은 모두 0.5(임계값 1 아래), 못 본 조명은 flag_unseen 비율만큼 2.0(임계값 위)으로
 # 만든다. 그래서 못 본 조명의 오검출률이 대략 flag_unseen이 된다.
 def _val_arrays(candidate: str, flag_unseen: float, seed: int = 0) -> dict:
-    """Validation arrays where a share `flag_unseen` of unseen images (and none of the seen) exceed."""
+    """못 본 조명 이미지의 `flag_unseen` 비율만(본 조명은 하나도 없이) 임계값을 넘는 검증 배열."""
     rng = np.random.default_rng(seed)
     enrolled = enrolled_matrix(candidate)
     n_arms = len(enrolled)
@@ -84,11 +84,11 @@ def test_validation_counts_unseen_images_of_every_arm():
     run = _val_run({"e0": 1.0, "e2": 0.0})
     report = an.build_val_report({"p0": run}, n_boot=50)
     rows = report["methods"]["p0"]["candidates"]
-    # Every candidate has the same unseen images: 9 lights x specimens x inspectors.
+    # 모든 후보가 같은 못 본 조명 이미지를 가진다: 조명 9 x 시편 x 검사기.
     assert rows["e0"]["unseen"]["n_normal"] == rows["e2"]["unseen"]["n_normal"] == 9 * N_SPEC * 3
     assert rows["e0"]["unseen"]["fpr"] == 1.0 and rows["e2"]["unseen"]["fpr"] == 0.0
     assert rows["e0"]["seen"]["n_normal"] == N_SPEC * 3
-    assert rows["e2"]["seen"]["n_normal"] == (5 + 6) * N_SPEC * 3  # I01 counts once in each arm
+    assert rows["e2"]["seen"]["n_normal"] == (5 + 6) * N_SPEC * 3  # I01은 팔마다 한 번씩 센다
     assert report["methods"]["p0"]["pick"] == "e2"
     assert set(rows["e2"]["unseen_by_light"]) == set(ILLUMINATIONS[1:])
 
@@ -122,7 +122,7 @@ def test_validation_interval_resamples_specimens_per_category():
         an.build_val_report({"p0": bad}, n_boot=10)
 
 
-# ---------------------------------------------------------------- test
+# ---------------------------------------------------------------- 봉인 test
 
 
 # 봉인 test 흉내: 검사기마다 정상 시편 4개, 불량 시편 3개(그 가운데 하나는 모든 조명에서 결함이 보이지 않아
@@ -137,7 +137,7 @@ def _test_arrays(candidate: str, unseen_normal_score: float, ref_defect_score: f
     enrolled = enrolled_matrix(candidate)
     n_arms, n = len(enrolled), N_NORMAL + N_DEFECT
     labels = np.array([[0] * N_NORMAL + [1] * N_DEFECT] * 10, dtype=np.int8)
-    labels[:, -1] = -1  # one defect never visible
+    labels[:, -1] = -1  # 어느 조명에서도 보이지 않는 결함 하나
     scores = np.zeros((n_arms, 10, n), dtype=np.float32)
     for a in range(n_arms):
         for li in range(10):
@@ -204,7 +204,7 @@ def test_h18_supported_when_the_pick_removes_the_unseen_false_alarms():
     assert v["pick"] == "e2" and v["d_unseen_fpr"] == -1.0 and v["H18"] == "지지"
     assert v["guard_ok"] and v["improved"] and v["H19"] == "지지" and v["seen_fpr"] == 0.0
     assert report["hypotheses"] == {"H18": "지지", "H19": "지지"}
-    # The second method is reported without verdicts.
+    # 두 번째 방법은 판정 없이 보고된다.
     assert (
         "H18" not in report["methods"]["d-s"]["verdicts"]
         and "improved" not in report["methods"]["d-s"]["verdicts"]
@@ -212,7 +212,7 @@ def test_h18_supported_when_the_pick_removes_the_unseen_false_alarms():
     cand = report["methods"]["p0"]["candidates"]["e2"]
     assert cand["unseen"]["n_normal"] == 9 * N_NORMAL * 3 and cand["unseen"]["n_defect"] == 9 * 2 * 3
     assert cand["seen"]["n_normal"] == 11 * N_NORMAL * 3
-    assert cand["reference"]["n_defect"] == 2 * 2 * 3  # I01 in both arms
+    assert cand["reference"]["n_defect"] == 2 * 2 * 3  # I01은 두 팔 모두에서 센다
     assert report["methods"]["p0"]["stage3b_match"] is None
     json.dumps(an.strict_json(report))
 
@@ -224,14 +224,14 @@ def test_h18_supported_when_the_pick_removes_the_unseen_false_alarms():
 #   '기각'이다.
 # - 검증에서 E0 자신이 뽑히면 비교할 것이 없어 H18은 '기각'이고 H19는 E0의 등록 조명(I01) 오검출률로 판정한다.
 def test_the_detection_guard_and_the_other_verdicts():
-    # The pick misses every defect under I01: the false alarms go, but it is no improvement.
+    # 고른 후보가 I01의 결함을 모두 놓친다: 오검출은 사라지지만 개선이 아니다.
     report = an.build_test_report({"p0": _test_run("e3", 0.5, pick_ref_defect=0.5)}, n_boot=50)
     v = report["methods"]["p0"]["verdicts"]
     assert v["H18"] == "지지" and v["d_reference_tpr"] == -1.0 and not v["guard_ok"] and not v["improved"]
-    # Every unseen normal is still flagged, as under E0: the drop is 0, above -50 points, so H18 is rejected.
+    # 못 본 조명의 정상이 E0처럼 여전히 모두 표시된다: 감소가 0이라 -50%p보다 크므로 H18은 기각이다.
     report = an.build_test_report({"p0": _test_run("e1", 2.0)}, n_boot=50)
     assert report["methods"]["p0"]["verdicts"]["H18"] == "기각"
-    # The pick was e0 itself: nothing to compare, rejected.
+    # 고른 후보가 e0 자신이다: 비교할 것이 없어 기각.
     report = an.build_test_report({"p0": _test_run("e0", 0.0)}, n_boot=50)
     v = report["methods"]["p0"]["verdicts"]
     assert v["pick"] == "e0" and v["H18"] == "기각" and v["H19"] == "지지"
@@ -305,7 +305,7 @@ def test_visa_dev_table_pairs_the_two_runs():
     table = an.visa_dev_table(e0, e1, n_boot=100)
     assert [row["condition"] for row in table] == list(an.VISA_CONDITIONS)
     clean, bright = table[0], table[1]
-    # Same clean scores: no difference at all, and a uniform shift leaves the AUROC alone.
+    # 교란 없는 점수가 같다: 차이가 전혀 없고, 점수 전체가 같은 만큼 밀려도 AUROC는 그대로다.
     assert clean["d_auroc"] == 0.0 and clean["d_fpr"] == 0.0 and clean["d_auroc_ci"] == [0.0, 0.0]
     assert bright["e0_auroc"] == bright["e1_auroc"] and bright["e0_d_auroc_vs_clean"] == 0.0
     assert bright["e0_fpr"] > bright["e1_fpr"] and bright["d_fpr"] < 0 and bright["d_fpr_ci"][1] < 0

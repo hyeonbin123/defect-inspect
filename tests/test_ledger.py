@@ -29,8 +29,8 @@ from defect_inspect import ledger
 # 여러 프로세스 동시 기록 테스트에서 각 자식 프로세스가 실행할 코드. 준비 파일(ready)을 만든 뒤 go 파일이 생길
 # 때까지 기다렸다가 기록을 시작하므로, 모든 자식이 같은 순간에 장부를 두드리게 된다. 프로세스 시작 시간 차이
 # 때문에 사실상 순서대로 쓰는 일이 없게 하려는 장치다.
-# 자식은 잠금 대기 시간을 argv[6]으로 받는다(동시 기록 테스트의 대기 시간, 위 [주의]).
-# Child process for the multi-process test: waits for the "go" file, then appends argv[3] entries.
+# 자식은 go 파일이 생긴 뒤 argv[3]개의 기록을 덧붙이고, 잠금 대기 시간을 argv[6]으로 받는다(동시 기록
+# 테스트의 대기 시간, 위 [주의]).
 CHILD = """
 import sys, time
 from pathlib import Path
@@ -45,8 +45,8 @@ for i in range(n):
     ledger.record_test_access(path, stage=f"{tag}-{i}", config="c", commit="x")
 """
 
-# 동시 기록 테스트 두 개의 잠금 대기 시간(초). 기본 10초는 CPU가 바쁠 때 모자란 적이 있어 넉넉히 늘린다.
-# Lock wait of the two concurrent-append tests: they check that no line is lost, not how long a writer waits.
+# 동시 기록 테스트 두 개의 잠금 대기 시간(초). 이 테스트들은 줄이 빠지지 않는지를 보지, 기록자가 얼마나
+# 기다리는지를 보지 않는다. 기본 10초는 CPU가 바쁠 때 모자란 적이 있어 넉넉히 늘린다.
 CONCURRENT_LOCK_TIMEOUT_S = 120.0
 
 
@@ -54,11 +54,11 @@ CONCURRENT_LOCK_TIMEOUT_S = 120.0
 # 두 줄이 붙은 줄은 여기서 실패한다), 키 순서가 정해진 대로이고, 기대한 stage가 빠짐없이 정확히 한 번씩
 # 있으며, 기록이 끝난 뒤 잠금 파일이 남지 않았는지 본다.
 def check_ledger(path: Path, stages: set[str]) -> None:
-    """Every line is one complete JSON entry, and exactly the expected entries are there."""
+    """모든 줄이 온전한 JSON 기록 하나이고, 기대한 기록이 정확히 그만큼 있는지 확인한다."""
     raw = path.read_bytes()
     assert raw.endswith(b"\n") and b"\r" not in raw
     lines = raw.decode("utf-8").splitlines()
-    entries = [json.loads(line) for line in lines]  # a torn or merged line fails to parse
+    entries = [json.loads(line) for line in lines]  # 끊기거나 두 줄이 붙은 줄은 파싱에 실패한다
     assert all(list(e) == ["time", "commit", "stage", "config", "note"] for e in entries)
     assert len(entries) == len(stages)
     assert {e["stage"] for e in entries} == stages
@@ -88,7 +88,7 @@ def test_record_appends_one_json_line_per_call(tmp_path):
     assert b"\r" not in raw and raw.endswith(b"\n")
     lines = raw.decode("utf-8").splitlines()
     assert [json.loads(line) for line in lines] == [first, second]
-    assert "다시 잼" in lines[1]  # written as UTF-8, not \u escapes
+    assert "다시 잼" in lines[1]  # \u 이스케이프가 아니라 UTF-8 그대로 쓰였다
 
 
 # 시간대가 붙은 시각(KST)은 UTC로 바꿔 적고, 시간대가 없는 시각은 UTC로 간주하는지 본다. 장부 시각을 한
@@ -148,14 +148,14 @@ def test_git_commit_in_a_real_repository(tmp_path):
         subprocess.run(["git", *identity, *args], cwd=repo, check=True, capture_output=True)
 
     git("init", "-q")
-    assert ledger.git_commit(repo) == "unknown"  # no commit yet
+    assert ledger.git_commit(repo) == "unknown"  # 아직 커밋이 없다
     (repo / "a.txt").write_text("a\n", encoding="utf-8", newline="\n")
     git("add", "a.txt")
     git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "first")
     clean = ledger.git_commit(repo)
     assert clean != "unknown" and not clean.endswith("+dirty")
     assert len(clean) >= 7 and int(clean, 16) >= 0
-    # A file git does not track yet (a new module) changes behaviour too: it counts as dirty.
+    # git이 아직 추적하지 않는 파일(새 모듈)도 동작을 바꾸므로 dirty로 센다.
     (repo / "new_module.py").write_text("x = 1\n", encoding="utf-8", newline="\n")
     assert ledger.git_commit(repo) == clean + "+dirty"
     (repo / "new_module.py").unlink()
@@ -180,7 +180,7 @@ def test_concurrent_appends_from_threads_are_all_kept(tmp_path, monkeypatch):
             start.wait()
             for i in range(n_each):
                 ledger.record_test_access(path, stage=f"{tag}-{i}", config="c", note="동시 쓰기", commit="x")
-        except BaseException as err:  # noqa: BLE001 - reported by the assertion below
+        except BaseException as err:  # noqa: BLE001 - 아래 단언에서 보고한다
             errors.append(err)
 
     threads = [threading.Thread(target=work, args=(t,)) for t in range(n_threads)]
@@ -189,7 +189,7 @@ def test_concurrent_appends_from_threads_are_all_kept(tmp_path, monkeypatch):
     for t in threads:
         t.join()
     assert errors == []
-    check_ledger(path, {f"{t}-{i}" for t in range(n_threads) for i in range(n_each)})  # 400 lines
+    check_ledger(path, {f"{t}-{i}" for t in range(n_threads) for i in range(n_each)})  # 400줄
 
 
 # 같은 검사를 별도 프로세스 4개(60줄씩)로 한다. 실제로는 서로 다른 측정 실행(프로세스)이 같은 장부에 쓸 수
@@ -217,7 +217,7 @@ def test_concurrent_appends_from_processes_are_all_kept(tmp_path):
         while not all(r.exists() for r in ready):
             assert time.monotonic() < deadline and all(p.poll() is None for p in procs)
             time.sleep(0.01)
-        go.write_bytes(b"")  # all children start appending at the same moment
+        go.write_bytes(b"")  # 모든 자식이 같은 순간에 기록을 시작한다
         assert [p.wait(timeout=120) for p in procs] == [0] * n_procs
     finally:
         for p in procs:
@@ -233,8 +233,8 @@ def test_append_waits_for_a_lock_that_is_released(tmp_path):
     path = tmp_path / "ledger.jsonl"
     lock = ledger.lock_path(path)
     assert lock.parent == path.parent and lock != path
-    lock.write_bytes(b"")  # another writer holds the lock ...
-    release = threading.Timer(0.3, lock.unlink)  # ... and lets go after 0.3 s
+    lock.write_bytes(b"")  # 다른 기록자가 잠금을 쥐고 있다가 ...
+    release = threading.Timer(0.3, lock.unlink)  # ... 0.3초 뒤에 놓는다
     release.start()
     started = time.monotonic()
     ledger.record_test_access(path, stage="1", config="c", commit="x")
@@ -250,12 +250,12 @@ def test_held_lock_times_out_and_nothing_is_written(tmp_path, monkeypatch):
     path = tmp_path / "ledger.jsonl"
     path.write_bytes(b'{"kept": true}\n')
     lock = ledger.lock_path(path)
-    lock.write_bytes(b"")  # fresh, so it is not treated as stale
+    lock.write_bytes(b"")  # 방금 만든 잠금이라 오래된 잠금으로 보지 않는다
     monkeypatch.setattr(ledger, "LOCK_TIMEOUT_S", 0.2)
     with pytest.raises(TimeoutError, match="lock"):
         ledger.record_test_access(path, stage="1", config="c", commit="x")
     assert path.read_bytes() == b'{"kept": true}\n'
-    assert lock.exists()  # it belongs to the other writer
+    assert lock.exists()  # 다른 기록자의 잠금이므로 남아 있어야 한다
 
 
 # 기록 도중 죽은 프로세스가 남긴 오래된 잠금 파일(수정 시각을 LOCK_STALE_S의 두 배 전으로 돌림)은 지우고
@@ -266,7 +266,7 @@ def test_stale_lock_is_broken(tmp_path):
     lock = ledger.lock_path(path)
     lock.write_bytes(b"")
     old = time.time() - 2 * ledger.LOCK_STALE_S
-    os.utime(lock, (old, old))  # left behind by a writer that crashed
+    os.utime(lock, (old, old))  # 비정상 종료한 기록자가 남긴 잠금
     assert ledger.LOCK_STALE_S == 60 and ledger.LOCK_TIMEOUT_S == 10
     ledger.record_test_access(path, stage="1", config="c", commit="x")
     check_ledger(path, {"1"})
@@ -295,7 +295,7 @@ def test_entry_that_cannot_be_serialised_writes_nothing(tmp_path):
 # 줄에 이어 붙지 않는지 본다. 끊긴 줄은 그대로 두고(지우지 않음) 새 기록은 독립된 한 줄로 읽혀야 한다.
 def test_entry_is_not_glued_to_a_torn_last_line(tmp_path):
     path = tmp_path / "ledger.jsonl"
-    path.write_bytes(b'{"time": "cut off')  # a previous writer died in the middle of its line
+    path.write_bytes(b'{"time": "cut off')  # 이전 기록자가 줄 중간에서 죽었다
     entry = ledger.record_test_access(path, stage="1", config="c", commit="x")
     raw = path.read_bytes()
     assert raw.endswith(b"\n")
@@ -307,7 +307,7 @@ def test_entry_is_not_glued_to_a_torn_last_line(tmp_path):
 # status를 보면 추적하지 않는 파일로 잡혀 깨끗한 코드도 '+dirty'로 잘못 기록된다. 가짜 git_commit이 불린 순간
 # 잠금 파일이 있었는지를 seen에 남겨 확인한다.
 def test_git_state_is_read_before_the_lock_is_taken(tmp_path, monkeypatch):
-    # The lock file sits next to the ledger inside the repository: `git status` must not see it.
+    # 잠금 파일은 저장소 안 장부 옆에 생기므로 `git status`가 그것을 보면 안 된다.
     path = tmp_path / "ledger.jsonl"
     seen = []
 

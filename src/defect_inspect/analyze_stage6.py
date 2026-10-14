@@ -1,18 +1,18 @@
-"""Stage 6: the CPU latency gate, the pick of the DMS model on dev, and H16 / H17 on the sealed test.
+"""6단계: CPU 지연 관문, dev에서의 DMS 모델 선택, 봉인 테스트의 H16·H17 판정.
 
-Rules as registered in docs/experiments.md (stage 6):
+docs/experiments.md(6단계)에 등록한 규칙:
 
-- gate: an input size stays a training candidate when its untrained model's CPU latency (resize +
-  inference, onnxruntime FP32) is at most 200 ms. Trained sizes: those of 252/280/308 that pass; when
-  308 fails and 294 passes, 294 takes its place. The CAR model goes with 280, or with 252 when 280 fails.
-- pick: among the trained models (all within the budget), the highest dev mean image AUROC (torch,
-  fp32 scoring); ties go to the smaller input.
-- H16 (as H15): (a) CPU latency of the trained pick <= 200 ms, (b) pooled false alarm rate of the ONNX
-  FP32 pipeline at its own hold-out thresholds (alpha 5%) <= 6%, (c) its mean image AUROC at most 2.0
-  points below DM's (stage 2, 96.79). All three: supported.
-- H17: ONNX FP32 AUROC of the pick minus that of the serving PatchCore (stage 4, ONNX FP32), paired
-  stratified bootstrap: supported when the interval excludes 0 from above and the difference is at least
-  1.0 point; rejected when the interval lies below 0; otherwise undecided.
+- 관문(gate): 학습 전 모델의 CPU 지연(리사이즈 + 추론, onnxruntime FP32)이 200ms 이하인 입력 크기만
+  학습 후보로 남는다. 학습하는 크기는 252/280/308 가운데 통과한 것이고, 308이 실패하고 294가 통과하면
+  294가 그 자리를 대신한다. CAR 모델은 280으로, 280이 실패하면 252로 학습한다.
+- 선택(pick): 학습한 모델(모두 예산 안) 가운데 dev 평균 이미지 AUROC(torch, fp32 채점)가 가장 높은 것.
+  같으면 입력이 작은 쪽.
+- H16(H15와 같은 형식): (가) 학습한 선택 모델의 CPU 지연 ≤ 200ms, (나) ONNX FP32 파이프라인 자신의
+  홀드아웃 임계값(alpha 5%)에서 합산 오검출률 ≤ 6%, (다) 평균 이미지 AUROC가 DM(2단계, 96.79)보다 2.0%p
+  넘게 낮지 않음. 셋 다 만족하면 지지.
+- H17: 선택 모델의 ONNX FP32 AUROC − 서빙 PatchCore(4단계, ONNX FP32)의 AUROC, 짝지은 층화 부트스트랩.
+  구간이 0보다 위에 있고(0을 포함하지 않고) 차이가 1.0%p 이상이면 지지, 구간이 0보다 아래면 기각, 그 밖에는
+  판정 불가.
 """
 
 # [파일 역할] 6단계(CPU 서빙용 Dinomaly ViT-S) 분석 모듈이다. 하위 명령 네 개가 6단계의 순서와 같다.
@@ -51,12 +51,12 @@ H17_MIN_EFFECT = 0.01
 ALPHA = 0.05
 
 
-# 지연 파일에서 `<이름><접미사>` 항목의 등록된 CPU 지연(리사이즈 + 추론, bench가 쓴 total_with_resize_ms)을
-# 읽는다. 기본 접미사 -untrained는 관문 1의 학습 전 모델, 빈 접미사는 학습한 아티팩트다. 재지 않았으면 None.
+# 값은 bench가 쓴 total_with_resize_ms다. 기본 접미사 -untrained는 관문 1의 학습 전 모델, 빈 접미사는 학습한
+# 아티팩트다.
 def gate_latency(
     latency: dict, name: str, suffix: str = "-untrained", precision: str = "fp32"
 ) -> float | None:
-    """Registered CPU latency (resize + inference) of entry `<name><suffix>`, or None when not measured."""
+    """지연 파일에서 `<name><suffix>` 항목의 등록된 CPU 지연(리사이즈 + 추론)을 읽는다. 재지 않았으면 None."""
     entry = latency.get(name + suffix, {}).get(f"cpu_{precision}")
     return None if entry is None else float(entry["total_with_resize_ms"])
 
@@ -66,7 +66,7 @@ def gate_latency(
 # blocked로 표시해 단계를 멈춘다. 결과: 네 크기 모두 통과(부하 상태에서 138.8~197.5ms)해 dms-252, 280, 308,
 # 280-car를 학습했다.
 def gate(latency: dict, budget_ms: float = CPU_BUDGET_MS) -> dict:
-    """Which DMS models to train, from the latency of the untrained models (`dms-<size>-untrained`)."""
+    """학습 전 모델(`dms-<크기>-untrained`)의 지연으로 어떤 DMS 모델을 학습할지 정한다."""
     ms = {size: gate_latency(latency, f"dms-{size}") for size in GATE_SIZES}
     missing = [size for size, value in ms.items() if value is None]
     if missing:
@@ -97,7 +97,7 @@ def _size(name: str) -> int:
 # dev 선택 규칙: CPU 지연(관문 1 값) 200ms 이하 가운데 dev 평균 이미지 AUROC가 가장 높은 것, 같으면 입력이
 # 작은 쪽. 정렬 키 (−AUROC, 크기)로 한 번에 표현한다. dev 결함으로 고르므로 "라벨 20장 사용"이다(6단계 규칙).
 def choose(rows: list[dict], budget_ms: float = CPU_BUDGET_MS) -> dict | None:
-    """The pick among rows with `name`, `cpu_ms` and `macro_image_auroc` (None: nothing within budget)."""
+    """`name`, `cpu_ms`, `macro_image_auroc`를 가진 행들에서 하나를 고른다(예산 안이 없으면 None)."""
     within = [r for r in rows if r.get("cpu_ms") is not None and r["cpu_ms"] <= budget_ms]
     if not within:
         return None
@@ -110,10 +110,10 @@ def choose(rows: list[dict], budget_ms: float = CPU_BUDGET_MS) -> dict | None:
     }
 
 
-# H17의 비교 대상: 4단계 서빙 PatchCore(wrn50-256 코어셋 1%)를 onnxruntime CPU FP32로 채점한 run_export_eval
-# 점수(정밀도 폴더 하나)를 compare.MethodRun으로 읽는다. 보정은 교차 적합 점수다.
+# H17의 비교 대상이다. 서빙 구성은 wrn50-256 코어셋 1%이고, compare.MethodRun으로 읽는다. 보정은 교차 적합
+# 점수다.
 def load_patchcore_cpu(run_dir: Path, name: str = "serving-patchcore") -> compare.MethodRun:
-    """The ONNX FP32 scores of the stage 4 serving PatchCore (`run_export_eval`, one precision folder)."""
+    """4단계 서빙 PatchCore의 ONNX FP32 점수(`run_export_eval`의 정밀도 폴더 하나)를 읽는다."""
     run = compare.MethodRun(name, "crossfit")
     for path in sorted(Path(run_dir).glob("*.npz")):
         with np.load(path) as z:
@@ -133,12 +133,11 @@ def _read_json(path: Path) -> dict:
         return json.load(f)
 
 
-# dev 표: 후보마다 평균 이미지 AUROC와 구간, AUPRO, 합산 FPR@TPR95, 관문 1 지연, 범주별 AUROC. 모든 후보가
-# 같은 dev 이미지인지 확인하고 부트스트랩 한 벌을 공유한다. 선택(choose)과 관문 판정도 같이 적는다. 같은
-# 크기의 CAR 켬·끔 쌍이 있으면 그 차이와 짝지은 구간을 car_effect로 적는다(판정하지 않는 보조, 결과 +0.80%p
-# [+0.07, +1.57]).
+# 표의 칸: 후보마다 평균 이미지 AUROC와 구간, AUPRO, 합산 FPR@TPR95, 관문 1 지연, 범주별 AUROC. 모든 후보가
+# 같은 dev 이미지인지 확인하고 부트스트랩 한 벌을 공유한다. 관문 판정도 같이 적는다. CAR 차이는 car_effect로
+# 적는다(결과 +0.80%p [+0.07, +1.57]).
 def dev_report(run_dirs: list[Path], latency: dict) -> dict:
-    """Dev table of the trained candidates, the pick, and the CAR pair difference (no verdict)."""
+    """학습한 후보들의 dev 표, 선택, 같은 크기 CAR 켬·끔 쌍의 차이(판정 없음)를 만든다."""
     runs = {}
     for run_dir in run_dirs:
         # 실행 이름은 run.json의 설정 이름(dms-280 등)이고, 관문 1 지연 항목(`<이름>-untrained`)의 키와
@@ -187,11 +186,11 @@ def _pooled_rates(run: compare.MethodRun, thresholds: dict[str, float]) -> dict:
     return {"fpr": fp / n_neg, "tpr": tp / n_pos, "fp": fp, "n_neg": n_neg, "tp": tp, "n_pos": n_pos}
 
 
-# H16 판정(점 추정값으로): (가) 학습한 아티팩트의 CPU 지연 ≤ 200ms, (나) ONNX CPU FP32 자신의 홀드아웃
-# 임계값에서 합산 오검출률 ≤ 6%, (다) ONNX CPU FP32 평균 AUROC ≥ DM − 2.0%p. 셋 다 만족하면 지지, 하나라도
-# 어긋나면 기각하고 어긋난 조건을 적는다. 지연을 재지 않았으면 (가)를 만족하지 않은 것으로 본다.
+# 조건: (가) 학습한 아티팩트의 CPU 지연 ≤ 200ms, (나) ONNX CPU FP32 자신의 홀드아웃 임계값에서 합산 오검출률
+# ≤ 6%, (다) ONNX CPU FP32 평균 AUROC ≥ DM − 2.0%p. 셋 다 만족하면 지지, 하나라도 어긋나면 기각하고 어긋난
+# 조건을 적는다. 지연을 재지 않았으면 (가)를 만족하지 않은 것으로 본다.
 def h16(onnx_summary: dict, cpu_ms: float | None, dm_auroc: float) -> dict:
-    """The registered three conditions of H16 on point estimates."""
+    """등록한 H16의 세 조건을 점 추정값으로 판정한다."""
     fpr = onnx_summary["fixed_threshold"]["fpr"]
     auroc = onnx_summary["macro_image_auroc"]
     conditions = {
@@ -216,7 +215,7 @@ def h17(point: float, samples: np.ndarray) -> dict:
     return {"diff": float(point), "ci": [lo, hi], "verdict": verdict}
 
 
-# 봉인 테스트 리포트. 판정은 규칙대로 ONNX CPU FP32 점수로 하고, torch(GPU fp32) 실행에서는 AUPRO·픽셀
+# 판정은 규칙대로 ONNX CPU FP32 점수로 하고, torch(GPU fp32) 실행에서는 AUPRO·픽셀
 # AUROC·FPR@TPR95 같은 맵 지표를 가져온다(ONNX 채점은 맵을 저장하지 않는다). 세 실행(ONNX, torch, PatchCore)이
 # 같은 봉인 테스트 이미지인지 확인한 뒤 ONNX 기준으로 부트스트랩 한 벌을 만든다.
 # 함께 적는 것(판정 없음): torch 점수로 정한 임계값을 ONNX 점수에 그대로 썼을 때의 비율, ONNX와 torch의 이미지
@@ -230,7 +229,7 @@ def sealed_report(
     cpu_ms: float | None,
     dm_auroc: float,
 ) -> dict:
-    """H16 and H17 for the pick, with the numbers registered to go next to them."""
+    """봉인 테스트 리포트: 선택 모델의 H16·H17 판정과, 그 옆에 함께 적기로 등록한 수치."""
     name = _read_json(Path(onnx_dir) / "run.json")["config"]["name"]
     onnx = compare.load_common(Path(onnx_dir), f"{name}-onnx-fp32")
     torch_run = compare.load_common(Path(torch_dir), f"{name}-torch")
@@ -286,17 +285,13 @@ def sealed_report(
     }
 
 
-# dev 보조 표(판정 없음). 교란 없는 실행의 겹 0 정상 점수로 범주별 임계값을 정하고, 같은 임계값으로 교란 조건
-# 실행(shift-1, blur-2)의 비율을 센다. dev 절차에서는 겹 0 정상이 평가 정상이기도 해서 교란 없는 행의
-# 오검출률은 정의상 5% 안팎이고, 교란 행은 같은 정상이 이미지가 바뀐 뒤 몇 장 임계값을 넘는지를 보여
-# 준다(docstring). 결과: 흐림 σ 1.0에서 28.50%. 동적 INT8 실행이 있으면 FP32 대비 AUROC 차이와 짝지은 구간을
-# 적는다(결과 −1.44%p).
+# 교란 조건 실행은 shift-1, blur-2다. 결과: 흐림 σ 1.0에서 28.50%. 동적 INT8 실행이 있으면 FP32 대비 AUROC
+# 차이와 짝지은 구간을 적는다(결과 −1.44%p).
 def supplement_report(clean_dir: Path, condition_dirs: list[Path], int8_dir: Path | None = None) -> dict:
-    """Dev, no verdict: conditions at thresholds from the clean fold-0 normal scores, and dynamic INT8.
+    """dev 보조 표(판정 없음): 교란 없는 겹 0 정상 점수로 정한 임계값에서의 교란 조건 비율과 동적 INT8.
 
-    In the dev protocol the fold-0 normals are the evaluation normals, so the clean row's false alarm
-    rate is about 5% by construction; the rows under a condition show how many of the same normals cross
-    those thresholds once the images change.
+    dev 절차에서는 겹 0 정상이 곧 평가 정상이라, 교란 없는 행의 오검출률은 만드는 방식상 5% 안팎이다.
+    교란 조건 행은 이미지가 바뀐 뒤 같은 정상 가운데 몇 장이 그 임계값을 넘는지를 보여 준다.
     """
     clean = compare.load_common(Path(clean_dir), "clean")
     thresholds = {}
@@ -352,32 +347,32 @@ def main(argv: list[str] | None = None) -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     default_latency = paths.REPORTS / "stage6" / "latency.json"
 
-    g = commands.add_parser("gate", help="training candidates from the untrained latency")
+    g = commands.add_parser("gate", help="학습 전 모델의 지연으로 학습 후보를 정한다")
     g.add_argument("--latency", type=Path, default=default_latency)
     g.add_argument("--out", type=Path, default=paths.REPORTS / "stage6" / "gate.json")
 
-    d = commands.add_parser("dev", help="dev table, pick and CAR difference")
+    d = commands.add_parser("dev", help="dev 표, 선택, CAR 차이")
     d.add_argument(
-        "--runs", type=Path, nargs="+", required=True, help="run_dinomaly eval --protocol dev runs"
+        "--runs", type=Path, nargs="+", required=True, help="run_dinomaly eval --protocol dev 실행 폴더들"
     )
     d.add_argument("--latency", type=Path, default=default_latency)
     d.add_argument("--out", type=Path, default=paths.REPORTS / "stage6" / "dev.json")
 
-    t = commands.add_parser("test", help="H16 and H17 of the pick")
-    t.add_argument("--torch", type=Path, required=True, help="run_dinomaly eval --protocol test run")
-    t.add_argument("--onnx", type=Path, required=True, help="dinomaly_serving score --protocol test run")
+    t = commands.add_parser("test", help="선택 모델의 H16과 H17")
+    t.add_argument("--torch", type=Path, required=True, help="run_dinomaly eval --protocol test 실행")
+    t.add_argument("--onnx", type=Path, required=True, help="dinomaly_serving score --protocol test 실행")
     t.add_argument(
         "--patchcore",
         type=Path,
         default=paths.OUTPUTS / "export-serving-wrn50-256-r0.01-test" / "fp32",
-        help="stage 4 CPU FP32 scores of the serving PatchCore",
+        help="서빙 PatchCore의 4단계 CPU FP32 점수",
     )
     t.add_argument("--latency", type=Path, default=default_latency)
-    t.add_argument("--latency-key", required=True, help="entry of the trained pick, e.g. dms-280")
+    t.add_argument("--latency-key", required=True, help="학습한 선택 모델의 지연 항목 이름, 예: dms-280")
     t.add_argument("--stage2", type=Path, default=paths.REPORTS / "stage2" / "compare-test.json")
     t.add_argument("--out", type=Path, default=paths.REPORTS / "stage6" / "test.json")
 
-    s = commands.add_parser("supplement", help="dev conditions and dynamic INT8 of the pick (no verdict)")
+    s = commands.add_parser("supplement", help="선택 모델의 dev 교란 조건과 동적 INT8(판정 없음)")
     s.add_argument("--clean", type=Path, required=True)
     s.add_argument("--conditions", type=Path, nargs="*", default=[])
     s.add_argument("--int8", type=Path, default=None)

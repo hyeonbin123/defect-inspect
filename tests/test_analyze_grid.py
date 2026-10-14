@@ -1,7 +1,7 @@
-"""analyze_grid on synthetic grid runs (numpy only: this file runs in the torch-free CI environment).
+"""합성 격자 실행으로 analyze_grid를 시험한다(numpy만 쓴다: 이 파일은 torch 없는 CI 환경에서 돈다).
 
-Every number of `grid_table` is recomputed from the registered rules with code that shares nothing with
-compare.py except the random draws (seed 0, normals then defects of each category from one generator).
+`grid_table`의 모든 수치를 등록한 규칙에서 다시 계산한다. 그 코드는 난수 추출 방식(seed 0, 범주마다 정상
+다음 결함 순서로 한 생성기에서 뽑기) 말고는 compare.py와 아무것도 공유하지 않는다.
 """
 
 # [파일 역할] analyze_grid.py(4단계: PatchCore 설정 × 코어셋 비율 격자 표, CPU 지연 붙이기, 서빙 구성 선택)를
@@ -27,7 +27,7 @@ from defect_inspect import analyze_grid, compare, paths
 # 합성 격자의 크기: 부트스트랩 200번, 범주 두 개(평가 정상·결함·풀 정상 장수가 서로 다름), 비율 세 개(10%, 1%,
 # 0.1%).
 N_BOOT = 200
-CATS = {"a": (31, 12, 90), "b": (45, 10, 130)}  # evaluation normals, defects, pool normals
+CATS = {"a": (31, 12, 90), "b": (45, 10, 130)}  # 평가 정상, 결함, 풀 정상
 RATIOS = [0.1, 0.01, 0.001]
 
 
@@ -36,7 +36,7 @@ RATIOS = [0.1, 0.01, 0.001]
 # 비율" 차이가 음수로 나오게 한다. 점수를 소수 한 자리로 반올림해 동점을 많이 만들어 동점 처리 규칙까지
 # 시험한다. listed로 맨 위 run.json에 적을 비율을 따로 줄 수 있다(남은 옛 폴더 시험용).
 def write_grid(root, setting, ratios, seed, cats=CATS, listed=None, protocol="dev"):
-    """A folder in the run_grid layout. Smaller ratios separate normals and defects less well."""
+    """run_grid 구조의 폴더. 비율이 작을수록 정상과 결함이 덜 갈린다."""
     out = root / f"grid-{setting}-{protocol}"
     rng = np.random.default_rng(seed)
     base = {
@@ -48,7 +48,7 @@ def write_grid(root, setting, ratios, seed, cats=CATS, listed=None, protocol="de
         noise = np.random.default_rng(1000 * seed + k)
         for c, (n, p, m) in cats.items():
             neg, pos, cal = base[c]
-            # One decimal: many ties between normals, defects and the thresholds.
+            # 소수 한 자리: 정상, 결함, 임계값 사이에 동점이 많이 생긴다.
             scores = np.round(np.concatenate([neg, pos - 0.3 * k]) + noise.normal(0, 0.2 * k, n + p), 1)
             np.savez(
                 folder / f"{c}.npz",
@@ -111,7 +111,7 @@ def _reference(run_dir, ratios, alpha):
             n_neg, n_pos = n_neg + len(neg), n_pos + len(pos)
             fp_b += (neg > thr)[ni].sum(axis=1)
             tp_b += (pos > thr)[pi].sum(axis=1)
-            # The highest threshold that still catches 95% of the defects, rule score >= threshold.
+            # 결함의 95%를 여전히 잡는 가장 높은 임계값. 판정 규칙은 점수 >= 임계값.
             t95 = np.sort(pos)[::-1][math.ceil(Fraction("0.95") * len(pos)) - 1]
             fp95 += (neg >= t95).sum()
         boots[ratio] = boot
@@ -165,11 +165,11 @@ def test_rows_match_the_registered_rules(grids, alpha):
             assert row["macro_aupro"] == pytest.approx(ref["macro_aupro"])
             if row["ratio"] == 0.1:
                 assert "vs_largest_ratio" not in row
-            else:  # smaller ratio minus the largest one, from the same draws
+            else:  # 같은 추출로 낸 "작은 비율 − 가장 큰 비율"
                 d = row["vs_largest_ratio"]
                 assert d["diff"] == pytest.approx(ref["diff"], abs=1e-12) and d["diff"] < 0
                 np.testing.assert_allclose(d["ci"], ref["diff_ci"], rtol=0, atol=1e-12)
-    assert rows[0]["fpr"] != rows[0]["tpr"]  # the reference would not notice a swap of equal numbers
+    assert rows[0]["fpr"] != rows[0]["tpr"]  # 같은 숫자끼리 바뀌면 독립 구현이 알아채지 못한다
 
 
 # 격자 표의 행이 2단계 비교에 쓰는 compare.summarize와 같은 숫자를 싣는지 본다. 단계마다 같은 지표를 다른
@@ -202,7 +202,7 @@ def test_every_row_uses_the_same_draws(grids):
 # 호출을 기록). 행의 구간과 짝지은 차이가 같은 표본을 쓰고, 느린 재표집을 반복하지 않는다는 _SharedBootstrap의
 # 약속을 지킨다.
 def test_each_run_is_resampled_once(grids, monkeypatch):
-    """The interval of a row and the paired differences share one bootstrap of the macro AUROC."""
+    """행의 구간과 짝지은 차이가 평균 AUROC의 부트스트랩 하나를 같이 쓴다."""
     runs = {"wrn50-256": analyze_grid.load_grid(grids["wrn50-256"])}
     calls = []
     real = compare.Bootstrap.macro_auroc
@@ -238,10 +238,10 @@ def test_runs_over_other_images_are_refused(grids, tmp_path):
 # load_grid는 맨 위 run.json에 적힌 비율만 읽어야 한다. 이전 호출이 남긴 r0.05 폴더(옛 결과)를 끼워 넣지
 # 않는지, run.json이 없는(끝나지 않은) 실행은 FileNotFoundError로 거절하는지 본다.
 def test_load_grid_reads_only_what_the_last_call_wrote(tmp_path):
-    out = write_grid(tmp_path, "wrn50-256", [0.1, 0.05, 0.01], 3, listed=[0.1, 0.01])  # r0.05 is stale
+    out = write_grid(tmp_path, "wrn50-256", [0.1, 0.05, 0.01], 3, listed=[0.1, 0.01])  # r0.05는 옛 결과
     runs = analyze_grid.load_grid(out)
     assert list(runs) == [0.1, 0.01] and runs[0.01].name == "wrn50-256-r0.01"
-    (out / "run.json").unlink()  # an unfinished call has no run.json
+    (out / "run.json").unlink()  # 끝나지 않은 호출에는 run.json이 없다
     with pytest.raises(FileNotFoundError):
         analyze_grid.load_grid(out)
 
@@ -251,7 +251,7 @@ def test_load_grid_reads_only_what_the_last_call_wrote(tmp_path):
 LATENCY = {
     "wrn50-256-r0.01": {"resize_ms": 31.0, "cpu_fp32": {"total_ms": 180.0}, "gpu_fp16": {"total_ms": 9.0}},
     "wrn50-256-r0.001": {"resize_ms": 31.0, "gpu_fp16": {"total_ms": 8.0}},
-    "wrn50-256": {"resize_ms": 1.0, "cpu_fp32": {"total_ms": 1.0}},  # no ratio: the key of no row
+    "wrn50-256": {"resize_ms": 1.0, "cpu_fp32": {"total_ms": 1.0}},  # 비율 없음: 어느 행의 키도 아니다
 }
 
 
@@ -262,7 +262,7 @@ def test_cpu_latency_is_resize_plus_inference():
     analyze_grid.merge_latency(rows, LATENCY)
     assert "latency" not in rows[0] and "cpu_ms" not in rows[0]
     assert rows[1]["latency"] == LATENCY["wrn50-256-r0.01"] and rows[1]["cpu_ms"] == 211.0
-    # Only the GPU was timed for this key: there is no CPU latency to report.
+    # 이 키는 GPU만 쟀다: 보고할 CPU 지연이 없다.
     assert rows[2]["latency"]["gpu_fp16"]["total_ms"] == 8.0 and "cpu_ms" not in rows[2]
 
 
@@ -302,11 +302,11 @@ def _row(key, auroc, bank_rows, cpu_ms=None):
 #   없으면 None
 def test_serving_choice_follows_the_registered_rule():
     rows = [
-        _row("a-r0.1", 0.95, 1000, 200.5),  # the most accurate one is over the budget
-        _row("a-r0.01", 0.93, 100, 200.0),  # exactly the budget counts as within
-        _row("b-r0.1", 0.93, 50, 120.0),  # same AUROC as a-r0.01: the smaller bank wins
+        _row("a-r0.1", 0.95, 1000, 200.5),  # 가장 정확하지만 예산을 넘는다
+        _row("a-r0.01", 0.93, 100, 200.0),  # 정확히 예산이면 예산 안으로 친다
+        _row("b-r0.1", 0.93, 50, 120.0),  # a-r0.01과 AUROC가 같다: 뱅크가 작은 쪽이 이긴다
         _row("b-r0.01", 0.90, 5, 60.0),
-        _row("c-r0.1", 0.99, 10),  # no CPU latency (e.g. the export failed): not a candidate
+        _row("c-r0.1", 0.99, 10),  # CPU 지연 없음(예: 내보내기 실패): 후보가 아니다
     ]
     pick = analyze_grid.choose_serving(rows)
     assert pick["key"] == "b-r0.1" and pick["setting"] == "b" and pick["ratio"] == 0.1
@@ -314,7 +314,7 @@ def test_serving_choice_follows_the_registered_rule():
     assert pick["candidates"] == ["a-r0.01", "b-r0.1", "b-r0.01"] and pick["unmeasured"] == ["c-r0.1"]
     assert analyze_grid.choose_serving(list(reversed(rows)))["key"] == "b-r0.1"
 
-    # Nothing within the budget: the fastest configuration (H15 is then rejected).
+    # 예산 안이 하나도 없다: 가장 빠른 구성을 고른다(이때 H15는 기각).
     pick = analyze_grid.choose_serving(rows, budget_ms=50.0)
     assert pick["key"] == "b-r0.01" and pick["within_budget"] is False and pick["candidates"] == []
     assert analyze_grid.choose_serving([_row("c-r0.1", 0.99, 10)]) is None
@@ -329,7 +329,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(compare, "N_BOOT", 50)
     write_grid(tmp_path / "outputs", "dinov2_vits14-392", [0.1, 0.01], 2)
     write_grid(tmp_path / "outputs", "wrn50-256", [0.1, 0.01], 1)
-    write_grid(tmp_path / "outputs", "wrn50-32", [0.1], 3)  # not a registered setting
+    write_grid(tmp_path / "outputs", "wrn50-32", [0.1], 3)  # 등록하지 않은 설정
     return tmp_path
 
 
@@ -350,10 +350,10 @@ def test_cli_defaults_to_the_registered_settings_that_were_run(world, capsys):
     out, err = capsys.readouterr()
     report = _report(world)
     keys = ["wrn50-256-r0.1", "wrn50-256-r0.01", "dinov2_vits14-392-r0.1", "dinov2_vits14-392-r0.01"]
-    assert [r["key"] for r in report["rows"]] == keys  # the registered order, not the folder order
+    assert [r["key"] for r in report["rows"]] == keys  # 폴더 순서가 아니라 등록 순서
     assert report["protocol"] == "dev" and report["alpha"] == 0.05
     assert report["rows"][1]["cpu_ms"] == 211.0 and "cpu_ms" not in report["rows"][0]
-    # Only one row has a CPU latency, and it is over the budget.
+    # CPU 지연이 있는 행은 하나뿐이고, 그 행은 예산을 넘는다.
     serving = report["serving"]
     assert serving["key"] == "wrn50-256-r0.01" and serving["within_budget"] is False
     assert serving["unmeasured"] == [k for k in keys if k != "wrn50-256-r0.01"]
@@ -378,7 +378,7 @@ def test_cli_with_explicit_settings_and_without_latency(world, capsys):
 # 끝난 실행이 하나도 없는 절차, --settings에 실행이 없는 설정이 섞인 경우, 지정한 지연 파일이 없는 경우는 모두
 # 명령행 오류로 멈춰야 한다(빠진 수치로 조용히 표를 만들지 않게).
 def test_cli_refuses_missing_runs_and_a_missing_latency_file(world):
-    with pytest.raises(SystemExit):  # no grid run of the test protocol at all
+    with pytest.raises(SystemExit):  # test 절차의 격자 실행이 하나도 없다
         analyze_grid.main(["--protocol", "test", "--no-write"])
     with pytest.raises(SystemExit):
         analyze_grid.main(["--protocol", "dev", "--settings", "wrn50-256", "wrn50-384", "--no-write"])

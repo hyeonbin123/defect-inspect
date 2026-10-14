@@ -1,16 +1,15 @@
-"""Figures of README.md, redrawn from the committed report files.
+"""README.md의 그림을 커밋된 리포트 파일에서 다시 그린다.
 
     python -m defect_inspect.figures [--reports reports] [--out docs/figures] [--only NAME ...]
     python -m defect_inspect.figures --examples RUN_DIR [--allow-test] [--out docs/figures] [--name examples]
 
-Each `fig_<name>` takes report data that is already loaded and returns a matplotlib Figure. `main` loads
-the report files, skips the figures whose inputs are missing, writes one PNG per figure and exits with an
-error at the end when a report could not be read or drawn (the other figures are still written). With
-`--examples`, `main` draws only the panel of example inspections of one evaluation run (`examples`) from
-the scores and maps the run saved, and exits with code 2 when the run cannot give it. Nothing here
-reads the clock or draws random numbers, and the PNG metadata carries no version string, so two runs on
-the same reports write identical bytes. matplotlib (dependency group `figures`) is imported inside the
-functions: importing this module needs the base packages only.
+`fig_<이름>` 함수는 이미 읽은 리포트 데이터를 받아 matplotlib Figure를 돌려준다. `main`은 리포트 파일을 읽고,
+입력이 없는 그림은 건너뛰고, 그림마다 PNG 하나를 쓴다. 리포트를 읽거나 그리지 못한 것이 있으면 다른 그림은
+그대로 쓰고 끝에 오류로 끝난다. `--examples`를 주면 `main`은 평가 실행 하나가 저장한 점수와 맵으로 예시 검사
+패널(`examples`)만 그리고, 그 실행으로 패널을 만들 수 없으면 코드 2로 끝난다. 여기서는 시계를 읽거나 난수를
+뽑지 않고 PNG 메타데이터에 버전 문자열을 넣지 않으므로, 같은 리포트로 두 번 그리면 같은 바이트가 나온다.
+matplotlib(`figures` 의존성 그룹)은 함수 안에서 import하므로, 이 모듈을 import하는 데는 기본 패키지만 있으면
+된다.
 """
 
 # [파일 역할] README 그림(docs/figures/*.png)을 커밋된 리포트 파일(reports/)에서 다시 그리는 모듈이다. 리포트
@@ -73,16 +72,14 @@ if TYPE_CHECKING:
 # 그림 공통 크기·색: 150 DPI, 가로 12인치(1,800px). 흰 배경과 먹색 계열 글자·축·격자 색을 상수로 두어 모든
 # 그림이 같은 모양이 되게 한다.
 DPI = 150
-WIDTH = 12.0  # inches: 1800 px at DPI
+WIDTH = 12.0  # 인치: DPI 150에서 1,800px
 SURFACE = "#ffffff"
 INK, INK_2, MUTED = "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS, WASH = "#e1e0d9", "#c3c2b7", "#f0efec"
-SMALL = 8.5  # font size of notes inside the panels
+SMALL = 8.5  # 패널 안 메모 글자 크기
 
 # 방법마다 라벨·색·마커를 하나로 고정해 모든 그림에서 같은 방법이 같은 모양으로 나온다. 색각 이상에서도
-# 구별되도록 네 색을 함께 점검했고, 마커 모양으로도 방법을 구별할 수 있다(기존 영어 주석).
-# Label, colour and marker of each method, the same in every figure. The four colours were checked as a
-# set for colour-vision deficiencies; the marker shape repeats the identity without colour.
+# 구별되도록 네 색을 한 묶음으로 점검했고, 마커 모양으로도 색 없이 방법을 구별할 수 있다.
 METHODS: dict[str, tuple[str, str, str]] = {
     "p0": ("PatchCore WRN-50", "#2a78d6", "o"),
     "d-s": ("PatchCore DINOv2 ViT-S", "#eb6834", "s"),
@@ -94,7 +91,7 @@ SUPERVISED = ("Supervised head", "#4a3aa7", "D")
 STRATEGIES = {"resubstitution": "Resubstitution", "holdout": "Hold-out", "crossfit": "Cross-fit"}
 PROTOCOLS = {"test": "VisA test split", "dev": "VisA dev split"}
 BACKBONES = {"wrn50": ("WRN-50", "#2a78d6"), "dinov2_vits14": ("DINOv2 ViT-S", "#eb6834")}
-_SPARE_COLOURS = ("#1baf7a", "#4a3aa7")  # backbones that BACKBONES does not know, in order of appearance
+_SPARE_COLOURS = ("#1baf7a", "#4a3aa7")  # BACKBONES에 없는 백본에 나오는 순서대로 주는 색
 # 교란 종류의 축 라벨. 흐림 σ와 이동은 픽셀 단위다.
 _KINDS = {
     "brightness": "brightness",
@@ -106,22 +103,19 @@ _KINDS = {
 # _SCALED: 입력 크기에 따라 강도가 바뀌는 교란(흐림 σ, 이동)을 conditions.strength로 직접 알아낸다(512px과
 # 256px의 값이 다르면 크기 환산 대상). 이 교란의 눈금은 256 격자 값으로 보이고 각주에 다른 입력 크기의 실제
 # 값을 적는다. 커밋 aad3ce1에서 읽기 쉽게 고친 부분이다.
-# The kinds whose strength `conditions.strength` scales with the input size (blur σ and shift): their
-# ticks show the value on the 256 px grid, and a footnote says what the other input sizes got.
 _SCALED = tuple(
     kind
     for kind in LEVELS
     if strength(f"{kind}-1", 2 * REFERENCE_SIZE) != strength(f"{kind}-1", REFERENCE_SIZE)
 )
-# 방법별 입력 크기(P0 256, D-S 448, Dinomaly 392). 3단계 교란은 이 크기로 줄인 이미지에 걸었다.
-# Input size of each method in stage 3 (the images were perturbed at this size).
+# 3단계의 방법별 입력 크기(P0 256, D-S 448, Dinomaly 392). 3단계 교란은 이 크기로 줄인 이미지에 걸었다.
 INPUT_SIZES = {**{name: cfg.img_size for name, cfg in CONFIGS.items()}, DINOMALY: DINOMALY_SIZE}
-_GROUP_GAP = 0.6  # extra space between two groups of conditions, in condition slots
+_GROUP_GAP = 0.6  # 조건 묶음 사이에 더 두는 간격(조건 한 칸 단위)
 
 # matplotlib 설정 묶음. 글꼴은 matplotlib에 들어 있는 DejaVu Sans로 고정해 어느 PC에서나 같은 글리프로
 # 그린다(그래야 PNG 바이트가 같다). 위·오른쪽 축선을 없애고 y축 격자만 둔다.
 _RC = {
-    "font.family": "DejaVu Sans",  # ships with matplotlib: the same glyphs on every machine
+    "font.family": "DejaVu Sans",  # matplotlib에 들어 있어 어느 PC에서나 같은 글리프
     "font.size": 10,
     "text.color": INK,
     "axes.titlesize": 10.5,
@@ -153,11 +147,10 @@ _RC = {
 }
 
 
-# 사용자의 matplotlibrc가 무엇이든 기본값 + _RC로 그리고, 끝나면 이전 설정으로 되돌리는 문맥. 그림이 실행 환경
-# 설정에 따라 달라지지 않게 한다.
+# 그림이 실행 환경 설정에 따라 달라지지 않게 한다.
 @contextlib.contextmanager
 def _style() -> Iterator[None]:
-    """matplotlib defaults plus `_RC`, whatever rc file the user has; the previous settings come back."""
+    """사용자의 rc 파일이 무엇이든 matplotlib 기본값 + `_RC`로 그리고, 끝나면 이전 설정으로 되돌린다."""
     import matplotlib
 
     with matplotlib.rc_context():
@@ -176,10 +169,9 @@ def _styled(func: Callable[..., Figure]) -> Callable[..., Figure]:
     return wrapper
 
 
-# pyplot 없이 Agg 캔버스에 붙은 빈 Figure를 만든다. 전역 상태와 GUI 백엔드가 없어 테스트·서버 환경에서도 같은
-# 결과가 나온다. layout="constrained"로 범례·제목이 겹치지 않게 자동 배치한다.
+# 테스트·서버 환경에서도 같은 결과가 나온다. layout="constrained"로 범례·제목이 겹치지 않게 자동 배치한다.
 def _figure(height: float, width: float = WIDTH) -> Figure:
-    """An empty figure on the Agg canvas, made without pyplot (no global state, no GUI backend)."""
+    """pyplot 없이 Agg 캔버스에 붙은 빈 Figure를 만든다(전역 상태도 GUI 백엔드도 없음)."""
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
 
@@ -193,31 +185,28 @@ def _suptitle(fig: Figure, text: str) -> None:
     fig.suptitle(text, x=0.008, ha="left", fontsize=12, fontweight="bold")
 
 
-# 방법 이름의 (라벨, 색, 마커). 모르는 방법은 이름 그대로 회색으로 그린다.
 def _method(name: str) -> tuple[str, str, str]:
-    """(label, colour, marker) of a method; an unknown one keeps its name and gets a neutral colour."""
+    """방법의 (라벨, 색, 마커). 모르는 방법은 이름을 그대로 쓰고 중립 회색을 받는다."""
     return METHODS.get(name, (name, MUTED, "o"))
 
 
-# 리포트 블록에서 목표 비율 키("0.05" 같은 문자열)를 부동소수 비교(isclose)로 찾는다. 문자열 표기
-# 차이("0.05"와 "0.050")에 흔들리지 않는다.
+# 키를 부동소수 비교(isclose)로 찾으므로 문자열 표기 차이("0.05"와 "0.050")에 흔들리지 않는다.
 def _at_alpha(block: dict, alpha: float):
-    """The entry of a report block whose keys are target rates written as strings ("0.05")."""
+    """키가 문자열로 적힌 목표 비율("0.05")인 리포트 블록에서 `alpha`의 항목을 찾는다."""
     for key, value in block.items():
         if math.isclose(float(key), alpha):
             return value
     raise KeyError(f"no entry for the target rate {alpha} among {list(block)}")
 
 
-# 부호를 붙인 수 문자열. 축 눈금과 같은 유니코드 마이너스(−)를 쓴다.
 def _signed(x: float, digits: int = 1) -> str:
-    """`+1.5` or `-1.5` with the minus sign the axis ticks use."""
+    """부호를 붙인 수 `+1.5` 또는 `−1.5`. 마이너스는 축 눈금과 같은 유니코드 기호(−)다."""
     return f"{x:+.{digits}f}".replace("-", "−")
 
 
-# 목표 오검출률(예: 5%)에 점선을 긋고 오른쪽 끝에 'target 5%'라고 적는다. 축은 퍼센트 단위다.
+# 라벨은 'target 5%' 같은 글이다.
 def _target(ax: Axes, alpha: float, *, outside: bool = False, label: bool = True) -> None:
-    """Dashed line at the target false-alarm rate (the axis is in percent), labelled at its right end."""
+    """목표 오검출률에 점선을 긋고(축은 퍼센트 단위) 오른쪽 끝에 라벨을 단다."""
     y = 100 * alpha
     ax.axhline(y, color=INK_2, linewidth=1.0, linestyle=(0, (4, 3)), zorder=1.5, gid="target")
     if not label:
@@ -237,8 +226,7 @@ def _target(ax: Axes, alpha: float, *, outside: bool = False, label: bool = True
     )
 
 
-# 점(마커)과 95% 구간(세로선)을 함께 그린다. 비율(0~1)은 scale로 퍼센트로 바꿔 그린다. gid를 붙여 테스트가
-# 그려진 요소를 찾아 값이 리포트와 같은지 확인할 수 있게 한다.
+# 구간은 95% 구간이다. gid를 붙여 테스트가 그려진 요소를 찾아 값이 리포트와 같은지 확인할 수 있게 한다.
 def _points(
     ax: Axes,
     x: Sequence[float],
@@ -250,7 +238,7 @@ def _points(
     connect: bool = False,
     scale: float = 100.0,
 ):
-    """Markers (gid `gid`) with their intervals (gid `gid:ci`); fractions are drawn in percent."""
+    """점(gid `gid`)과 그 구간 세로선(gid `gid:ci`)을 그린다. 비율(0~1)은 퍼센트로 바꿔 그린다."""
     label, colour, marker = style
     if intervals is not None:
         ci = scale * np.asarray(intervals, dtype=float).reshape(-1, 2)
@@ -272,23 +260,21 @@ def _points(
     return line
 
 
-# 한 x 위치에 여러 방법의 점을 나란히 놓을 때의 좌우 간격(가운데 정렬).
 def _offsets(n: int, step: float) -> np.ndarray:
-    """Sideways offsets that put n series next to each other around one x position."""
+    """한 x 위치를 가운데로 두고 n개 계열을 나란히 놓는 좌우 간격."""
     return (np.arange(n) - (n - 1) / 2) * step
 
 
-# 교란·M2AD 리포트의 조건 이름을 (묶음 라벨, 눈금 라벨)로 바꾼다. clean, 기준 조명(I01), 실제 조명(R:<id>),
-# 합성 교란(종류-강도)을 구별하고, 크기 환산 교란에는 '*'를 붙인다.
+# clean, 기준 조명(I01), 실제 조명(R:<id>), 합성 교란(종류-강도)을 구별한다.
 def _condition(name: str) -> tuple[str, str]:
-    """(group label, tick label) of a condition name of the perturbation or the M2AD report.
+    """교란·M2AD 리포트의 조건 이름을 (묶음 라벨, 눈금 라벨)로 바꾼다.
 
-    A strength that was scaled to the input size is shown on the 256 px grid, its group marked with `*`.
+    입력 크기에 맞게 환산한 강도는 256px 격자 값으로 보이고, 그 묶음에는 `*`를 붙인다.
     """
     if name == CLEAN:
         return "clean", ""
     if name == M2AD_BASE:
-        return "reference", M2AD_REFERENCE  # the lighting whose images the thresholds were fixed on
+        return "reference", M2AD_REFERENCE  # 임계값을 정한 이미지의 조명
     if name.startswith("R:"):
         return "real lighting", name[2:]
     # 합성 교란 이름('blur-2' 또는 M2AD의 'P:blur-2')을 종류와 강도로 나눠, 눈금에는 강도 표의 256 격자 값을
@@ -300,11 +286,10 @@ def _condition(name: str) -> tuple[str, str]:
     return name, ""
 
 
-# '*' 묶음의 각주: 흐림 σ와 이동은 256px 이미지 기준 값이고, 입력 크기가 다른 방법은 실제로 얼마를 받았는지(σ
-# 배율, 이동 픽셀)를 conditions.strength로 계산해 적는다. 예를 들어 448px D-S의 1px 이동은 반올림으로 2px이
-# 된다.
+# 다른 입력 크기의 실제 값(σ 배율, 이동 픽셀)은 conditions.strength로 계산한다. 예를 들어 448px D-S의 1px
+# 이동은 반올림으로 2px이 된다.
 def _scaled_note(methods: Sequence[str]) -> str:
-    """Footnote of the `*` groups: the strengths are on the 256 px grid; what every other input size got."""
+    """`*` 묶음의 각주: 강도는 256px 격자 값이고, 다른 입력 크기는 실제로 얼마를 받았는지 적는다."""
     scaled = [m for m in methods if INPUT_SIZES.get(m) != REFERENCE_SIZE]
     at_256 = [_method(m)[0] for m in methods if m not in scaled]
     note = f"* blur σ and shift in pixels of a {REFERENCE_SIZE} px image"
@@ -325,16 +310,15 @@ def _scaled_note(methods: Sequence[str]) -> str:
     return f"{note}; other input sizes got them scaled:\n" + ";   ".join(parts)
 
 
-# x축에 조건을 묶음별로 놓는다. 묶음 사이에 간격(_GROUP_GAP)과 가는 세로선을 넣고, 눈금에는 강도(또는 조명
-# id)를, 묶음 가운데 눈금 아래에는 묶음 이름을 적는다. 각 조건의 x 위치를 돌려준다.
+# 묶음 사이 간격은 _GROUP_GAP이다.
 def _condition_axis(
     ax: Axes, names: Sequence[str], *, labels: bool = True, methods: Sequence[str] = ()
 ) -> np.ndarray:
-    """Put the conditions on the x axis, group by group with a gap and a hairline between the groups.
+    """x축에 조건을 묶음별로 놓는다. 묶음 사이에는 간격과 가는 세로선을 넣는다.
 
-    Ticks show the strength (or the lighting id); the group name stands under the middle tick of its
-    group. When a group is on the 256 px grid (`*`), the x label says what the input sizes of `methods`
-    got. Returns the x position of every condition.
+    눈금에는 강도(또는 조명 id)를 적고, 묶음 이름은 그 묶음 가운데 눈금 아래에 둔다. 256px 격자 값(`*`)인
+    묶음이 있으면 x축 라벨에 `methods`의 입력 크기가 실제로 얼마를 받았는지 적는다. 각 조건의 x 위치를
+    돌려준다.
     """
     # 묶음이 바뀔 때마다 위치에 간격을 더하고 경계선을 긋는다. groups는 묶음별 조건 인덱스 목록이다.
     parsed = [_condition(name) for name in names]
@@ -352,8 +336,7 @@ def _condition_axis(
         x.append(pos)
         pos += 1.0
     # 모든 눈금 라벨을 두 줄로 맞춘다. 한 줄짜리 라벨은 다른 라벨보다 조금 위에 놓여 줄이 어긋나 보이기
-    # 때문이다(기존 영어 주석).
-    # Every label has two lines (a single-line label would sit a little higher than the others).
+    # 때문이다.
     ticks = [f"{tick}\n " for _, tick in parsed]
     # 묶음 가운데 조건의 눈금에만 둘째 줄로 묶음 이름을 넣는다.
     for members in groups:
@@ -367,10 +350,9 @@ def _condition_axis(
     return np.asarray(x)
 
 
-# 범례에 '95% bootstrap interval' 항목을 넣기 위한 세로선 모양의 빈 선. 점을 지나는 세로선이 무엇인지 범례에서
-# 밝힌다(커밋 aad3ce1: 부트스트랩 수염을 범례에 이름 붙임).
+# 범례 항목 이름은 '95% bootstrap interval'이다(커밋 aad3ce1: 부트스트랩 수염을 범례에 이름 붙임).
 def _interval_handle() -> Line2D:
-    """Legend entry of the vertical lines through the markers."""
+    """점을 지나는 세로선(구간)이 무엇인지 밝히는 범례 항목: 세로선 모양의 빈 선."""
     from matplotlib.lines import Line2D
 
     return Line2D(
@@ -385,10 +367,9 @@ def _interval_handle() -> Line2D:
     )
 
 
-# 여러 방법의 표가 같은 조건 목록을 같은 순서로 가졌는지 확인하고 그 목록을 돌려준다. 다르면 같은 x 위치에
-# 다른 조건이 그려지므로 멈춘다.
+# 다르면 같은 x 위치에 다른 조건이 그려지므로 멈춘다.
 def _same_conditions(tables: dict[str, list[dict]]) -> list[str]:
-    """The condition list that the rows of every method share (ValueError when they differ)."""
+    """모든 방법의 행이 같은 순서로 공유하는 조건 목록을 돌려준다(다르면 ValueError)."""
     listed = {method: [row["condition"] for row in rows] for method, rows in tables.items()}
     names = next(iter(listed.values()))
     if any(mine != names for mine in listed.values()):
@@ -396,18 +377,14 @@ def _same_conditions(tables: dict[str, list[dict]]) -> list[str]:
     return names
 
 
-# 그림 calibration.png(README '임계값을 정상 이미지만으로 정하는 세 가지 방법'): 1단계
-# 리포트(analyze.build_report)에서 목표 α의 실제 합산 오검출률을 세 패널로 그린다. 왼쪽은 세 방식(재대입 86%,
-# 홀드아웃, 교차 적합)을 0~100% 축에, 가운데는 홀드아웃과 교차 적합을 확대하고 홀드아웃 임계값의 이론
-# 구간(theory_band)을, 오른쪽은 보정 표본 수 n에 따른 실제 오검출률과 교환 가능한 점수로 모의한 구간을 그린다.
+# 그림 calibration.png(README '임계값을 정상 이미지만으로 정하는 세 가지 방법'). 왼쪽 패널의 재대입은 86%다.
 @_styled
 def fig_calibration(report: dict, alpha: float = 0.05) -> Figure:
-    """Actual pooled false-alarm rate of the three threshold procedures at one target rate.
+    """목표 비율 하나에서 세 임계값 방식의 실제 합산 오검출률을 그린다.
 
-    Input: a stage 1 report (`analyze.build_report`). Three panels: all procedures on a 0-100% axis;
-    hold-out and cross-fit enlarged, with the range that theory expects of the hold-out threshold
-    (`theory_band`); and the rate against the calibration size (`finite_sample`) next to the interval
-    simulated for exchangeable scores.
+    입력: 1단계 리포트(`analyze.build_report`). 패널 셋: 세 방식 모두를 0~100% 축에, 홀드아웃과 교차
+    적합을 확대해 홀드아웃 임계값에 대해 이론이 기대하는 범위(`theory_band`)와 함께, 그리고 보정 표본 수에
+    따른 비율(`finite_sample`)을 교환 가능한 점수로 모의한 구간 옆에.
     """
     # 리포트에서 목표 α의 보정 결과(방식별 실제 오검출률과 구간)와 보정 표본 수 곡선(finite_sample)을 꺼낸다.
     cal = _at_alpha(report["calibration"], alpha)
@@ -445,7 +422,7 @@ def fig_calibration(report: dict, alpha: float = 0.05) -> Figure:
         ax.set_xticks(x, [f"{STRATEGIES[s]}\nn = {cal[s]['n_cal_total']:,}" for s in strategies])
         ax.tick_params(axis="x", length=0)
         ax.set_xlim(-0.6, len(strategies) - 0.4)
-        # `n_cal_total` is the sum over the categories; the right panel's n is per category.
+        # `n_cal_total`은 범주를 모두 더한 값이다. 오른쪽 패널의 n은 범주당 값이다.
         ax.set_xlabel("n: calibration scores of all categories together")
         _target(ax, alpha, outside=True)
 
@@ -476,8 +453,8 @@ def fig_calibration(report: dict, alpha: float = 0.05) -> Figure:
     top = max(hi, 100 * alpha, *(100 * cal[s]["fpr_ci"][1] for s in zoomed))
     ax_zoom.set_ylim(0, 1.45 * top)
     ax_zoom.set_title("Hold-out and cross-fit, enlarged")
-    # 막대의 수염(부트스트랩 구간)과 이론 구간 선을 범례에서 구별해, 하나를 다른 것으로 읽지 않게 한다.
-    # Name the whiskers of the bars too, so that the theory range is not taken for them (or vice versa).
+    # 막대의 수염(부트스트랩 구간)에도 범례 이름을 붙여 이론 구간 선과 구별해, 하나를 다른 것으로 읽지 않게
+    # 한다.
     whisker = _interval_handle()
     whisker.set(color=INK, label="on the bars: 95% bootstrap interval")
     ax_zoom.legend(
@@ -535,18 +512,15 @@ def fig_calibration(report: dict, alpha: float = 0.05) -> Figure:
     return fig
 
 
-# 그림 label_curve.png(README '결함 라벨 몇 장부터 지도 학습이 이기는가'): 2단계 비교
-# 리포트(compare.build_report)에서, 왼쪽은 범주당 결함 라벨 k에 따른 지도 학습 헤드의 평균 이미지 AUROC(시드
-# 평균과 구간, 시드별 작은 점)를 비지도 방법의 가로선·구간 띠 위에 그린다. 오른쪽은 학습 라벨에 없던 결함
-# 유형만 모아 지도 학습과 기준 비지도(Dinomaly)를 비교한 값(H7)을 판정된 k마다 그린다.
+# 그림 label_curve.png(README '결함 라벨 몇 장부터 지도 학습이 이기는가'). 오른쪽 패널의 기준 방법은
+# Dinomaly이고, 그 값이 H7의 근거다.
 @_styled
 def fig_label_curve(report: dict) -> Figure:
-    """Macro image AUROC of the supervised head against the defect labels per category.
+    """범주당 결함 라벨 수 k에 따른 지도 학습 헤드의 평균 이미지 AUROC를 그린다.
 
-    Input: a stage 2 comparison report (`compare.build_report`). Left: the supervised mean over seeds
-    with its interval and the single seeds, over the unsupervised methods drawn as horizontal lines with
-    interval bands. Right: supervised against the reference method on the defects whose type was not
-    among the labels, for every k where that comparison was judged.
+    입력: 2단계 비교 리포트(`compare.build_report`). 왼쪽: 지도 학습의 시드 평균과 구간, 시드별 값을,
+    가로선과 구간 띠로 그린 비지도 방법들 위에. 오른쪽: 결함 유형이 라벨에 없던 결함에서 지도 학습과 기준
+    방법을 비교한 값을, 그 비교를 판정한 k마다.
     """
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
@@ -668,7 +642,7 @@ def fig_label_curve(report: dict) -> Figure:
             va="center",
             fontsize=9,
         )
-    # Name the two markers once, at the first k.
+    # 두 마커의 이름은 첫 k에서 한 번만 적는다.
     for value, text in ((ref[0], ref_label), (sup[0], sup_label)):
         ax_unseen.annotate(
             text,
@@ -681,9 +655,7 @@ def fig_label_curve(report: dict) -> Figure:
             color=INK_2,
         )
     # 시드마다 학습에 쓴 결함이 달라 '못 본 유형' 부분집합의 크기도 시드마다 다르다. 그래서 장수는 시드
-    # 평균이고, 정수가 아니면 소수 한 자리로 적는다(기존 영어 주석).
-    # Each seed labels other defects, so the unseen subset differs by seed: its size is a mean over seeds,
-    # written with a decimal unless it is whole.
+    # 평균이고, 정수가 아니면 소수 한 자리로 적는다.
     counts = [_mean_count(row["unseen_types"]["unseen_defects_mean"]) for row in judged]
     ax_unseen.set_xticks(xu, [f"k = {row['k']}\n{n} defects" for row, n in zip(judged, counts, strict=True)])
     ax_unseen.set_xlabel(f"defects of these types: mean over the {n_seeds} seeds")
@@ -693,31 +665,27 @@ def fig_label_curve(report: dict) -> Figure:
     return fig
 
 
-# 개수의 평균을 문자열로: 정수면 소수점 없이, 아니면 한 자리. 평균을 정수로 반올림해 개수처럼 보이게 하지
-# 않는다.
 def _mean_count(value: float) -> str:
-    """A mean of counts: `60` when it is whole, `116.7` when it is not (never rounded to a count)."""
+    """개수의 평균을 문자열로: 정수면 `60`, 아니면 `116.7`. 개수처럼 보이게 정수로 반올림하지 않는다."""
     return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.1f}"
 
 
-# k 하나의 시드별 (x 비킴, AUROC). 평균 점 오른쪽으로 0.10부터 조금씩 비킨다.
+# 평균 점 오른쪽으로 0.10부터 조금씩 비킨다.
 def _seed_dots(row: dict) -> list[tuple[float, float]]:
-    """(x offset, AUROC) of the single seeds of one k, spread a little to the right of the mean."""
+    """k 하나의 시드별 (x 비킴, AUROC). 평균 점에서 오른쪽으로 조금씩 비켜 놓는다."""
     values = row["supervised_per_seed"]
     return [(0.10 + 0.045 * i, v) for i, v in enumerate(values)]
 
 
-# 그림 m2ad_conditions.png(README '조명이 실제로 바뀌면'): 3-B 리포트(analyze_m2ad.build_report)에서, 왼쪽은
-# 기준 조명·합성 교란 15조건·실제 조명 9조건의 오검출률을 방법별 점과 구간으로, 오른쪽은 새 조명의 정상 n장(8,
-# 30)으로 재보정한 뒤 실제 조명 합산 오검출률을 그린다. 리포트에 α가 저장되지 않아 인자로 받는다.
+# 그림 m2ad_conditions.png(README '조명이 실제로 바뀌면'). 합성 교란은 15조건, 실제 조명은 9조건, 재보정 장수
+# n은 8과 30이다.
 @_styled
 def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str] = ("p0", "d-s")) -> Figure:
-    """False-alarm rate of the M2AD inspectors under every condition, and after recalibration.
+    """M2AD 검사기들의 조건별 오검출률과 재보정 뒤의 오검출률을 그린다.
 
-    Input: the stage 3 M2AD report (`analyze_m2ad.build_report`); `alpha` is the target rate the
-    thresholds were set for (the report does not store it). Left: the reference lighting, the synthetic
-    conditions and the real lightings, one marker per method with its interval. Right: the pooled rate
-    over the real lightings after recalibrating with n normal images of the new lighting.
+    입력: 3단계 M2AD 리포트(`analyze_m2ad.build_report`). `alpha`는 임계값을 정한 목표 비율이다(리포트에
+    저장되지 않아 인자로 받는다). 왼쪽: 기준 조명, 합성 조건, 실제 조명마다 방법별 점 하나와 구간. 오른쪽:
+    새 조명의 정상 n장으로 재보정한 뒤 실제 조명들을 합친 비율.
     """
     from matplotlib.lines import Line2D
 
@@ -728,7 +696,6 @@ def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str
     names = _same_conditions({m: run["conditions"] for m, run in runs.items()})
     fig = _figure(4.9)
     # 왼쪽 패널은 조건이 25개라 눈금 라벨('1.25' 등)이 옆과 띄어 들어가도록 넓게 잡는다.
-    # 25 conditions on the left: its slots must hold labels like "1.25" side by side with a space between.
     ax, ax_recal = fig.subplots(1, 2, width_ratios=[4.4, 1.0])
     inspectors = len(next(iter(runs.values()))["inspectors"])
     _suptitle(fig, f"M2AD: false alarms when the capture condition changes ({inspectors} inspectors)")
@@ -736,7 +703,7 @@ def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str
     # 왼쪽 패널: 조건 25개(기준, 합성 15, 실제 조명 9)를 묶음별로 놓고 방법마다 조금 비켜 점과 구간을 찍는다.
     x = _condition_axis(ax, names, methods=list(runs))
     handles = []
-    # Wide enough apart that the markers of two methods at one condition do not overlap.
+    # 한 조건에서 두 방법의 마커가 겹치지 않을 만큼 띄운다.
     for dx, (method, run) in zip(_offsets(len(runs), 0.38), runs.items(), strict=True):
         rows = run["conditions"]
         handles.append(
@@ -749,8 +716,7 @@ def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str
                 gid=f"fpr:{method}",
             )
         )
-    # 조건 칸이 좁아 선 끝 라벨 대신 범례에 목표선을 넣는다.
-    # The target is named in the legend: a label at the end of the line would take room from the slots.
+    # 조건 칸이 좁아 선 끝 라벨 대신 범례에 목표선을 넣는다. 선 끝 라벨은 조건 칸의 자리를 빼앗는다.
     _target(ax, alpha, label=False)
     handles += [
         _interval_handle(),
@@ -792,15 +758,14 @@ def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str
                 va="bottom",
                 fontsize=SMALL,
             )
-    # symlog 축: 1% 아래는 선형, 위는 로그라서 97%와 4%가 한 축에서 함께 읽히고 0%도 자리가 있다(기존 영어
-    # 주석). 재보정 전후 오검출률이 수십 배 차이 나기 때문이다(README: 96.9% → 4.4%).
-    # Linear below 1%, logarithmic above: 97% and 4% are both readable, and a rate of 0 still has a place.
+    # symlog 축: 1% 아래는 선형, 위는 로그라서 97%와 4%가 한 축에서 함께 읽히고 0%도 자리가 있다. 재보정
+    # 전후 오검출률이 수십 배 차이 나기 때문이다(README: 96.9% → 4.4%).
     ax_recal.set_yscale("symlog", linthresh=1.0, linscale=0.35)
-    # Room below 0 for the whole marker of a rate of 0, above 100% for the value over its marker.
+    # 0 아래에는 비율 0인 마커가 통째로 들어갈 자리를, 100% 위에는 마커 위에 적는 값의 자리를 둔다.
     ax_recal.set_ylim(-0.3, 180)
     ax_recal.set_yticks([0, 1, 2, 5, 10, 20, 50, 100], ["0", "1", "2", "5", "10", "20", "50", "100"])
     ax_recal.minorticks_off()
-    _target(ax_recal, alpha, label=False)  # the 5 tick and the legend name the line
+    _target(ax_recal, alpha, label=False)  # 눈금 5와 범례가 이 선의 이름을 대신한다
     ax_recal.set_xticks(xr, [str(n) for n in sizes])
     ax_recal.tick_params(axis="x", length=0)
     ax_recal.set_xlim(-0.75, len(sizes) - 0.25)
@@ -810,18 +775,17 @@ def fig_m2ad_conditions(report: dict, alpha: float = 0.05, methods: Sequence[str
     return fig
 
 
-# 그림 perturb.png(README '촬영 조건이 조금 바뀌면'): 3-A 교란 리포트(analyze_perturb.build_report)에서, 위는
-# 교란 없는 조건 대비 평균 이미지 AUROC 변화(%p), 아래는 교란 없는 보정 점수로 고정한 임계값의 합산 오검출률을
-# 그린다. H9가 지목한 조건(AUROC는 1%p 미만으로 떨어지는데 오검출률은 목표의 두 배 이상)을 옅은 배경으로
-# 칠한다. 'AUROC로 감시하면 이 고장은 보이지 않는다'(README)를 한눈에 보이려는 그림이다.
+# 그림 perturb.png(README '촬영 조건이 조금 바뀌면'). H9가 지목한 조건은 AUROC가 1%p 미만으로 떨어지는데
+# 오검출률은 목표의 두 배 이상인 것이다. 'AUROC로 감시하면 이 고장은 보이지 않는다'(README)를 한눈에 보이려는
+# 그림이다.
 @_styled
 def fig_perturb(report: dict) -> Figure:
-    """Accuracy change and fixed-threshold false-alarm rate under the synthetic conditions.
+    """합성 교란 조건에서의 정확도 변화와 고정 임계값의 오검출률을 그린다.
 
-    Input: the stage 3 perturbation report (`analyze_perturb.build_report`). Top: change of the macro
-    image AUROC against the clean condition, in points. Bottom: pooled false-alarm rate at the thresholds
-    fixed on clean calibration scores (a method without calibration scores has no markers there). The
-    conditions that H9 names (accuracy barely moves, false alarms at least twice the target) are shaded.
+    입력: 3단계 교란 리포트(`analyze_perturb.build_report`). 위: 교란 없는 조건 대비 평균 이미지 AUROC
+    변화(%p). 아래: 교란 없는 보정 점수로 고정한 임계값에서의 합산 오검출률(보정 점수가 없는 방법은 이
+    패널에 점이 없다). H9가 지목한 조건(정확도는 거의 그대로, 오검출률은 목표의 두 배 이상)은 옅은 배경으로
+    칠한다.
     """
     from matplotlib.patches import Patch
 
@@ -880,7 +844,7 @@ def fig_perturb(report: dict) -> Figure:
         )
     # 위 패널에 변화 0 기준선을 긋는다.
     ax_auc.axhline(0, color=AXIS, linewidth=0.8, zorder=1)
-    ax_auc.margins(y=0.12)  # keeps the markers at 0 clear of the panel edge
+    ax_auc.margins(y=0.12)  # 0에 있는 마커가 패널 가장자리에 붙지 않게 한다
     ax_auc.set_ylabel("change in macro image AUROC (points)")
     ax_auc.set_title("Change in accuracy against the clean images")
     _target(ax_fpr, alpha, outside=True)
@@ -893,40 +857,34 @@ def fig_perturb(report: dict) -> Figure:
     return fig
 
 
-# 설정 이름 'wrn50-256'을 (백본, 입력 크기)로 나눈다.
 def _setting(setting: str) -> tuple[str, str]:
-    """`wrn50-256` -> (backbone, input size)."""
+    """설정 이름을 나눈다: `wrn50-256` -> (백본, 입력 크기)."""
     backbone, _, size = setting.rpartition("-")
     return (backbone, size) if backbone else (setting, "")
 
 
-# 그림 grid.png(README 'CPU 200ms 안에 넣으려면'): 4단계 격자 리포트(analyze_grid)와 지연 파일(bench)에서
-# (설정, 코어셋 비율, 정밀도)마다 CPU 지연(리사이즈 + 추론)과 dev 평균 이미지 AUROC를 점으로 그린다. 예산
-# 200ms는 세로 점선, 고른 서빙 구성은 동그라미로 표시한다.
-# 지연은 서빙 선택에 쓴 격자 행의 값(cpu_ms)을 먼저 쓰고, 지연 파일은 리포트에 없는 행·정밀도만
-# 채운다(docstring). INT8 점의 AUROC는 torch 파이프라인 값이라 INT8 점은 지연 이득만 보여 준다.
+# 그림 grid.png(README 'CPU 200ms 안에 넣으려면'). 예산은 200ms다.
 @_styled
 def fig_grid(grid: dict, latency: dict | None = None) -> Figure:
-    """CPU latency per image against the dev macro image AUROC of every grid configuration.
+    """격자의 모든 구성에서 장당 CPU 지연과 dev 평균 이미지 AUROC를 점으로 그린다.
 
-    Input: the stage 4 grid report (`analyze_grid`) and the latency file (`bench`). The timings merged
-    into the grid rows come first, because the serving choice was made on them; the latency file only
-    adds the rows and precisions that the report has no timing for. One marker per (setting, coreset
-    ratio, precision): x is resize + inference, for FP32 the row's registered `cpu_ms`, otherwise the
-    timing's `total_with_resize_ms` (or `resize_ms` + `total_ms`); y is the row's AUROC, which the torch
-    pipeline scored, so an INT8 marker shows the latency gain only. Rows without a CPU timing are left
-    out. The budget is a vertical line and the chosen serving configuration is ringed.
+    입력: 4단계 격자 리포트(`analyze_grid`)와 지연 파일(`bench`). 서빙 선택이 격자 행에 합쳐진 지연으로
+    이루어졌으므로 그 값을 먼저 쓰고, 지연 파일은 리포트에 지연이 없는 행과 정밀도만 채운다. (설정, 코어셋
+    비율, 정밀도)마다 점 하나: x는 리사이즈 + 추론으로, FP32는 행에 등록된 `cpu_ms`, 그 밖에는 측정의
+    `total_with_resize_ms`(없으면 `resize_ms` + `total_ms`)다. y는 행의 AUROC인데 torch 파이프라인이 채점한
+    값이라, INT8 점은 지연 이득만 보여 준다. CPU 지연이 없는 행은 빠진다. 예산은 세로선, 고른 서빙 구성은
+    동그라미로 표시한다.
     """
     from matplotlib.lines import Line2D
 
     # 점 목록 만들기: 지연 파일 항목에 격자 행 자체의 latency를 덮어써(행 값 우선) 정밀도별(cpu_fp32,
     # cpu_int8) 지연을 모은다. FP32는 등록된 cpu_ms, 나머지는 리사이즈 포함 합계를 쓴다.
-    points = []  # (setting, ratio, precision, ms, auroc in %, key)
+    points = []  # (설정, 비율, 정밀도, ms, AUROC %, 키)
     for row in grid["rows"]:
         entry = {**(latency or {}).get(row["key"], {}), **(row.get("latency") or {})}
         for name, timing in entry.items():
             if not name.startswith("cpu_") or not isinstance(timing, dict):
-                continue  # "cpu" is the processor name, "gpu_fp16" another device
+                continue  # "cpu"는 프로세서 이름, "gpu_fp16"은 다른 장치
             precision = name[4:]
             if precision == "fp32" and "cpu_ms" in row:
                 ms = float(row["cpu_ms"])
@@ -996,8 +954,8 @@ def fig_grid(grid: dict, latency: dict | None = None) -> Figure:
                     zorder=4,
                     gid=f"point:{p[5]}:{precision}",
                 )
-        # 설정 이름은 그 설정에서 가장 느린 FP32 점 옆에 적고, 그 점이 서빙 동그라미면 라벨을 조금 더 띄운다.
-        # The name stands next to the slowest FP32 marker of the setting (any marker if it has no FP32).
+        # 설정 이름은 그 설정에서 가장 느린 FP32 점(FP32가 없으면 아무 점) 옆에 적고, 그 점이 서빙
+        # 동그라미면 라벨을 조금 더 띄운다.
         own = [p for p in points if p[0] == setting]
         slowest = max([p for p in own if p[2] == "fp32"] or own, key=lambda p: p[3])
         ringed = bool(serving) and slowest[5] == serving["key"] and slowest[2] == "fp32"
@@ -1092,28 +1050,24 @@ def fig_grid(grid: dict, latency: dict | None = None) -> Figure:
     return fig
 
 
-# 로그축 보조 눈금 가운데 각 십진 구간의 2, 3, 5에만 숫자를 적는 포매터.
 def _log_minor_label(x: float, pos: int | None = None) -> str:
-    """Label the 2, 3 and 5 of every decade of a log axis; the other minor ticks stay bare."""
+    """로그축 보조 눈금 포매터: 각 십진 구간의 2, 3, 5에만 숫자를 적고 나머지는 비워 둔다."""
     if x <= 0:
         return ""
     mantissa = x / 10 ** math.floor(math.log10(x))
     return f"{x:g}" if any(math.isclose(mantissa, m) for m in (2, 3, 5)) else ""
 
 
-# 예시 패널 그림: 예시마다 한 줄에 세 칸(이미지, 정답 마스크 윤곽, 이상 맵 겹침)을 그린다. 색 범위는 그 줄의
-# 맵과 임계값을 함께 덮도록 잡아, 임계값 아래에 머무는 맵은 밝아지지 않고 전부 넘는 맵은 전부 밝아진다.
-# 임계값은 색 막대에 선으로, 맵 위에는 임계값을 넘는 영역의 등고선으로 그린다.
-# 호출 위치: examples().
+# 예시 패널 그림이다. 호출 위치: examples().
 @_styled
 def fig_examples(rows: list[dict], *, title: str | None = None, caption: str | None = None) -> Figure:
-    """One line of panels per example: the image, its ground-truth outline, and the score map over it.
+    """예시마다 패널 한 줄을 그린다: 이미지, 정답 윤곽, 그 위에 겹친 점수 맵.
 
-    Each row has `image` (HxWx3 uint8), `mask` (HxW bool or None: no outline is drawn), `map` (hxw
-    finite float, stretched over the image), `title` and `threshold` (float or None). The colour scale
-    of a row spans its map and its threshold: a map that stays below the threshold does not light up, a
-    map above it everywhere lights up everywhere. The threshold is marked on the colour bar and drawn
-    as a contour where the map crosses it. `title` goes over the figure, `caption` in small type under it.
+    각 행에는 `image`(HxWx3 uint8), `mask`(HxW bool, None이면 윤곽을 그리지 않음), `map`(hxw 유한 float,
+    이미지 위로 늘림), `title`, `threshold`(float 또는 None)가 있다. 한 줄의 색 범위는 그 맵과 임계값을 함께
+    덮는다: 임계값 아래에 머무는 맵은 밝아지지 않고, 모든 곳에서 넘는 맵은 모든 곳이 밝아진다. 임계값은 색
+    막대에 표시하고, 맵이 임계값을 가로지르는 곳에 등고선으로 그린다. `title`은 그림 위에, `caption`은 그림
+    아래에 작은 글자로 넣는다.
     """
     from matplotlib import patheffects
 
@@ -1175,7 +1129,6 @@ def fig_examples(rows: list[dict], *, title: str | None = None, caption: str | N
             )
         # 점수가 낮은 곳은 투명하게 두어 이상으로 표시되지 않은 곳에서는 원본 이미지가 보이게 한다. 불투명도는
         # 정규화한 점수에 비례(최대 0.75)한다.
-        # Low scores stay transparent, so the image is visible where nothing is flagged.
         opacity = 0.75 * np.clip((scores - vmin) / (vmax - vmin), 0.0, 1.0)
         heat = line[2].imshow(
             scores,
@@ -1202,7 +1155,7 @@ def fig_examples(rows: list[dict], *, title: str | None = None, caption: str | N
         if threshold is not None:
             bar.ax.axhline(threshold, color=SURFACE, linewidth=2.6)
             bar.ax.axhline(threshold, color=INK, linewidth=1.2, gid="threshold")
-            # A contour needs a map of at least 2 x 2 scores.
+            # 등고선을 그리려면 맵이 적어도 2 x 2 점수여야 한다.
             if low < threshold < high and min(scores.shape) >= 2:
                 ys = np.linspace(-0.5, height - 0.5, scores.shape[0] * 2 + 1)[1::2]
                 xs = np.linspace(-0.5, width - 0.5, scores.shape[1] * 2 + 1)[1::2]
@@ -1215,7 +1168,6 @@ def fig_examples(rows: list[dict], *, title: str | None = None, caption: str | N
 
 # 리포트 그림 표: 그림 이름 → (reports/ 아래 입력 파일들, 그 파일들을 순서대로 받는 그림 함수). main이 이 표를
 # 돌며 입력이 있는 그림만 그린다.
-# Name -> (input files under the reports folder, function that gets the loaded files in that order).
 FIGURES: dict[str, tuple[tuple[str, ...], Callable[..., Figure]]] = {
     "calibration": (("stage1/p0-test.json",), fig_calibration),
     "label_curve": (("stage2/compare-test.json",), fig_label_curve),
@@ -1225,10 +1177,9 @@ FIGURES: dict[str, tuple[tuple[str, ...], Callable[..., Figure]]] = {
 }
 
 
-# 그림을 PNG로 저장한다. metadata의 Software를 None으로 지워 matplotlib 버전 문자열이 들어가지 않게 해,
-# 바이트가 그림 내용에만 의존한다(같은 리포트 → 같은 파일).
+# metadata의 Software를 None으로 지워 matplotlib 버전 문자열이 들어가지 않게 한다(같은 리포트 → 같은 파일).
 def save(fig: Figure, path: Path) -> Path:
-    """Write the figure as a PNG whose bytes depend on the figure only (no software version in it)."""
+    """그림을 바이트가 그림 내용에만 의존하는 PNG로 쓴다(소프트웨어 버전을 넣지 않음)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _style():
@@ -1242,41 +1193,39 @@ def _load(path: Path) -> dict:
         return json.load(f)
 
 
-# ---- example inspections of an evaluation run ------------------------------------------------------------
+# ---- 평가 실행의 예시 검사 -------------------------------------------------------------------------------
 
 # 예시 패널 설정: 세 묶음(검출한 결함, 놓친 결함, 오검출) × 묶음당 2장. 봉인 테스트 실행이면 장부에 stage
 # "5"(README·그림 단계)와 '점수 없이 그림용 이미지·마스크만 읽음' 메모로 남긴다(reports/test_ledger.jsonl의
 # examples-dm, examples-p0 줄). 이미지 출처 표기(VisA, CC BY 4.0)는 라이선스 조건이라 캡션에 넣는다.
 EXAMPLE_GROUPS = ("detected defect", "missed defect", "false alarm")
-PER_GROUP = 2  # rows per group
-EXAMPLES_STAGE = "5"  # stage label of the test ledger line
+PER_GROUP = 2  # 묶음당 줄 수
+EXAMPLES_STAGE = "5"  # 테스트 장부 줄에 적는 단계 이름
 EXAMPLES_NOTE = "README example panel: images and masks of the picked rows read for a figure only, no scores"
 DATA_CREDIT = "Images: VisA (Zou et al., ECCV 2022), CC BY 4.0"
-# 캡션에 적을 임계값 출처: PatchCore 실행은 정상 풀의 교차 적합 점수, Dinomaly(공통 형식) 실행은 빼 둔 정상의
-# 점수.
-# Where `compare` takes the calibration scores of each kind of run from.
+# 캡션에 적을 임계값 출처, 곧 `compare`가 실행 종류마다 보정 점수를 가져오는 곳: PatchCore 실행은 정상 풀의
+# 교차 적합 점수, Dinomaly(공통 형식) 실행은 빼 둔 정상의 점수.
 _CALIBRATION_SOURCE = {
     "crossfit": "the cross-fitted (out-of-fold) scores of the normal pool",
     "holdout": "the scores of held-out normal images",
 }
 # 예시를 고르는 데 필요한 평가 배열 키와, 제목·캡션 줄바꿈 폭.
 _EVAL_KEYS = ("eval_images", "eval_labels", "eval_defect_types", "eval_score")
-_TITLE_CHARS = 34  # a row title is wrapped to stay over the first panel of its row
-_TITLE_LINES = 3  # beyond this, a long list of defect types is shortened ("+ 3 more")
+_TITLE_CHARS = 34  # 줄 제목이 그 줄의 첫 패널 위에 머물도록 줄바꿈하는 폭
+_TITLE_LINES = 3  # 이보다 길면 결함 유형 목록을 줄인다("+ 3 more")
 _CAPTION_CHARS = 165
 
 
-# 예시 패널을 만들 수 없는 실행(불완전, 모르는 형식, 임계값 없음)을 알리는 예외. main에서 종료 코드 2로
-# 바뀐다.
+# main에서 종료 코드 2로 바뀐다.
 class ExamplesError(ValueError):
-    """The run folder cannot give the example panel: incomplete, of an unknown kind or without thresholds."""
+    """실행 폴더로 예시 패널을 만들 수 없다: 불완전하거나, 모르는 형식이거나, 임계값이 없다."""
 
 
 # 패널에 고른 평가 이미지 하나: 묶음, 범주, 범주 배열 안의 행 번호(index, 맵을 읽을 때 씀), 이미지 경로, 라벨,
 # 결함 유형, margin(이미지 점수 ÷ 범주 임계값, 1보다 크면 불량 판정).
 @dataclass(frozen=True)
 class Example:
-    """One evaluation image picked for the panel; `index` is its row in its category's arrays and maps."""
+    """패널에 고른 평가 이미지 하나. `index`는 그 범주의 배열과 맵에서의 행 번호다."""
 
     group: str
     category: str
@@ -1284,12 +1233,11 @@ class Example:
     image: str
     label: int
     defect_types: str
-    margin: float  # image score / threshold of its category
+    margin: float  # 이미지 점수 ÷ 그 범주의 임계값
 
-    # 제목 조각 두 개: '묶음: 범주, 결함 유형,'과 'score/threshold = 값'. keep을 주면 결함 유형을 앞 keep개만
-    # 적고 나머지는 '+ n more'로 센다.
+    # 나머지 결함 유형은 '+ n more'로 센다.
     def _parts(self, keep: int | None = None) -> tuple[str, str]:
-        """(group, category and kind; score/threshold); only the first `keep` defect types are named."""
+        """제목 조각 두 개: ('묶음: 범주, 결함 유형,', 'score/threshold = 값'). 유형은 앞 `keep`개만."""
         if self.label == 1:
             types = [t for t in self.defect_types.split("|") if t] or ["defect"]
             named = types if keep is None else types[:keep]
@@ -1314,13 +1262,13 @@ class Example:
             lines.append(tail)
         return lines
 
-    # 줄 수가 max_lines를 넘으면 결함 유형을 하나씩 줄여 가며 다시 줄바꿈한다. 결함 유형이 많은 이미지(VisA는
-    # 한 이미지에 여러 유형이 있다)의 제목이 첫 칸을 넘지 않게 한다.
+    # 결함 유형을 하나씩 줄여 가며 다시 줄바꿈해, 결함 유형이 많은 이미지(VisA는 한 이미지에 여러 유형이
+    # 있다)의 제목이 첫 칸을 넘지 않게 한다.
     def wrapped_title(self, width: int = _TITLE_CHARS, max_lines: int = _TITLE_LINES) -> str:
-        """`title` in lines of at most `width` characters; "score/threshold = x" is never split.
+        """`title`을 한 줄 `width` 글자 이하로 줄바꿈한다. "score/threshold = x"는 쪼개지 않는다.
 
-        When the title takes more than `max_lines` lines, the defect types after the first ones that fit
-        are counted ("+ 3 more") instead of named.
+        제목이 `max_lines` 줄을 넘으면, 들어가는 앞쪽 결함 유형만 이름을 적고 나머지는 개수("+ 3 more")로
+        센다.
         """
         lines = self._wrap(width, None)
         n_types = len(self.defect_types.split("|"))
@@ -1331,13 +1279,12 @@ class Example:
         return "\n".join(lines)
 
 
-# margin을 소수 둘째 자리로 적되, 1이 아닌 값이 '1.00'으로 보이면 판정 방향(1보다 큰지)이 거짓으로 보이므로
-# 1과 구별될 때까지 자릿수를 늘린다.
+# 1이 아닌 값이 '1.00'으로 보이면 판정 방향(1보다 큰지)이 거짓으로 보이기 때문이다.
 def _ratio(margin: float) -> str:
-    """Two decimals, or as many more as it takes to keep a value that is not 1 off "1.00" (its side of 1)."""
+    """margin을 소수 둘째 자리로 적되, 1이 아닌 값이 1의 어느 쪽인지 보일 때까지 자릿수를 늘린다."""
     if margin == 1.0:
         return "1.00"
-    for digits in range(2, 18):  # 16 decimals tell any float64 from 1
+    for digits in range(2, 18):  # 소수 16자리면 어떤 float64든 1과 구별된다
         text = f"{margin:.{digits}f}"
         if float(text) != 1.0:
             return text
@@ -1356,29 +1303,24 @@ def _one_per_category(ordered: list[Example], n: int) -> list[Example]:
     return taken
 
 
-# 점수만 보는 고정 규칙으로 패널 행을 고른다(README '실패 사례'에 같은 규칙이 적혀 있다). margin = 점수 ÷ 범주
-# 임계값, 판정은 score > threshold.
-# - 검출한 결함: margin이 전체 검출의 중앙값에 가장 가까운 2장(전형적인 검출)
-# - 놓친 결함: margin이 가장 낮은 2장
-# - 오검출: margin이 가장 높은 2장
-# 동점은 이미지 경로로 가르고, 후보가 모자란 묶음은 있는 만큼만 둔다. 그림을 보고 고르지 않고 점수만으로
-# 정하므로 같은 실행에서는 항상 같은 예가 나온다(README '미리 정한 규칙으로 고른 예시').
+# README '실패 사례'에 같은 규칙이 적혀 있다. 그림을 보고 고르지 않고 점수만으로 정하므로 같은 실행에서는 항상
+# 같은 예가 나온다(README '미리 정한 규칙으로 고른 예시').
 def pick_examples(
     cats: dict[str, dict[str, np.ndarray]], thresholds: dict[str, float], per_group: int = PER_GROUP
 ) -> dict[str, list[Example]]:
-    """The rows of the panel, by a fixed rule that looks at the scores only.
+    """점수만 보는 고정 규칙으로 패널 행을 고른다.
 
-    margin = image score / threshold of its category. An image is flagged when score > threshold (the
-    decision rule of `calibrate`), so a flagged image has margin > 1. Groups, in this order:
+    margin = 이미지 점수 ÷ 그 범주의 임계값. score > threshold(`calibrate`의 판정 규칙)이면 불량 판정이므로
+    불량 판정 이미지는 margin > 1이다. 묶음은 이 순서다:
 
-    - detected defect (defect, flagged): the `per_group` whose margin is closest to the median margin
-      of all detected defects of the run (typical hits);
-    - missed defect (defect, not flagged): the `per_group` with the lowest margin;
-    - false alarm (normal, flagged): the `per_group` with the highest margin.
+    - 검출한 결함(결함, 불량 판정): margin이 실행의 모든 검출 결함 margin 중앙값에 가장 가까운
+      `per_group`장(전형적인 검출)
+    - 놓친 결함(결함, 정상 판정): margin이 가장 낮은 `per_group`장
+    - 오검출(정상, 불량 판정): margin이 가장 높은 `per_group`장
 
-    At most one image per category in each group; ties are broken by image path. A group with fewer
-    candidates keeps what it has. `cats` holds `eval_images`, `eval_labels` (0 or 1),
-    `eval_defect_types` and `eval_score` per category; every threshold must be positive.
+    각 묶음에서 범주당 한 장까지이고, 동점은 이미지 경로로 가른다. 후보가 모자란 묶음은 있는 만큼만 둔다.
+    `cats`는 범주마다 `eval_images`, `eval_labels`(0 또는 1), `eval_defect_types`, `eval_score`를 가지고,
+    모든 임계값은 양수여야 한다.
     """
     found: dict[str, list[Example]] = {group: [] for group in EXAMPLE_GROUPS}
     # 임계값은 양수여야 margin이 의미가 있다. 점수가 유한하고 라벨이 0/1인지 확인한 뒤 이미지마다 묶음을
@@ -1427,10 +1369,9 @@ def pick_examples(
     }
 
 
-# 범주별 임계값을 compare와 같은 방식으로 정한다: 실행의 보정 점수(cal_score)에서 목표 α의 conformal 임계값.
 # dev 절차 Dinomaly 실행은 빼 둔 정상이 곧 평가 정상이라 보정 점수가 없으므로 거절하고 이유를 알려 준다.
 def example_thresholds(run: MethodRun, alpha: float = ALPHA) -> dict[str, float]:
-    """Per-category threshold as `compare` fixes it: the conformal threshold of the run's `cal_score`."""
+    """`compare`와 같은 방식의 범주별 임계값: 실행의 `cal_score`에서 목표 α의 conformal 임계값."""
     empty = [c for c, cat in run.cats.items() if len(cat["cal_score"]) == 0]
     if empty:
         raise ExamplesError(
@@ -1451,17 +1392,17 @@ def _run_meta(run_dir: Path) -> dict:
         raise ExamplesError(f"{run_dir} is not a finished evaluation run: it has no run.json")
     try:
         meta = _load(path)
-    except (OSError, ValueError) as err:  # a JSONDecodeError is a ValueError
+    except (OSError, ValueError) as err:  # JSONDecodeError도 ValueError다
         raise ExamplesError(f"{path} cannot be read: {type(err).__name__}: {err}") from err
     if not isinstance(meta, dict):
         raise ExamplesError(f"{path} is not the run.json of an evaluation run")
     return meta
 
 
-# run.json의 범주 이름 목록. 이름이 그대로 파일 이름(<범주>.npz)이 되므로, 경로 구분자·'..' 같은 것이 섞인
-# 이름은 폴더 밖 파일을 읽게 할 수 있어 거절한다(POSIX·Windows 경로 모두 확인). 중복도 거절한다.
+# 경로 구분자·'..' 같은 것이 섞인 이름은 폴더 밖 파일을 읽게 할 수 있어 거절한다(POSIX·Windows 경로 모두
+# 확인). 중복도 거절한다.
 def _run_categories(meta: dict, path: Path) -> list[str]:
-    """Category names of run.json; each becomes a file name in the run folder, so it must be a plain name."""
+    """run.json의 범주 이름 목록. 이름이 실행 폴더의 파일 이름(<범주>.npz)이 되므로 순수한 이름이어야 한다."""
     try:
         names = [info["category"] for info in meta["categories"]]
     except (KeyError, TypeError) as err:
@@ -1480,13 +1421,12 @@ def _run_categories(meta: dict, path: Path) -> list[str]:
 
 # 손상된 파일에서 np.load가 낼 수 있는 예외들(잘린 .npz는 zip이 아니고, 빈 파일은 헤더가 없다). 한곳에 모아
 # 같은 방식으로 ExamplesError로 바꾼다.
-# Errors of np.load on a damaged file: a truncated .npz is no zip file, an empty file has no header.
 _READ_ERRORS = (OSError, ValueError, TypeError, EOFError, zipfile.BadZipFile)
 
 
-# .npz에서 필요한 키만 읽는다(다른 큰 배열은 읽지 않음). 키가 없으면 무엇이 빠졌는지 알린다.
+# 키가 없으면 무엇이 빠졌는지 알린다.
 def _npz_arrays(path: Path, keys: Sequence[str]) -> dict[str, np.ndarray]:
-    """Only `keys` of an .npz file: the other arrays in it are not read."""
+    """.npz 파일에서 `keys`만 읽는다. 파일 안의 다른(큰) 배열은 읽지 않는다."""
     try:
         with np.load(path) as z:
             arrays = {key: z[key] for key in keys if key in z.files}
@@ -1498,27 +1438,22 @@ def _npz_arrays(path: Path, keys: Sequence[str]) -> dict[str, np.ndarray]:
     return arrays
 
 
-# 보정 점수의 이미지 목록 키: 공통 형식 실행(run.json에 method가 있음)은 cal_images, run_patchcore 실행은
-# pool_images(교차 적합 풀).
+# 공통 형식 실행(run.json에 method가 있음)은 cal_images, run_patchcore 실행은 pool_images(교차 적합 풀)다.
 def _calibration_images_key(meta: dict) -> str:
-    """Key of the images behind `cal_score`; a `run_patchcore` run (no "method") calls them its pool."""
+    """`cal_score`를 낸 이미지 목록의 키. `run_patchcore` 실행("method" 없음)은 그것을 풀이라 부른다."""
     return "cal_images" if meta.get("method") else "pool_images"
 
 
-# 점수를 하나도 읽기 전에, 실행이 채점한 모든 이미지(평가와 보정)를 매니페스트와 대조한다: 매니페스트에
-# 있는지, 범주와 라벨이 맞는지(보정 이미지는 정상), 평가 이미지가 중복되지 않는지.
-# 봉인 규칙: test 절차가 아닌 실행에 봉인 테스트 이미지가 하나라도 있으면(그려지든 아니든) SealedTestError로
-# 거절한다. 그 점수가 임계값을 정하거나 고르는 예를 바꾸기 때문이다(docstring).
+# 봉인 규칙을 어기면 SealedTestError로 거절한다.
 def _check_scored_images(
     run_dir: Path, names: list[str], cal_key: str, sealed: bool
 ) -> tuple[dict[str, ManifestRow], dict[str, dict[str, np.ndarray]]]:
-    """Check every image the run scored against the manifest before any score is read.
+    """점수를 하나도 읽기 전에, 실행이 채점한 모든 이미지를 매니페스트와 대조한다.
 
-    Only the image lists and the evaluation labels are read. Every evaluation and calibration image must
-    be a manifest image of its category, with the manifest's label (calibration images are normal), and
-    no evaluation image may be listed twice. A run that is not a test-protocol run must hold no sealed
-    test image in either list, drawn or not: its scores would set a threshold or move the picks.
-    Returns the manifest rows by image and the arrays read, by category.
+    이미지 목록과 평가 라벨만 읽는다. 모든 평가·보정 이미지는 그 범주의 매니페스트 이미지여야 하고
+    매니페스트의 라벨과 맞아야 하며(보정 이미지는 정상), 평가 이미지가 두 번 나오면 안 된다. test 절차가
+    아닌 실행은 어느 목록에도 봉인 테스트 이미지를 가지면 안 된다(그려지든 아니든): 그 점수가 임계값을
+    정하거나 고르는 예를 바꾸기 때문이다. 이미지별 매니페스트 행과, 범주별로 읽은 배열을 돌려준다.
     """
     try:
         manifest = read_manifest(paths.VISA_MANIFEST)
@@ -1564,10 +1499,9 @@ def _check_scored_images(
     return by_image, lists
 
 
-# compare가 읽는 방식 그대로 실행을 읽는다(run_patchcore 형식 또는 공통 형식). 범주 순서가 run.json과 같은지,
-# 평가 배열 길이가 서로 같은지 확인한다.
+# 범주 순서가 run.json과 같은지, 평가 배열 길이가 서로 같은지 확인한다.
 def _load_scores(run_dir: Path, meta: dict, names: list[str]) -> MethodRun:
-    """The run as `compare` loads it: a `run_patchcore` run (no "method" in run.json) or the common format."""
+    """`compare`와 같은 방식으로 실행을 읽는다: `run_patchcore` 실행("method" 없음) 또는 공통 형식."""
     try:
         if meta.get("method"):
             config = meta.get("config") or {}
@@ -1592,15 +1526,14 @@ def _load_scores(run_dir: Path, meta: dict, names: list[str]) -> MethodRun:
     return run
 
 
-# 맵 파일이 평가 이미지마다 2차원 맵 하나씩 있는지 헤더만(메모리 맵) 보고 확인한다. 같은 이름의 .npz가
-# 들어오면 shape이 없어 걸러진다.
+# 헤더는 메모리 맵으로 본다.
 def _check_maps(path: Path, n: int) -> None:
-    """The maps file holds one 2-d map per evaluation image (only its header is read)."""
+    """맵 파일에 평가 이미지마다 2차원 맵이 하나씩 있는지 확인한다(헤더만 읽는다)."""
     try:
         maps = np.load(path, mmap_mode="r")
     except _READ_ERRORS as err:
         raise ExamplesError(f"{path} cannot be read: {type(err).__name__}: {err}") from err
-    shape = getattr(maps, "shape", None)  # an .npz under this name loads as an NpzFile
+    shape = getattr(maps, "shape", None)  # 이 이름의 .npz는 NpzFile로 읽혀 shape이 없으므로 걸러진다
     del maps
     if shape is None or len(shape) != 3 or shape[0] != n:
         raise ExamplesError(f"{path} has shape {shape}: expected {n} maps, one per evaluation image")
@@ -1611,7 +1544,7 @@ def _check_maps(path: Path, n: int) -> None:
 def _read_map(path: Path, index: int) -> np.ndarray:
     maps = np.load(path, mmap_mode="r")
     row = np.array(maps[index], dtype=np.float64)
-    del maps  # Windows keeps a mapped file locked
+    del maps  # Windows는 매핑된 파일을 잠가 둔다
     return row
 
 
@@ -1642,32 +1575,27 @@ def _examples_caption(label: str, calibration: str) -> str:
     return "\n".join(textwrap.fill(line, _CAPTION_CHARS, break_on_hyphens=False) for line in lines)
 
 
-# 평가 실행 하나의 예시 패널을 그려 <out>/<name>.png로 쓴다(README의 examples-dinomaly.png,
-# examples-patchcore.png).
-# 순서가 핵심이다: (1) run.json·절차 확인(test면 allow_test 필수) → (2) 파일 존재 → (3) 채점된 모든 이미지를
-# 매니페스트와 대조 → (4) 점수 읽기와 임계값·예 고르기 → (5) 고른 범주의 맵 파일 점검과 캐시 색인 확인 → (6)
-# test면 장부 기록 → (7) 고른 이미지·마스크만 캐시에서 읽기 → (8) 맵 읽기와 그리기. 이미지 없이 할 수 있는
-# 점검을 모두 장부 기록 전에 해서, 실패한 실행이 장부에 줄을 남기지 않게 한다.
+# README의 examples-dinomaly.png, examples-patchcore.png를 만든다. 순서가 핵심이다: (1) run.json·절차
+# 확인(test면 allow_test 필수) → (2) 파일 존재 → (3) 채점된 모든 이미지를 매니페스트와 대조 → (4) 점수 읽기와
+# 임계값·예 고르기 → (5) 고른 범주의 맵 파일 점검과 캐시 색인 확인 → (6) test면 장부 기록 → (7) 고른
+# 이미지·마스크만 캐시에서 읽기 → (8) 맵 읽기와 그리기. 이미지 없이 할 수 있는 점검을 모두 장부 기록 전에
+# 해서, 실패한 실행이 장부에 줄을 남기지 않게 한다.
 def examples(run_dir: Path, out: Path, name: str = "examples", *, allow_test: bool = False) -> Path:
-    """Draw the example inspections of an evaluation run and write `<out>/<name>.png`.
+    """평가 실행 하나의 예시 검사 패널을 그려 `<out>/<name>.png`로 쓴다.
 
-    `run_dir` is an evaluation folder: run.json, `<category>.npz` and `<category>_maps.npy` (one map per
-    evaluation image, in `eval_images` order). Scores are loaded as `compare` loads them and each
-    category gets the threshold `compare` fixes at `compare.ALPHA`: cross-fit for a PatchCore run,
-    hold-out for a run in the common format (Dinomaly). The rows follow the rule of `pick_examples`:
-    two detected defects nearest the median score/threshold of all detected defects, the two missed
-    defects with the lowest and the two false alarms with the highest score/threshold, at most one image
-    per category in each group, ties broken by image path; a group that has fewer keeps what it has and
-    the figure title says so.
+    `run_dir`은 평가 폴더다: run.json, `<범주>.npz`, `<범주>_maps.npy`(평가 이미지마다 맵 하나,
+    `eval_images` 순서). 점수는 `compare`가 읽는 방식으로 읽고, 범주마다 `compare`가 `compare.ALPHA`에서
+    정하는 임계값을 쓴다: PatchCore 실행은 교차 적합, 공통 형식(Dinomaly) 실행은 홀드아웃. 행은
+    `pick_examples` 규칙을 따른다: 모든 검출 결함의 score/threshold 중앙값에 가장 가까운 검출 결함 2장,
+    score/threshold가 가장 낮은 놓친 결함 2장, 가장 높은 오검출 2장. 각 묶음에서 범주당 한 장까지이고 동점은
+    이미지 경로로 가른다. 모자란 묶음은 있는 만큼만 두고 그림 제목에 그렇다고 적는다.
 
-    A test-protocol run is refused unless `allow_test is True`. Before any score is read, every image the
-    run scored (evaluation and calibration) is checked against the manifest: a run that is not a
-    test-protocol run holding a sealed test image anywhere is refused. Images and masks come from the
-    256 px cache (`paths.CACHE`) through the manifest rows of the picked images; for a test-protocol run
-    one line goes to the test ledger after every check that can be made without them and before the
-    first image is read. The maps of the picked rows are read after the images (a map shows where the
-    defect of its image is). Raises ExamplesError or SealedTestError; then no PNG is written, and the
-    ledger line only when images were read.
+    test 절차 실행은 `allow_test is True`가 아니면 거절한다. 점수를 하나라도 읽기 전에, 실행이 채점한 모든
+    이미지(평가와 보정)를 매니페스트와 대조한다: test 절차가 아닌 실행이 어디든 봉인 테스트 이미지를 가지면
+    거절한다. 이미지와 마스크는 고른 이미지의 매니페스트 행을 거쳐 256px 캐시(`paths.CACHE`)에서 읽는다.
+    test 절차 실행이면 이미지 없이 할 수 있는 점검을 모두 마친 뒤, 첫 이미지를 읽기 전에 테스트 장부에 한
+    줄을 남긴다. 고른 행의 맵은 이미지 다음에 읽는다(맵은 그 이미지의 결함 위치를 보여 주기 때문이다).
+    ExamplesError나 SealedTestError를 낸다. 그때 PNG는 쓰지 않고, 장부 줄은 이미지를 읽은 경우에만 남는다.
     """
     run_dir, out = Path(run_dir), Path(out)
     meta = _run_meta(run_dir)
@@ -1677,7 +1605,7 @@ def examples(run_dir: Path, out: Path, name: str = "examples", *, allow_test: bo
     sealed = protocol == "test"
     # allow_test는 진릿값이 아니라 정확히 True일 때만 허락한다(splits.select와 같은 규칙). 실수로 넘긴 다른
     # 값이 봉인을 열지 않게 한다.
-    if sealed and allow_test is not True:  # not truthiness, as in splits.select
+    if sealed and allow_test is not True:
         raise SealedTestError(
             f"{run_dir} is a test-protocol run: its images are the sealed test set. Pass --allow-test "
             "(the read is logged in the test ledger) to draw them"
@@ -1693,7 +1621,7 @@ def examples(run_dir: Path, out: Path, name: str = "examples", *, allow_test: bo
     run = _load_scores(run_dir, meta, names)
     # 대조할 때 읽은 이미지 목록과 점수를 읽을 때 다시 읽은 목록이 같은지 확인한다. 두 번 읽는 사이에 파일이
     # 바뀌었으면 검사한 것과 다른 내용을 쓰게 되므로 멈춘다.
-    for category, cat in run.cats.items():  # the second read must hold the images the first one checked
+    for category, cat in run.cats.items():
         if any(not np.array_equal(cat.get(key), checked[category][key]) for key in ("eval_images", cal_key)):
             raise ExamplesError(f"{run_dir / f'{category}.npz'} changed while it was being read")
     # compare와 같은 임계값으로 예를 고르고, 하나도 없으면 멈춘다.
@@ -1719,7 +1647,7 @@ def examples(run_dir: Path, out: Path, name: str = "examples", *, allow_test: bo
     try:
         try:
             # 색인 조회만 먼저 해서, 캐시에 없는 이미지가 있으면 장부 기록 전에 멈춘다.
-            cache._rows(rows)  # index lookup only: a missing image stops the run before the ledger line
+            cache._rows(rows)
         except KeyError as err:
             raise ExamplesError(
                 f"{paths.CACHE}: {err.args[0]} (rebuild the cache from the manifest)"
@@ -1777,24 +1705,22 @@ def _examples_main(args: argparse.Namespace) -> None:
 # 부른다(README). --allow-test와 --name은 --examples와만, --only는 리포트 그림에만 쓴다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--reports", type=Path, default=paths.REPORTS, help="folder of the report files")
-    parser.add_argument("--out", type=Path, default=paths.ROOT / "docs" / "figures", help="PNG folder")
+    parser.add_argument("--reports", type=Path, default=paths.REPORTS, help="리포트 파일 폴더")
+    parser.add_argument("--out", type=Path, default=paths.ROOT / "docs" / "figures", help="PNG를 쓸 폴더")
     parser.add_argument(
-        "--only", nargs="+", choices=list(FIGURES), default=None, metavar="NAME", help="default: all figures"
+        "--only", nargs="+", choices=list(FIGURES), default=None, metavar="NAME", help="기본값: 모든 그림"
     )
     parser.add_argument(
         "--examples",
         type=Path,
         default=None,
         metavar="RUN_DIR",
-        help="draw only the example inspections of this evaluation run folder",
+        help="이 평가 실행 폴더의 예시 검사 패널만 그린다",
     )
     parser.add_argument(
-        "--allow-test", action="store_true", help="with --examples: read sealed test images (logged)"
+        "--allow-test", action="store_true", help="--examples와 함께: 봉인 테스트 이미지를 읽는다(장부 기록)"
     )
-    parser.add_argument(
-        "--name", default=None, help="with --examples: PNG name without .png (default examples)"
-    )
+    parser.add_argument("--name", default=None, help="--examples와 함께: .png를 뺀 PNG 이름(기본값 examples)")
     args = parser.parse_args(argv)
     # 인자 조합 점검: --allow-test·--name은 --examples와만, --only는 리포트 그림에만 쓰고, --name은 경로가
     # 아닌 파일 이름이어야 한다.
@@ -1807,7 +1733,7 @@ def main(argv: list[str] | None = None) -> None:
     # Windows 콘솔 코드 페이지 밖의 문자(한글 경로 등)가 든 경로를 출력해도 깨지지 않게 표준 출력을 UTF-8로
     # 바꾼다.
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")  # output paths outside the console code page
+        sys.stdout.reconfigure(encoding="utf-8")
     if args.examples is not None:
         args.name = args.name or "examples"
         _examples_main(args)
@@ -1822,7 +1748,6 @@ def main(argv: list[str] | None = None) -> None:
         if missing:
             print(f"skipped {name}: no {', '.join(missing)}")
             continue
-        # A report that cannot be read or drawn stops its own figure only; the run fails at the end.
         try:
             path = save(build(*(_load(f) for f in files)), args.out / f"{name}.png")
         except Exception as err:

@@ -20,7 +20,7 @@ from defect_inspect import bench
 # bench 안의 time 모듈 대신 쓰는 가짜 시계. perf_counter는 현재 값만 돌려주고, 시간은 가짜 단계가
 # advance(ms)를 부를 때만 흐른다.
 class FakeClock:
-    """Stands in for the `time` module inside bench: time only passes when a fake stage says so."""
+    """bench 안의 `time` 모듈 대역: 시간은 가짜 단계가 흐르게 할 때만 흐른다."""
 
     def __init__(self):
         self.now = 0.0
@@ -37,10 +37,10 @@ class FakeClock:
 # 처리한 이미지 번호가 쌓여 이미지를 돌려 쓰는 순서를 확인할 수 있다. sigma 0이면 맵 단계(score_map)는 실제로
 # 계산하지만 가짜 시간이 흐르지 않는다.
 class FakeInspector:
-    """Stage costs in ms per call: the warm-up calls are slow, one timed call is an outlier."""
+    """호출마다 단계별 비용(ms): 워밍업 호출은 느리고, 잰 호출 하나는 이상치다."""
 
     size = 32
-    sigma = 0.0  # no blur: the map stage costs no fake time
+    sigma = 0.0  # 흐림 없음: 맵 단계에는 가짜 시간이 들지 않는다
     bank_rows = 7
     precision = "fp32"
     threads = 3
@@ -57,7 +57,7 @@ class FakeInspector:
         elif call == self.outlier_at:
             self.clock.advance(500.0)
         else:
-            self.clock.advance(4.0 + 0.125 * (call % 2))  # 4.0 or 4.125
+            self.clock.advance(4.0 + 0.125 * (call % 2))  # 4.0 또는 4.125
         return np.zeros((16, 3), np.float32)
 
     def score_features(self, feats):
@@ -88,13 +88,13 @@ def clock(monkeypatch):
 def test_time_inspector_leaves_out_the_warmup_and_reports_medians(clock):
     fake = FakeInspector(clock, slow_first=5, outlier_at=9)
     timing = bench.time_inspector(fake, _images(4), warmup=5, repeats=10)
-    assert len(fake.seen) == 15 and fake.seen[:6] == [0, 1, 2, 3, 0, 1]  # images are cycled
-    # Timed calls 5..14: backbone 4.125, 4.0, 4.125, 4.0, 500 (call 9), 4.0, 4.125, ... -> median, not mean.
+    assert len(fake.seen) == 15 and fake.seen[:6] == [0, 1, 2, 3, 0, 1]  # 이미지를 돌려 쓴다
+    # 잰 호출 5..14: 백본 4.125, 4.0, 4.125, 4.0, 500(호출 9), 4.0, 4.125, ... -> 평균이 아니라 중앙값.
     assert timing["backbone_ms"] == pytest.approx(4.0625)
     assert timing["search_ms"] == pytest.approx(2.0)
     assert timing["map_ms"] == pytest.approx(0.0, abs=1e-9)
     assert timing["total_ms"] == pytest.approx(6.0625)
-    # p95 of ten values with one outlier: between the ninth and the largest.
+    # 이상치 하나가 낀 값 열 개의 p95: 아홉째 값과 가장 큰 값 사이.
     assert 6.125 < timing["total_p95_ms"] < 502.0
     assert timing["backbone_p95_ms"] > 4.125 and timing["search_p95_ms"] == pytest.approx(2.0)
     assert timing["repeats"] == 10 and timing["bank_rows"] == 7
@@ -110,7 +110,7 @@ def test_time_inspector_without_warmup_times_every_call(clock):
     fake = FakeInspector(clock, slow_first=1)
     timing = bench.time_inspector(fake, _images(2), warmup=0, repeats=3)
     assert len(fake.seen) == 3
-    assert timing["total_p95_ms"] > 700.0  # the slow first call is in the sample now
+    assert timing["total_p95_ms"] > 700.0  # 이번에는 느린 첫 호출이 표본에 들어 있다
     with pytest.raises(ValueError):
         bench.time_inspector(fake, _images(0))
     with pytest.raises(ValueError):
@@ -129,7 +129,7 @@ def test_time_torch_prepares_the_bank_once_and_leaves_out_the_warmup(clock, monk
 
     class FakeScorer:
         def __init__(self, extractor, bank, *, device, **kwargs):
-            clock.advance(300.0)  # the one-off bank upload and centring
+            clock.advance(300.0)  # 한 번뿐인 뱅크 업로드와 중심화
             self.calls = 0
             self.kwargs = kwargs
             made.append(self)
@@ -144,9 +144,9 @@ def test_time_torch_prepares_the_bank_once_and_leaves_out_the_warmup(clock, monk
     timing = bench.time_torch(
         None, bank, _images(4), device="cpu", warmup=3, repeats=8, reweight_k=3, sigma=1.0
     )
-    assert len(made) == 1 and made[0].calls == 11  # one scorer for every image: the bank is set up once
+    assert len(made) == 1 and made[0].calls == 11  # 모든 이미지에 채점기 하나: 뱅크 준비는 한 번
     assert made[0].kwargs == {"reweight_k": 3, "sigma": 1.0}
-    assert timing["total_ms"] == pytest.approx(5.0)  # the 300 ms set-up and the warm-up calls are not in it
+    assert timing["total_ms"] == pytest.approx(5.0)  # 300ms 준비와 워밍업 호출은 들어가지 않는다
     assert 5.0 < timing["total_p95_ms"] < 70.0
     assert timing["bank_setup_ms"] == pytest.approx(300.0)
     assert timing["repeats"] == 8 and timing["bank_rows"] == 11 and timing["device"] == "cpu"
@@ -189,13 +189,13 @@ def test_the_torch_scorer_is_score_images_with_a_prepared_bank():
             assert score == float(ref.image_scores[i])
             assert heat.dtype == np.float16 and heat.shape == (map_size, map_size)
             np.testing.assert_array_equal(heat, ref.maps[i])
-        assert torch.equal(bank, before)  # the caller's bank is not centred in place
+        assert torch.equal(bank, before)  # 호출자의 뱅크를 제자리에서 중심화하지 않는다
     with pytest.raises(ValueError, match="dim"):
         bench._TorchScorer(extractor, torch.zeros((5, 4), dtype=torch.float16), device="cpu")(images[0])
     with pytest.raises(ValueError, match="bank"):
         bench._TorchScorer(extractor, torch.zeros((0, 6), dtype=torch.float16), device="cpu")
 
-    # The real clock: a run on the CPU returns the documented keys.
+    # 실제 시계: CPU에서 돌리면 문서에 적힌 키가 나온다.
     timing = bench.time_torch(
         extractor, bank, images, device="cpu", warmup=1, repeats=3, reweight_k=3, sigma=1.0
     )
@@ -218,7 +218,7 @@ def test_latency_file_accumulates_entries(tmp_path):
 # 확인: 리사이즈 원본 크기가 등록한 1500×1000(가로, 세로)이고, 리사이즈 시간이 양수이며, CPU 이름을 문자열로
 # 얻는다(Windows에서는 레지스트리의 ProcessorNameString).
 def test_time_resize_and_cpu_name():
-    assert bench.RESIZE_SOURCE == (1500, 1000)  # the registered photo size (width, height)
+    assert bench.RESIZE_SOURCE == (1500, 1000)  # 등록한 사진 크기(가로, 세로)
     assert bench.time_resize(64, source=(200, 100), repeats=2) > 0
     assert isinstance(bench.cpu_name(), str)
 
@@ -230,7 +230,7 @@ def test_time_resize_and_cpu_name():
 # 모듈(defect_inspect.cache, defect_inspect.splits)의 이름을 바꿔야 가짜가 쓰인다. 출력 경로(paths.REPORTS)도
 # tmp_path로 돌린다.
 def test_cli_adds_the_resize_time_to_the_cpu_latency(tmp_path, monkeypatch):
-    """The registered CPU latency is resize + inference; the entry must carry that sum."""
+    """등록한 CPU 지연은 리사이즈 + 추론이다. 항목에 그 합이 들어 있어야 한다."""
     from defect_inspect import paths
     from defect_inspect.splits import ManifestRow
 
@@ -277,10 +277,10 @@ def test_cli_adds_the_resize_time_to_the_cpu_latency(tmp_path, monkeypatch):
     entry = data["wrn50-32-r0.01"]
     assert entry["resize_ms"] == 12.0 and entry["resize_source"] == [1500, 1000]
     assert entry["cpu_fp32"]["total_ms"] == 195.0
-    assert entry["cpu_fp32"]["total_with_resize_ms"] == 207.0  # over a 200 ms budget although 195 is not
+    assert entry["cpu_fp32"]["total_with_resize_ms"] == 207.0  # 195는 아니지만 합계는 200ms 예산을 넘는다
     assert entry["cpu_int8"]["total_with_resize_ms"] == 72.0
     assert entry["threads"] == 2 and entry["category"] == "toy" and "gpu_fp16" not in entry
     assert loaded == [("toy", "fp32", 2), ("toy", "int8", 2)]
-    # Timed on the first dev pool normals of the category (folds 1-4): nothing from fold 0 or the test set.
+    # 범주의 dev 풀 정상(겹 1-4) 앞쪽으로 잰다: 겹 0이나 봉인 테스트 세트에서는 아무것도 읽지 않는다.
     dev_pool = [r.image for r in manifest if r.role == "pool_normal" and r.fold != 0]
     assert read == [dev_pool[:6]]

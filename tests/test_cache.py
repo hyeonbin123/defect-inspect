@@ -37,7 +37,7 @@ SIZE = 32
 # 한다(autouse).
 @pytest.fixture(autouse=True)
 def temporary_ledger(tmp_path, monkeypatch):
-    """`cache.main` records sealed-test reads: no test may ever write to the real ledger."""
+    """`cache.main`은 봉인 테스트 읽기를 기록한다: 어떤 테스트도 실제 장부에 써서는 안 된다."""
     path = tmp_path / "reports" / "test_ledger.jsonl"
     monkeypatch.setattr(paths, "TEST_LEDGER", path)
     monkeypatch.setattr(ledger, "git_commit", lambda root=None: "abc1234")
@@ -48,7 +48,7 @@ def temporary_ledger(tmp_path, monkeypatch):
 # 확실히 다르도록).
 def jpeg_bytes(seed: int, width: int = 90, height: int = 60) -> bytes:
     rng = np.random.default_rng(seed)
-    # Smooth content (upsampled noise) so that JPEG artefacts stay small.
+    # 부드러운 내용(확대한 잡음)이라 JPEG 압축 손상이 작게 남는다.
     coarse = rng.integers(0, 256, size=(6, 9, 3), dtype=np.uint8)
     img = Image.fromarray(coarse).resize((width, height), Image.Resampling.BILINEAR)
     buffer = io.BytesIO()
@@ -62,7 +62,7 @@ def mask_bytes(seed: int, width: int = 90, height: int = 60) -> bytes:
     rng = np.random.default_rng(seed)
     array = np.zeros((height, width), dtype=np.uint8)
     y, x = int(rng.integers(0, height - 8)), int(rng.integers(0, width - 8))
-    array[y : y + 8, x : x + 8] = 1 + seed % 3  # class ids, not 255
+    array[y : y + 8, x : x + 8] = 1 + seed % 3  # 255가 아니라 클래스 번호
     buffer = io.BytesIO()
     Image.fromarray(array).save(buffer, format="PNG")
     return buffer.getvalue()
@@ -73,9 +73,9 @@ def mask_bytes(seed: int, width: int = 90, height: int = 60) -> bytes:
 # LICENSE-DATASET)과 디렉터리 항목이 들어 있다. tar 안 순서를 이름의 SHA-256 순으로 섞어, 캐시가 tar 순서가
 # 아니라 매니페스트 순서로 행을 놓는지 확인할 수 있다.
 def make_dataset(tmp_path, n_normal: int = 7, n_defect: int = 4, prefix: str = ""):
-    """A tiny tar whose member order differs from the manifest order, plus the files' bytes.
+    """멤버 순서가 매니페스트 순서와 다른 작은 tar와 파일 바이트들.
 
-    `prefix` is put in front of every member name in the tar (not in the manifest).
+    `prefix`는 tar 안의 모든 멤버 이름 앞에 붙인다(매니페스트에는 붙이지 않는다).
     """
     files: dict[str, bytes] = {"pcb1/image_anno.csv": b"image,label,mask\n", "LICENSE-DATASET": b"x"}
     manifest: list[ManifestRow] = []
@@ -110,7 +110,7 @@ def snapshot(out_dir) -> dict[str, bytes]:
 # 남아 있는 모든 색인 파일(visa_*_index.csv)이 옆 배열의 행을 정확히 설명하는지 원본 바이트에서 다시 계산해
 # 확인한다. 실패·중단 테스트의 핵심 불변식인 '색인 파일이 있으면 그 배열은 믿을 수 있다'를 검사한다.
 def check_indexes_describe_their_arrays(out_dir, manifest, files) -> None:
-    """Every index file that exists sits next to an array with exactly those rows (no stale pairs)."""
+    """남아 있는 모든 색인 파일 옆에는 정확히 그 행들을 담은 배열이 있다(어긋난 옛 짝이 없다)."""
     mask_of = {r.image: r.mask for r in manifest}
     for index_file in out_dir.glob("visa_*_index.csv"):
         listed = index_file.read_text(encoding="utf-8").splitlines()
@@ -149,7 +149,7 @@ def test_resize_image_is_square_rgb_bicubic():
     out = resize_image(source, 16)
     assert out.shape == (16, 16, 3) and out.dtype == np.uint8
     assert np.array_equal(out, np.asarray(source.resize((16, 16), Image.Resampling.BICUBIC)))
-    # Shrinking averages neighbouring pixels (antialiasing) rather than picking single source pixels.
+    # 줄일 때 원본 픽셀 하나를 고르지 않고 이웃 픽셀을 평균한다(안티앨리어싱).
     stripes = np.zeros((64, 64, 3), dtype=np.uint8)
     stripes[:, ::2] = 255
     small = resize_image(Image.fromarray(stripes), 16)
@@ -173,12 +173,12 @@ def test_resize_mask_keeps_single_pixel_defects():
     height, width = 1100, 1500
     for y, x in [(0, 0), (1099, 1499), (0, 1499), (547, 733), (5, 6), (1098, 3)]:
         source = np.zeros((height, width), dtype=np.uint8)
-        source[y, x] = 3  # a class id, not 255
+        source[y, x] = 3  # 255가 아니라 클래스 번호
         out = resize_mask(Image.fromarray(source))
         assert out.shape == (MASK_SIZE, MASK_SIZE) and out.dtype == np.uint8
         assert set(np.unique(out)) == {0, 1}
         assert out.sum() == 1
-        # The box of a source pixel is the one that contains its centre.
+        # 원본 픽셀이 속하는 상자는 그 픽셀의 중심을 담은 상자다.
         assert out[int((y + 0.5) * MASK_SIZE / height), int((x + 0.5) * MASK_SIZE / width)] == 1
 
 
@@ -232,7 +232,7 @@ def test_build_cache_files_and_contents(tmp_path):
             assert masks[i].any() and masks[i].max() == 1
         else:
             assert not masks[i].any()
-    # Rows really differ from each other (guards against every row getting the same image).
+    # 행끼리 정말 다르다(모든 행에 같은 이미지가 들어가는 실수를 막는다).
     assert len({images[i].tobytes() for i in range(len(manifest))}) == len(manifest)
 
 
@@ -246,7 +246,7 @@ def test_image_cache_returns_copies_in_row_order(tmp_path):
     store = ImageCache(out_dir, SIZE)
     assert store.size == SIZE and len(store) == len(manifest)
 
-    rows = [manifest[9], manifest[0], manifest[10], manifest[3], manifest[9]]  # any order, repeats allowed
+    rows = [manifest[9], manifest[0], manifest[10], manifest[3], manifest[9]]  # 순서 자유, 반복 허용
     images, masks = store.images(rows), store.masks(rows)
     assert images.shape == (5, SIZE, SIZE, 3) and images.dtype == np.uint8
     assert masks.shape == (5, MASK_SIZE, MASK_SIZE) and masks.dtype == np.uint8
@@ -255,7 +255,7 @@ def test_image_cache_returns_copies_in_row_order(tmp_path):
         assert np.array_equal(images[i], expected_image(files[row.image], SIZE))
         want = expected_mask(files[row.mask]) if row.mask else np.zeros((MASK_SIZE, MASK_SIZE), np.uint8)
         assert np.array_equal(masks[i], want)
-    images[:] = 0  # in-memory copies: writable, and the cache itself is untouched
+    images[:] = 0  # 메모리 사본: 고칠 수 있고, 캐시 자체는 그대로다
     assert np.array_equal(store.images(rows[:1])[0], expected_image(files[rows[0].image], SIZE))
 
     assert store.images([]).shape == (0, SIZE, SIZE, 3)
@@ -309,7 +309,7 @@ def test_masks_are_rebuilt_when_the_manifest_order_changes(tmp_path):
     store = ImageCache(out_dir, 48)
     assert np.array_equal(store.masks(reordered[:1])[0], expected_mask(files[reordered[0].mask]))
     store.close()
-    # The older size now disagrees with the mask order and says so instead of returning wrong masks.
+    # 옛 크기 캐시는 이제 마스크 순서와 어긋나고, 틀린 마스크를 돌려주는 대신 그렇다고 알린다.
     with pytest.raises(ValueError, match="different manifest"):
         ImageCache(out_dir, SIZE)
 
@@ -442,16 +442,16 @@ def test_main_records_the_test_set_read_in_the_ledger(tmp_path, capsys, monkeypa
     entries = ledger_entries(temporary_ledger)
     assert len(entries) == 1
     assert {k: v for k, v in entries[0].items() if k != "time"} == expected
-    assert recorded_before_build == [1]  # written before the first test image is read
+    assert recorded_before_build == [1]  # 첫 테스트 이미지를 읽기 전에 썼다
     assert str(temporary_ledger) in capsys.readouterr().out
 
-    # A complete cache is skipped: nothing is read, nothing is recorded.
+    # 완성된 캐시는 건너뛴다: 아무것도 읽지 않고 아무것도 기록하지 않는다.
     assert cache.main(argv) == 0
     assert len(ledger_entries(temporary_ledger)) == 1 and recorded_before_build == [1]
-    # --force reads the test images again, so there is a second line.
+    # --force는 테스트 이미지를 다시 읽으므로 둘째 줄이 생긴다.
     assert cache.main([*argv, "--force"]) == 0
     assert len(ledger_entries(temporary_ledger)) == 2 and recorded_before_build == [1, 2]
-    # Another size is another read.
+    # 다른 크기는 또 한 번의 읽기다.
     assert cache.main(main_argv(tmp_path, manifest, size=48)) == 0
     assert [e["config"] for e in ledger_entries(temporary_ledger)] == [f"cache-{SIZE}"] * 2 + ["cache-48"]
 
@@ -484,7 +484,7 @@ def test_main_records_nothing_when_the_build_cannot_start(tmp_path, monkeypatch,
     monkeypatch.setattr(cache.os, "rename", in_use(f"visa_{SIZE}_images.npy"))
     with pytest.raises(PermissionError, match="in use"):
         cache.main([*argv, "--force"])
-    assert len(ledger_entries(temporary_ledger)) == 1  # no test image was read the second time
+    assert len(ledger_entries(temporary_ledger)) == 1  # 두 번째에는 테스트 이미지를 읽지 않았다
 
 
 # 확인: 다른 매니페스트(예: 한 범주만)로 다른 크기를 만들면 공유 마스크를 바꿔야 하는데, 그러면 이미 완성된
@@ -498,7 +498,7 @@ def test_main_refuses_to_rebuild_masks_that_other_sizes_use(tmp_path, capsys, te
     before = snapshot(out_dir)
     capsys.readouterr()
 
-    subset = manifest[:5]  # e.g. a manifest of one category: its masks would replace the full ones
+    subset = manifest[:5]  # 예: 한 범주의 매니페스트. 그 마스크가 전체 마스크를 대신하게 된다
     argv = main_argv(tmp_path, subset, size=48, name="subset.csv")
     assert cache.main(argv) == 1
     out = capsys.readouterr().out
@@ -520,7 +520,7 @@ def test_main_rebuilds_masks_without_force_when_no_other_size_uses_them(tmp_path
     out_dir = tmp_path / "cache"
     assert cache.main(main_argv(tmp_path, manifest)) == 0
     reordered = manifest[::-1]
-    assert cache.main(main_argv(tmp_path, reordered, name="reordered.csv")) == 0  # same size: nothing lost
+    assert cache.main(main_argv(tmp_path, reordered, name="reordered.csv")) == 0  # 같은 크기: 잃을 것 없음
     assert cache.cache_is_complete(out_dir, SIZE, reordered)
     check_indexes_describe_their_arrays(out_dir, manifest, files)
 
@@ -538,7 +538,7 @@ def test_cache_is_complete_needs_the_masks_and_their_index(tmp_path):
         assert not cache.cache_is_complete(out_dir, SIZE, manifest), name
         (out_dir / name).write_bytes(saved)
         assert cache.cache_is_complete(out_dir, SIZE, manifest)
-    # Masks in another row order do not count either.
+    # 행 순서가 다른 마스크도 완성으로 치지 않는다.
     (out_dir / "visa_masks_256_index.csv").write_text(
         "".join(f"{r.image}\n" for r in manifest[::-1]), encoding="utf-8", newline="\n"
     )
@@ -585,7 +585,7 @@ def test_build_reads_member_names_with_a_dot_prefix(tmp_path):
 # 지정한 파일에서만 PermissionError를 내는 os.rename. Windows가 메모리 맵으로 열린 파일을 바꾸지 못하는 상황을
 # 흉내 낸다(캐시는 같은 이름으로 rename해 보아 사용 중인지 미리 확인한다).
 def in_use(*names: str):
-    """An `os.rename` that fails for the named files, the way Windows does for a mapped file."""
+    """지정한 파일에서만 실패하는 `os.rename`. Windows가 메모리 맵으로 열린 파일에서 실패하는 것과 같다."""
     real_rename = os.rename
 
     def rename(src, dst):
@@ -617,7 +617,7 @@ def test_build_stops_before_decoding_when_a_file_it_replaces_is_in_use(tmp_path,
     monkeypatch.setattr(cache, "_decode_mask", no_decoding)
     with pytest.raises(PermissionError, match="in use"):
         build_cache(tar_path, manifest, SIZE, out_dir, progress=False)
-    assert snapshot(out_dir) == before  # nothing removed, no ".part" files
+    assert snapshot(out_dir) == before  # 지운 것 없음, ".part" 파일 없음
     assert cache.cache_is_complete(out_dir, SIZE, manifest)
 
 
@@ -630,7 +630,7 @@ def test_masks_in_use_block_a_build_only_when_they_are_rebuilt(tmp_path, monkeyp
     before = snapshot(out_dir)
     monkeypatch.setattr(cache.os, "rename", in_use("visa_masks_256.npy"))
 
-    # Same manifest, other size: the masks are reused, so it does not matter that they are open.
+    # 같은 매니페스트, 다른 크기: 마스크를 재사용하므로 마스크가 열려 있어도 상관없다.
     build_cache(tar_path, manifest, 48, out_dir, progress=False)
     assert cache.cache_is_complete(out_dir, 48, manifest)
     before = snapshot(out_dir)
@@ -638,7 +638,7 @@ def test_masks_in_use_block_a_build_only_when_they_are_rebuilt(tmp_path, monkeyp
     monkeypatch.setattr(cache, "_decode_image", no_decoding)
     monkeypatch.setattr(cache, "_decode_mask", no_decoding)
     with pytest.raises(PermissionError, match="in use"):
-        build_cache(tar_path, manifest[::-1], 64, out_dir, progress=False)  # other order: new masks
+        build_cache(tar_path, manifest[::-1], 64, out_dir, progress=False)  # 다른 순서: 새 마스크
     assert snapshot(out_dir) == before
 
 
@@ -657,7 +657,7 @@ def test_rebuild_with_an_open_image_cache_fails_early_and_keeps_the_cache(tmp_pa
     monkeypatch.setattr(cache, "_decode_image", no_decoding)
     with pytest.raises(PermissionError, match="in use"):
         build_cache(tar_path, manifest, SIZE, out_dir, progress=False)
-    with pytest.raises(PermissionError, match="in use"):  # the masks are mapped too
+    with pytest.raises(PermissionError, match="in use"):  # 마스크도 메모리 맵으로 열려 있다
         build_cache(tar_path, manifest[::-1], 48, out_dir, progress=False)
     assert snapshot(out_dir) == before
     assert cache.cache_is_complete(out_dir, SIZE, manifest)
@@ -666,7 +666,7 @@ def test_rebuild_with_an_open_image_cache_fails_early_and_keeps_the_cache(tmp_pa
     store.close()
     monkeypatch.setattr(cache, "_decode_image", real_decode)
     build_cache(tar_path, manifest, SIZE, out_dir, progress=False)
-    assert snapshot(out_dir) == before  # rebuilding is deterministic
+    assert snapshot(out_dir) == before  # 다시 만들기는 결정적이다
 
 
 # 다 만든 .part 파일을 제자리로 옮기는 순서: 마스크 배열 → 마스크 색인 → 이미지 배열 → 이미지 색인. 배열을
@@ -692,7 +692,7 @@ def test_failed_publish_never_leaves_an_index_without_its_array(tmp_path, monkey
     out_dir = tmp_path / "cache"
     build_cache(tar_path, manifest, SIZE, out_dir, progress=False)
     before = snapshot(out_dir)
-    reordered = manifest[::-1]  # other row order: masks and images are both rebuilt and both differ
+    reordered = manifest[::-1]  # 다른 행 순서: 마스크와 이미지 둘 다 다시 만들어지고 둘 다 달라진다
     real_replace = os.replace
     published: list[str] = []
 
@@ -707,22 +707,22 @@ def test_failed_publish_never_leaves_an_index_without_its_array(tmp_path, monkey
         build_cache(tar_path, reordered, SIZE, out_dir, progress=False)
     monkeypatch.setattr(cache.os, "replace", real_replace)
 
-    # Arrays go first, each index right after its array, and nothing is published after a failure.
+    # 배열이 먼저, 색인은 자기 배열 바로 뒤에 옮기며, 실패한 뒤로는 아무것도 옮기지 않는다.
     assert published == PUBLISH_ORDER[:fail_at]
     assert not list(out_dir.glob("*.part"))
     check_indexes_describe_their_arrays(out_dir, manifest, files)
     assert not cache.cache_is_complete(out_dir, SIZE, reordered)
     if fail_at == 1 and error is PermissionError:
-        # The very first replace was refused: nothing changed, the previous cache is still complete.
+        # 맨 첫 교체가 거부됐다: 아무것도 바뀌지 않았고 이전 캐시가 여전히 완성 상태다.
         assert snapshot(out_dir) == before
         assert cache.cache_is_complete(out_dir, SIZE, manifest)
     if fail_at == 3 and error is PermissionError:
-        # The image array could not be replaced: its old index is back, next to the old array.
+        # 이미지 배열을 바꾸지 못했다: 옛 색인이 옛 배열 옆으로 돌아왔다.
         assert (out_dir / f"visa_{SIZE}_index.csv").read_bytes() == before[f"visa_{SIZE}_index.csv"]
         with pytest.raises(ValueError, match="different manifest"):
-            ImageCache(out_dir, SIZE)  # the masks were rebuilt in the new order: refused, not wrong
+            ImageCache(out_dir, SIZE)  # 마스크가 새 순서로 다시 만들어졌다: 틀리게 읽지 않고 거부한다
 
-    # The next build repairs everything.
+    # 다음 빌드가 모든 것을 고친다.
     build_cache(tar_path, reordered, SIZE, out_dir, progress=False)
     assert cache.cache_is_complete(out_dir, SIZE, reordered)
     check_indexes_describe_their_arrays(out_dir, manifest, files)
@@ -735,8 +735,8 @@ def test_failed_publish_never_leaves_an_index_without_its_array(tmp_path, monkey
 def test_interrupt_right_after_an_array_was_replaced_does_not_bring_the_old_index_back(
     tmp_path, monkeypatch, array_name
 ):
-    # Ctrl-C can land after os.replace has already moved the new array in. The old index is only
-    # put back when the replace itself failed (OSError); here it would describe the wrong rows.
+    # Ctrl-C는 os.replace가 새 배열을 이미 옮긴 뒤에 올 수 있다. 옛 색인은 교체 자체가 실패했을 때(OSError)만
+    # 되돌려 놓는다. 여기서 되돌리면 그 색인은 엉뚱한 행을 설명하게 된다.
     tar_path, manifest, files = make_dataset(tmp_path)
     out_dir = tmp_path / "cache"
     build_cache(tar_path, manifest, SIZE, out_dir, progress=False)
@@ -779,7 +779,7 @@ def test_publish_of_the_same_manifest_survives_an_interrupt_between_array_and_in
     with pytest.raises(KeyboardInterrupt):
         build_cache(tar_path, manifest, SIZE, out_dir, progress=False)
     monkeypatch.setattr(cache.os, "replace", real_replace)
-    # The array is new, its index is gone: the cache reads as unfinished instead of half-trusted.
+    # 배열은 새것이고 그 색인은 없다: 캐시는 반쯤 믿을 상태가 아니라 미완성으로 읽힌다.
     assert sorted(p.name for p in out_dir.iterdir()) == [
         f"visa_{SIZE}_images.npy",
         "visa_masks_256.npy",

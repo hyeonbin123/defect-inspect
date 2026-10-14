@@ -1,8 +1,7 @@
-"""How much the exported CPU pipeline drifts from the torch pipeline, and whether INT8 needs new thresholds.
+"""내보낸 CPU 파이프라인이 torch 파이프라인에서 얼마나 벗어나는지, INT8이 임계값을 새로 잡아야 하는지 잰다.
 
-Pipelines: `torch` (GPU fp16, where banks and thresholds come from), `fp32` and `int8` (onnxruntime on the
-CPU). For each: accuracy, and the pooled false alarm and detection rates under thresholds calibrated
-with a named pipeline's cross-fitted scores.
+파이프라인은 `torch`(GPU fp16, 뱅크와 임계값을 만든 경로), `fp32`와 `int8`(CPU의 onnxruntime)이다. 각각에
+대해 정확도와, 지정한 파이프라인의 교차 적합 점수로 보정한 임계값에서의 합산 오검출률·검출률을 낸다.
 """
 
 # [파일 역할] 4단계에서 PatchCore를 CPU용으로 내보낸 뒤, 점수가 GPU torch 파이프라인과 얼마나 달라지는지,
@@ -63,13 +62,11 @@ def load(out_dir: Path) -> dict:
     return {"meta": meta, "pipelines": pipelines}
 
 
-# scores의 평가 점수를, thresholds_from의 교차 적합 점수로 정한 범주별 임계값에 적용했을 때의 합산
-# 오검출률·검출률과 부트스트랩 표본. 두 인자를 다르게 주면 "다른 파이프라인의 임계값을 그대로 쓰면"을 잴 수
-# 있다. 오검출 수(fp, fp_boot)도 돌려주어 최소 효과와의 비교를 정확한 정수로 할 수 있게 한다.
+# 두 인자를 다르게 주면 "다른 파이프라인의 임계값을 그대로 쓰면"을 잴 수 있다.
 def _rates(
     boot: compare.Bootstrap, scores: dict[str, dict], thresholds_from: dict[str, dict], alpha: float
 ) -> dict[str, np.ndarray | float]:
-    """Pooled FPR/TPR of `scores` under thresholds calibrated on `thresholds_from`, with bootstrap samples."""
+    """`thresholds_from`으로 보정한 범주별 임계값에서 `scores`의 합산 FPR·TPR과 부트스트랩 표본을 낸다."""
     fp = tp = n_neg = n_pos = 0
     fp_boot = np.zeros(boot.n_boot)
     tp_boot = np.zeros(boot.n_boot)
@@ -92,7 +89,8 @@ def _rates(
         "tpr": tp / n_pos,
         "fpr_boot": fp_boot / n_neg,
         "tpr_boot": tp_boot / n_pos,
-        # The counts behind the false alarm rate, for exact comparisons with the minimum effect.
+        # 오검출률의 바탕이 되는 오검출 수(fp, fp_boot)도 돌려준다. 최소 효과와의 비교를 정확한 정수로 하기
+        # 위해서다.
         "fp": fp,
         "fp_boot": fp_boot,
         "n_neg": n_neg,
@@ -164,9 +162,8 @@ def build_report(run: dict, alpha: float = ALPHA) -> dict:
         "n_boot": boot.n_boot,
         "rows": rows,
         **{k: run["meta"][k] for k in ("artifacts", "ratio", "protocol")},
-        # INT8 점수가 없는 실행(DINOv2 설정은 INT8 모델을 만들 수 없다, 규칙 변경 5)이면 H14를 판정하지
-        # 않는다는 표시를 남긴다.
-        # False when the run has no INT8 scores (e.g. the model could not be quantized): no H14 verdict.
+        # INT8 점수가 없는 실행(예: 모델을 양자화하지 못함. DINOv2 설정은 INT8 모델을 만들 수 없다, 규칙
+        # 변경 5)이면 False가 되어, H14를 판정하지 않았다는 표시가 남는다.
         "int8_scored": "int8" in pipelines,
     }
     if "fp32" in pipelines and "int8" in pipelines:
@@ -174,17 +171,13 @@ def build_report(run: dict, alpha: float = ALPHA) -> dict:
     return report
 
 
-# H14 판정 규칙(등록한 그대로)을 오검출 수로 적용한다. 짝지은 구간이 0을 포함하지 않고 변화가 2.0%p 이상이면
-# 지지, 구간 전체가 ±2.0%p 안이면 기각, 나머지는 판정 불가. 2.0%p를 정상 수 × 0.02(Fraction으로 정확히)인
-# "장수"로 바꿔 비교하므로, 비율의 부동소수 반올림(예: 0.12 − 0.10 = 0.01999...) 때문에 경계에서 판정이
-# 뒤집히지 않는다.
 def shift_verdict(fp_diff: int, ci_counts: list[float], n_neg: int) -> str:
-    """The registered H14 rule, on false alarm counts out of `n_neg` pooled normals.
+    """등록한 H14 규칙을, 합산 정상 `n_neg`장 가운데 오검출 장수로 적용한다.
 
-    Supported ("지지") when the paired interval excludes 0 and the change is at least 2.0 points;
-    rejected ("기각") when the whole interval lies strictly inside (-2.0, +2.0) points; undecided
-    ("판정 불가") otherwise. Counts keep the comparison with the margin exact: as a difference of two
-    rates, 12/100 - 10/100 is 0.01999... in floating point and would miss "at least 2.0 points".
+    짝지은 구간이 0을 포함하지 않고 변화가 2.0%p 이상이면 지지("지지"), 구간 전체가 (−2.0, +2.0)%p 안에
+    엄격히 들어가면 기각("기각"), 그 밖에는 판정 불가("판정 불가")다. 2.0%p를 정상 수 × 0.02(Fraction으로
+    정확히 계산)인 장수로 바꿔 비교하므로 기준과의 비교가 정확하다. 두 비율의 차로 계산하면 12/100 − 10/100이
+    부동소수로 0.01999...가 되어 "2.0%p 이상"을 놓친다.
     """
     # 2.0%p × 정상 수 = 기준이 되는 오검출 장수(정확한 분수). 아래 비교는 모두 장수 단위다.
     margin = Fraction(str(MIN_EFFECT_FPR)) * n_neg
@@ -196,15 +189,12 @@ def shift_verdict(fp_diff: int, ci_counts: list[float], n_neg: int) -> str:
     return "판정 불가"
 
 
-# H14의 수치: FP32 CPU 교차 적합 점수로 정한 임계값을 FP32 점수와 INT8 점수에 각각 적용해 오검출 수 차이와
-# 짝지은 구간을 낸다. INT8 자신의 교차 적합 점수로 다시 잡았을 때의 비율과 검출률 변화도 같이 적는다(판정
-# 없이).
 def int8_shift(boot: compare.Bootstrap, pipelines: dict, alpha: float = ALPHA) -> dict:
-    """INT8 scores under thresholds calibrated with the fp32 CPU pipeline, against fp32 under the same ones.
+    """fp32 CPU 파이프라인으로 보정한 임계값을 INT8 점수와 fp32 점수에 똑같이 적용해 비교한다(H14의 수치).
 
-    Registered claim: the pooled false alarm rate moves by more than 2 points (`shift_verdict`). The
-    thresholds stay those of the fp32 cross-fitted scores; the INT8 rate after recalibrating on its own
-    cross-fitted scores is reported next to it.
+    등록한 주장은 합산 오검출률이 2%p 넘게 움직인다는 것이다(`shift_verdict`로 판정). 오검출 수 차이와
+    짝지은 구간을 낸다. 임계값은 fp32 교차 적합 점수로 정한 것을 그대로 쓰고, INT8 자신의 교차 적합 점수로
+    다시 보정했을 때의 비율과 검출률 변화는 판정 없이 옆에 적는다.
     """
     fp32 = _rates(boot, pipelines["fp32"], pipelines["fp32"], alpha)
     int8 = _rates(boot, pipelines["int8"], pipelines["fp32"], alpha)
@@ -275,7 +265,7 @@ def format_report(report: dict) -> str:
 # 명령행 입구. 저장된 점수만 읽고 reports/stage4/export-<절차>.json을 쓴다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("run_dir", type=Path, help="a run_export_eval output directory")
+    parser.add_argument("run_dir", type=Path, help="run_export_eval의 출력 폴더")
     parser.add_argument("--no-write", action="store_true")
     args = parser.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):

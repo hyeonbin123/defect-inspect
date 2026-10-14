@@ -1,18 +1,17 @@
-"""Changes to anomalib's DinomalyModel for the stage 6 models, and the graph that is exported for the CPU.
+"""6단계 모델을 위한 anomalib DinomalyModel 변경과, CPU용으로 내보내는 추론 그래프.
 
-Needs torch and anomalib (the `train` and `dinomaly` groups). Every change keeps the model's outputs:
+torch와 anomalib(`train`, `dinomaly` 의존성 그룹)이 필요하다. 모든 변경은 모델의 출력을 바꾸지 않는다.
 
-- `fix_encoder` keeps only the encoder blocks the model reads (the last target layer is block 9; anomalib
-  runs all 12 blocks of the ViT) and resamples the position embedding once for a fixed input size, so
-  that no interpolation runs per image. The same resampling function runs as in the dynamic path.
-- `ScaledLinearAttention` divides the keys by the number of tokens. The output of linear attention is
-  `(q @ (k^T v)) / (q . sum(k))`: the factor cancels, but the sums that overflowed fp16 in stage 2
-  (an fp32 probe on the CPU, not kept in the repository: q.kv up to 89,101; docs/experiments.md,
-  stage 6) shrink by that factor.
-- `Fp32LinearAttention` runs the attention in fp32 with autocast switched off (the fallback of the
-  fp16 gate in docs/experiments.md, stage 6).
-- `ServingGraph` is the inference path of `DinomalyModel.forward` plus the map resize of
-  `run_dinomaly.predict`: image in, (image score, 256x256 map) out.
+- `fix_encoder`: 모델이 읽는 인코더 블록만 남기고(읽는 마지막 층은 블록 9인데 anomalib은 ViT의 12블록을
+  모두 돌린다), 고정한 입력 크기에 맞게 위치 임베딩을 한 번만 다시 표집해 이미지마다 보간하지 않게 한다.
+  동적 경로와 같은 재표집 함수를 쓴다.
+- `ScaledLinearAttention`: 키를 토큰 수로 나눈다. 선형 어텐션의 출력은 `(q @ (k^T v)) / (q . sum(k))`라
+  이 배율은 약분되지만, 2단계에서 fp16을 넘친 합(CPU의 fp32 점검, 저장소에는 두지 않음: q.kv 최대 89,101,
+  docs/experiments.md 6단계)은 그만큼 작아진다.
+- `Fp32LinearAttention`: autocast를 끄고 어텐션을 fp32로 계산한다(docs/experiments.md 6단계 fp16 관문의
+  대안).
+- `ServingGraph`: `DinomalyModel.forward`의 추론 경로에 `run_dinomaly.predict`의 맵 리사이즈를 더한 것이다.
+  이미지를 넣으면 (이미지 점수, 256x256 맵)이 나온다.
 """
 
 # [파일 역할] 6단계 CPU 서빙 모델(Dinomaly ViT-S, DMS)을 위해 anomalib의 DinomalyModel을 고치는 도구와, CPU용
@@ -48,20 +47,20 @@ MAP_SIZE = 256
 # fp16에서 안전한 선형 어텐션. 2단계 DM(ViT-B 392px)은 fp16 학습 15스텝째에 손실이 NaN이 되었는데, 원인으로 본
 # 것이 디코더 선형 어텐션의 합이 fp16 최댓값 65,504를 넘는 것이었다(fp32 점검에서 q·kv 최대 89,101).
 # 선형 어텐션의 출력은 (q·(kᵀv)) / (q·Σk)라 키 k를 토큰 수 N으로 나눠도 분자·분모에서 N이 약분되어 수식상
-# 같고, 중간 합만 1/N로 작아진다. 두 번째 반환값 kv는 원래의 1/N이지만 디코더 블록은 쓰지 않는다.
+# 같고, 중간 합만 1/N로 작아진다.
 # 주의(2026-10-04 정정): 이 패치로 ViT-S 280px가 fp16에서 유한하게 학습된 것은 보였지만, 패치가 2단계 DM의
 # fp16 실패를 없앤다는 것은 재지 않았다.
 class ScaledLinearAttention(LinearAttention):
-    """anomalib's LinearAttention with the keys divided by the number of tokens.
+    """키를 토큰 수로 나눈 anomalib의 LinearAttention.
 
-    The output is the same up to rounding; the key-value product it returns as its second value (which
-    the decoder block does not use) is the original one divided by the number of tokens.
+    출력은 반올림 차이를 빼면 같다. 두 번째 반환값인 키-값 곱(디코더 블록은 쓰지 않는다)은 원래 값을 토큰
+    수로 나눈 것이 된다.
     """
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # anomalib 코드와 달라진 곳은 `k = (F.elu(k) + 1.0) / seq_len` 한 줄뿐이다. elu(x) + 1은 선형
-        # 어텐션에서 softmax 대신 쓰는 양수 특징 사상이라, 분모 q·Σk가 0이 되지 않는다.
-        # The body of anomalib 2.6.2's LinearAttention.forward (Apache-2.0) with `k / seq_len`.
+        # 본문은 anomalib 2.6.2 LinearAttention.forward(Apache-2.0)를 옮기고 `k / seq_len`만 더한 것이다.
+        # 달라진 곳은 `k = (F.elu(k) + 1.0) / seq_len` 한 줄뿐이다. elu(x) + 1은 선형 어텐션에서 softmax
+        # 대신 쓰는 양수 특징 사상이라, 분모 q·Σk가 0이 되지 않는다.
         batch_size, seq_len, embed_dim = x.shape
         qkv = (
             self.qkv(x)
@@ -81,10 +80,10 @@ class ScaledLinearAttention(LinearAttention):
         return x, kv
 
 
-# 관문 2 (나)의 대안: 다른 층은 fp16 autocast로 돌리되 선형 어텐션만 autocast를 끄고 fp32로 계산한다. 첫
-# 변형(scaled)이 통과해 실제 학습에는 쓰이지 않았다(docs/experiments.md 6단계 관문 2 (나) 결과).
+# 관문 2 (나)의 대안이다. 다른 층은 fp16 autocast로 돈다. 첫 변형(scaled)이 통과해 실제 학습에는 쓰이지
+# 않았다(docs/experiments.md 6단계 관문 2 (나) 결과).
 class Fp32LinearAttention(LinearAttention):
-    """anomalib's LinearAttention computed in fp32, outside any autocast region."""
+    """autocast 영역 밖에서 fp32로 계산하는 anomalib의 LinearAttention."""
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         with torch.autocast(device_type=x.device.type, enabled=False):
@@ -95,12 +94,12 @@ class Fp32LinearAttention(LinearAttention):
 _ATTENTION = {"original": LinearAttention, "scaled": ScaledLinearAttention, "fp32": Fp32LinearAttention}
 
 
-# 모든 디코더 블록의 어텐션 객체의 클래스(__class__)만 바꿔 끼운다. 새 모듈을 만들지 않으므로 파라미터 객체와
-# state_dict 키가 그대로라, 원본 어텐션으로 학습한 가중치와 패치한 모델이 서로 호환된다(관문 2 (가)는 같은
+# 어텐션 객체의 클래스(__class__)만 바꿔 끼운다. 새 모듈을 만들지 않으므로 파라미터 객체와 state_dict 키가
+# 그대로라, 원본 어텐션으로 학습한 가중치와 패치한 모델이 서로 호환된다(관문 2 (가)는 같은
 # 초기값에서 두 모델을 비교했다). 디코더에 LinearAttention이 아닌 것이 있으면 TypeError를 낸다. 호출 위치:
 # run_dinomaly.build_model.
 def set_attention(model: torch.nn.Module, mode: str) -> None:
-    """Switch the attention of every decoder block to `mode` (the parameters stay the same objects)."""
+    """모든 디코더 블록의 어텐션을 `mode`로 바꾼다(파라미터는 같은 객체로 남는다)."""
     if mode not in _ATTENTION:
         raise ValueError(f"attention must be one of {ATTENTION_MODES}, got {mode!r}")
     for block in model.decoder:
@@ -109,11 +108,10 @@ def set_attention(model: torch.nn.Module, mode: str) -> None:
         block.attn.__class__ = _ATTENTION[mode]
 
 
-# 지금 디코더가 어느 어텐션 모드인지 돌려준다. 블록마다 다르면 ValueError.
 # 테스트(tests/test_dinomaly_model.py, test_run_dinomaly.py)가 저장·불러오기 뒤에도 모드가 유지되는지 확인하는
 # 데 쓴다.
 def attention_mode(model: torch.nn.Module) -> str:
-    """The mode of the decoder's attention (all blocks must agree)."""
+    """디코더 어텐션의 모드를 돌려준다(모든 블록이 같아야 하고, 다르면 ValueError)."""
     modes = {next(k for k, cls in _ATTENTION.items() if type(b.attn) is cls) for b in model.decoder}
     if len(modes) != 1:
         raise ValueError(f"decoder blocks use different attention modes: {sorted(modes)}")
@@ -134,18 +132,17 @@ def _size_guard(img_size: int):
     return check
 
 
-# 6단계 인코더 경량화. 둘 다 출력을 바꾸지 않는다.
-# - blocks: 앞쪽 블록만 남긴다. Dinomaly가 읽는 층은 2~9라 10, 11번 블록은 계산만 하고 출력이 쓰이지 않는다.
-#   그래서 10블록(DMS 설정의 encoder_blocks=10)으로 자른다. 읽는 마지막 층보다 적게 자르면 ValueError.
-# - img_size: 위치 임베딩을 입력 크기에 맞게 한 번만 보간해 둔다. 동적 경로가 이미지마다 부르는 같은
-#   함수(anomalib가 antialias를 끈 bicubic)로 계산하므로 결과가 비트 단위로 같고, 이미지마다의 보간 연산이
-#   ONNX 그래프와 CPU 추론에서 빠진다. 크기는 패치(14)의 배수여야 한다.
+# 6단계 인코더 경량화.
+# - blocks: Dinomaly가 읽는 층은 2~9라 10, 11번 블록은 계산만 하고 출력이 쓰이지 않는다. 그래서
+#   10블록(DMS 설정의 encoder_blocks=10)으로 자른다. 읽는 마지막 층보다 적게 자르면 ValueError.
+# - img_size: 동적 경로와 같은 함수(antialias를 끈 bicubic)로 계산하므로 결과가 비트 단위로 같고, 이미지마다의
+#   보간 연산이 ONNX 그래프와 CPU 추론에서 빠진다. 크기는 패치(14)의 배수여야 한다.
 def fix_encoder(model: torch.nn.Module, *, img_size: int | None = None, blocks: int | None = None) -> None:
-    """Keep the first `blocks` encoder blocks and fix the input size to `img_size` (both optional).
+    """인코더의 앞쪽 `blocks`개 블록만 남기고 입력 크기를 `img_size`로 고정한다(둘 다 선택).
 
-    Fixing the size resamples the position embedding once with the function the dynamic path calls on
-    every image (anomalib switches its antialiasing off), so the outputs do not change. A fixed encoder
-    refuses other input sizes instead of resampling the already resampled embedding.
+    크기를 고정하면 동적 경로가 이미지마다 부르는 함수로 위치 임베딩을 한 번만 다시 표집하므로(anomalib은
+    antialiasing을 끈다) 출력이 바뀌지 않는다. 고정한 인코더는 이미 다시 표집한 임베딩을 또 표집하지 않고
+    다른 입력 크기를 거절한다. 두 변경 모두 출력을 바꾸지 않는다.
     """
     vit = model.encoder.feature_extractor
     if blocks is not None:
@@ -167,19 +164,16 @@ def encoder_blocks(model: torch.nn.Module) -> int:
     return len(model.encoder.feature_extractor.blocks)
 
 
-# ONNX로 내보낼 추론 그래프. 정규화한 이미지 [B, 3, S, S]를 받아 (이미지 점수 [B], 256×256 맵 [B, 256, 256])을
-# 낸다. 맵 리사이즈·흐림·상위 1% 평균까지 그래프 안에 넣어(6단계 관문 1 규칙), 서빙
+# ONNX로 내보낼 추론 그래프다. 맵 리사이즈·흐림·상위 1% 평균까지 그래프 안에 넣어(6단계 관문 1 규칙), 서빙
 # 쪽(inspector.ReconstructionInspector)은 onnxruntime 호출 한 번으로 점수와 히트맵을 받고 torch·anomalib 없이
-# 돈다.
-# 점수는 eval 모드 DinomalyModel.forward와 같다. 맵은 흐리기 전의 맵을 256으로 키운 것으로,
-# run_dinomaly.predict가 픽셀 지표용으로 저장하는 것과 같다. 내보낸 그래프와 torch의 차이는 점수 상대 8.0e-7,
-# 맵 절대 5.1e-7이었다(6단계 test 기록, 허용 1e-3). 호출 위치: dinomaly_serving의 ONNX 내보내기.
+# 돈다. 내보낸 그래프와 torch의 차이는 점수 상대 8.0e-7, 맵 절대 5.1e-7이었다(6단계 test 기록, 허용 1e-3).
+# 호출 위치: dinomaly_serving의 ONNX 내보내기.
 class ServingGraph(torch.nn.Module):
-    """Normalised image [B, 3, S, S] -> (image score [B], map [B, 256, 256]) of a Dinomaly model.
+    """Dinomaly 모델의 정규화 이미지 [B, 3, S, S] -> (이미지 점수 [B], 맵 [B, 256, 256]).
 
-    The score is that of `DinomalyModel.forward` in eval mode: the mean of the top 1% of the blurred
-    256x256 map (top-k instead of a full sort; the same values are averaged). The map is the unblurred
-    map resized to 256x256, which is what `run_dinomaly.predict` stores for the pixel metrics.
+    점수는 eval 모드 `DinomalyModel.forward`와 같다: 흐린 256x256 맵의 상위 1% 값의 평균이다(전체 정렬
+    대신 top-k를 쓰지만 평균하는 값은 같다). 맵은 흐리기 전의 맵을 256x256으로 키운 것으로,
+    `run_dinomaly.predict`가 픽셀 지표용으로 저장하는 것과 같다.
     """
 
     def __init__(self, model: torch.nn.Module) -> None:
@@ -193,8 +187,7 @@ class ServingGraph(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # 인코더 특징과 디코더 복원의 차이로 입력 크기의 이상 맵을 만들고 256×256으로 키운다. 그 맵을
         # anomalib의 가우시안 흐림에 통과시켜 펼친 뒤, 상위 1%(DEFAULT_MAX_RATIO) 값의 평균을 이미지 점수로
-        # 쓴다. 전체 정렬 대신 topk를 써도 평균하는 값은 같다(docstring). 반환하는 맵은 흐리기 전 맵의 채널
-        # 0이다.
+        # 쓴다. 반환하는 맵은 흐리기 전 맵의 채널 0이다.
         en, de = self.model.get_encoder_decoder_outputs(x)
         amap, _ = self.model.calculate_anomaly_maps(en, de, out_size=(x.shape[2], x.shape[3]))
         amap = F.interpolate(amap, size=(MAP_SIZE, MAP_SIZE), mode="bilinear", align_corners=False)

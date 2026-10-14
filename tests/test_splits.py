@@ -22,10 +22,10 @@ from defect_inspect import paths, splits
 from defect_inspect.splits import ManifestRow, SealedTestError
 from defect_inspect.visa import CATEGORIES, VisaRow
 
-# 합성 분할의 범주별 장수. pcb1과 candle은 학습 결함이 60장(실제 VisA와 같은 수)이라 dev 결함 20장 + 라벨 풀
-# 40장이 되고, capsules는 학습 결함이 27장뿐이라 라벨 풀이 7장이 되어 'k가 라벨 풀보다 큰 경우'를 시험할 수
-# 있다. 입력 순서와 범주 순서(CATEGORIES)가 다르게 섞여 있다.
-# Synthetic split: (train normal, train anomaly, test normal, test anomaly) per category.
+# 합성 분할의 범주별 장수(학습 정상, 학습 결함, 테스트 정상, 테스트 결함). pcb1과 candle은 학습 결함이
+# 60장(실제 VisA와 같은 수)이라 dev 결함 20장 + 라벨 풀 40장이 되고, capsules는 학습 결함이 27장뿐이라 라벨
+# 풀이 7장이 되어 'k가 라벨 풀보다 큰 경우'를 시험할 수 있다. 입력 순서와 범주 순서(CATEGORIES)가 다르게
+# 섞여 있다.
 SIZES = {"pcb1": (23, 60, 11, 40), "candle": (31, 60, 9, 40), "capsules": (5, 27, 3, 4)}
 
 
@@ -45,7 +45,7 @@ def make_rows() -> tuple[list[VisaRow], dict[str, tuple[str, ...]]]:
                 VisaRow(category, split, "anomaly", image, f"{category}/Data/Masks/Anomaly/{i:03d}.png")
             )
             types[image] = ("bent", "melt") if i % 3 == 0 else ("scratch",)
-    # The official CSV is not sorted: shuffle deterministically so the code cannot rely on input order.
+    # 공식 CSV는 정렬돼 있지 않다: 결정적으로 섞어 코드가 입력 순서에 기대지 못하게 한다.
     rows.sort(key=lambda r: hashlib.md5(r.image.encode()).hexdigest())
     return rows, types
 
@@ -78,7 +78,7 @@ def test_path_key_is_sha256_of_path_or_salted_path():
 # 거절한다.
 @pytest.mark.parametrize("salt", [0, 1, None, False, 0.0, b"0"])
 def test_path_key_rejects_salts_that_are_not_strings(salt):
-    # An integer seed 0 is falsy: it must not silently give the unsalted key used for folds.
+    # 정수 시드 0은 거짓 값이다: 겹을 정하는 데 쓰는 salt 없는 키가 조용히 나와서는 안 된다.
     with pytest.raises(TypeError, match="salt"):
         splits.path_key("candle/Data/Images/Anomaly/000.JPG", salt)
     with pytest.raises(TypeError):
@@ -106,7 +106,7 @@ def test_constants():
 # 풀, 공식 test는 봉인 테스트다. 범주 순서는 입력 순서가 아니라 CATEGORIES 순서다.
 def test_role_counts(manifest):
     counts = splits.role_counts(manifest)
-    assert list(counts) == ["candle", "capsules", "pcb1"]  # CATEGORIES order, not input order
+    assert list(counts) == ["candle", "capsules", "pcb1"]  # 입력 순서가 아니라 CATEGORIES 순서
     for category, (train_n, train_a, test_n, test_a) in SIZES.items():
         assert counts[category] == {
             "pool_normal": train_n,
@@ -129,7 +129,7 @@ def test_no_image_appears_in_two_roles(manifest):
     for r in manifest:
         roles[r.image].add(r.role)
     assert all(len(found) == 1 for found in roles.values())
-    # Official train and test never mix.
+    # 공식 train과 test는 절대 섞이지 않는다.
     official = {r.image: r.split for r in rows}
     for r in manifest:
         assert (official[r.image] == "test") == r.role.startswith("test_")
@@ -239,7 +239,7 @@ def test_label_subset_is_nested_seeded_and_inside_the_label_pool(manifest):
 # 라벨 풀보다 큰 k(capsules는 7장)나 음수 k는 ValueError다.
 def test_label_subset_rejects_k_beyond_the_pool(manifest):
     with pytest.raises(ValueError):
-        splits.label_subset(manifest, "capsules", 10, 0)  # only 7 in this pool
+        splits.label_subset(manifest, "capsules", 10, 0)  # 이 풀에는 7장뿐
     with pytest.raises(ValueError):
         splits.label_subset(manifest, "pcb1", -1, 0)
 
@@ -266,7 +266,7 @@ def test_select_dev_protocol(manifest):
     assert eval_normal == [r for r in manifest if r.role == "pool_normal" and r.fold == 0]
     assert eval_defect == [r for r in manifest if r.role == "dev_defect"]
     assert not {r.image for r in pool} & {r.image for r in eval_normal}
-    # Nothing from the sealed test set or the label pool can come out of the dev protocol.
+    # dev 절차에서는 봉인 테스트나 라벨 풀의 이미지가 하나도 나올 수 없다.
     assert {r.role for r in pool + eval_normal + eval_defect} == {"pool_normal", "dev_defect"}
 
 
@@ -292,13 +292,13 @@ def test_select_test_protocol_is_sealed(manifest):
     "allow_test", ["false", "0", "no", "true", "True", 1, 1.0, None, 0, [True], object()]
 )
 def test_seal_opens_only_for_the_literal_true(manifest, allow_test):
-    # A truthy value from a config file or an environment variable ("false", "0") must not open it.
+    # 설정 파일이나 환경 변수에서 온 참 값(문자열 "false", "0" 등)으로 봉인이 열리면 안 된다.
     for part in ("eval_normal", "eval_defect"):
         with pytest.raises(SealedTestError):
             splits.select(manifest, protocol="test", part=part, allow_test=allow_test)
         with pytest.raises(SealedTestError):
             splits.select(manifest, protocol="test", part=part, category="pcb1", allow_test=allow_test)
-    # The parts that are not sealed do not care.
+    # 봉인되지 않은 부분은 이 값과 상관없다.
     assert splits.select(manifest, protocol="test", part="pool_normal", allow_test=allow_test)
     assert splits.select(manifest, protocol="dev", part="eval_normal", allow_test=allow_test)
 
@@ -309,7 +309,7 @@ def test_select_test_protocol_with_allow_test(manifest):
     eval_defect = splits.select(manifest, protocol="test", part="eval_defect", allow_test=True)
     assert eval_normal == [r for r in manifest if r.role == "test_normal"]
     assert eval_defect == [r for r in manifest if r.role == "test_defect"]
-    # allow_test does not change what the dev protocol returns.
+    # allow_test는 dev 절차가 돌려주는 결과를 바꾸지 않는다.
     assert splits.select(manifest, protocol="dev", part="eval_defect", allow_test=True) == [
         r for r in manifest if r.role == "dev_defect"
     ]
@@ -338,7 +338,7 @@ def test_select_rejects_unknown_names(manifest):
         splits.select(manifest, protocol="val", part="pool_normal")
     with pytest.raises(ValueError):
         splits.select(manifest, protocol="dev", part="test_normal")
-    # An unknown part is a ValueError even where the seal would otherwise apply.
+    # 모르는 부분 이름은 봉인이 적용될 자리에서도 ValueError다.
     with pytest.raises(ValueError):
         splits.select(manifest, protocol="test", part="label_pool")
 
@@ -394,7 +394,7 @@ def test_main_refuses_to_write_when_counts_are_not_the_official_ones(tmp_path, c
 # 균형과 겹 0 장수(60~121장, dev 평가 정상), 모든 결함의 유형. 마지막으로 매니페스트의 경로만으로 다시 만들면
 # 같은 배정이 나와, 파일이 규칙에서 나온 것임을 보인다.
 def test_committed_manifest_follows_the_rules():
-    """The committed manifest (when present) has the documented counts and reproduces from its paths."""
+    """커밋된 매니페스트(있을 때)가 문서에 적힌 장수를 갖고, 자기 경로만으로 다시 만들어진다."""
     if not paths.VISA_MANIFEST.exists():
         pytest.skip("manifests/visa.csv has not been built")
     manifest = splits.read_manifest(paths.VISA_MANIFEST)
@@ -410,7 +410,7 @@ def test_committed_manifest_follows_the_rules():
         assert max(folds.values()) - min(folds.values()) <= 1
         assert 60 <= folds[0] <= 121
     assert all(r.defect_types for r in manifest if r.label == "anomaly")
-    # Rebuilding from the manifest's own paths gives the same assignment.
+    # 매니페스트 자신의 경로로 다시 만들면 같은 배정이 나온다.
     rows = [
         VisaRow(r.category, "test" if r.role.startswith("test_") else "train", r.label, r.image, r.mask)
         for r in manifest

@@ -1,4 +1,4 @@
-"""Synthetic perturbations: identities, value ranges and dtypes, shift direction, batch consistency."""
+"""합성 교란 테스트: 항등, 값 범위와 dtype, 이동 방향, 한 장과 묶음의 일치."""
 
 # [파일 역할] 3단계(조건 변화)의 합성 교란 함수(src/defect_inspect/perturb.py: 밝기 배율, 감마, 가우시안 흐림,
 # 평행 이동, JPEG)를 검증한다.
@@ -34,7 +34,7 @@ def _noise(shape: tuple[int, ...], seed: int = 0) -> np.ndarray:
 # 이미지·채널마다 다른 매끄러운 사인 그라데이션. 실제 사진처럼 이웃 화소가 비슷해 JPEG 손실이 작게 나오는
 # 입력이다(잡음 이미지는 JPEG 오차가 커서 품질 비교가 흐려진다).
 def _smooth(n: int = 3, size: int = 32) -> np.ndarray:
-    """Smooth colour gradients, different per image and channel."""
+    """이미지·채널마다 다른 매끄러운 색 그라데이션."""
     y, x = np.mgrid[0:size, 0:size] / (size - 1)
     images = np.empty((n, size, size, 3), dtype=np.uint8)
     for i in range(n):
@@ -48,13 +48,12 @@ def _smooth(n: int = 3, size: int = 32) -> np.ndarray:
 # 0~255 모든 값을 한 번씩 담은 16×16 이미지(세 채널 같음). 화소별 변환표(LUT)를 쓰는 밝기·감마가 모든
 # 입력값에서 맞는지 한 번에 확인할 수 있다.
 def _all_values() -> np.ndarray:
-    """A [16, 16, 3] image containing every uint8 value in every channel."""
+    """모든 채널에 uint8 값 전부를 하나씩 담은 [16, 16, 3] 이미지."""
     return np.repeat(np.arange(256, dtype=np.uint8).reshape(16, 16, 1), 3, axis=2)
 
 
 # 항등이 아닌 (교란, 값) 조합. 어둡게·밝게, 감마 양방향, 흐림, 양·음 이동, JPEG를 고루 넣어 공통 성질 테스트에
 # 쓴다.
-# (kind, value) pairs that are not identities
 CASES = [
     ("brightness", 0.6),
     ("brightness", 1.4),
@@ -68,7 +67,7 @@ CASES = [
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Identities
+# 항등(교란 없음)
 # ---------------------------------------------------------------------------------------------------------
 
 
@@ -114,7 +113,7 @@ def test_shift_mask_identity() -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Shapes, dtypes, ranges, inputs left alone
+# 모양, dtype, 값 범위, 입력 보존
 # ---------------------------------------------------------------------------------------------------------
 
 
@@ -137,7 +136,7 @@ def test_output_shape_dtype_and_input_untouched(kind: str, value: float, shape: 
 def test_brightness_values() -> None:
     img = np.array([0, 1, 3, 100, 200, 255], dtype=np.uint8).reshape(1, 6, 1).repeat(3, axis=2)
     assert perturb.brightness(img, 1.5)[0, :, 0].tolist() == [0, 2, 4, 150, 255, 255]  # 1.5 -> 2, 4.5 -> 4
-    assert perturb.brightness(img, 0.5)[0, :, 0].tolist() == [0, 0, 2, 50, 100, 128]  # halves round to even
+    assert perturb.brightness(img, 0.5)[0, :, 0].tolist() == [0, 0, 2, 50, 100, 128]  # .5는 짝수로 반올림
     assert perturb.brightness(img, 0.0).max() == 0
     assert perturb.brightness(img, 1000.0)[0, :, 0].tolist() == [0, 255, 255, 255, 255, 255]
 
@@ -151,7 +150,7 @@ def test_brightness_direction_and_monotonicity() -> None:
     assert np.all(darker <= img) and darker.mean() < img.mean()
     assert np.all(brighter >= img) and brighter.mean() > img.mean()
     assert brighter.max() == 255
-    for out in (darker, brighter):  # order of pixel values is preserved
+    for out in (darker, brighter):  # 화소값의 순서가 유지된다
         assert np.all(np.diff(out[:, :, 0].ravel()) >= 0)
     expected = np.clip(np.rint(np.arange(256) * 1.3), 0, 255)
     assert np.array_equal(brighter[:, :, 1].ravel(), expected)
@@ -166,10 +165,10 @@ def test_gamma_values_and_direction() -> None:
     bright = perturb.gamma(img, 0.5).astype(int)
     for out in (dark, bright):
         flat = out[:, :, 0].ravel()
-        assert flat[0] == 0 and flat[255] == 255  # end points are fixed
+        assert flat[0] == 0 and flat[255] == 255  # 양 끝은 고정
         assert np.all(np.diff(flat) >= 0)
-    assert np.all(dark <= img) and dark.mean() < img.mean()  # g > 1 darkens
-    assert np.all(bright >= img) and bright.mean() > img.mean()  # g < 1 brightens
+    assert np.all(dark <= img) and dark.mean() < img.mean()  # g > 1은 어둡게
+    assert np.all(bright >= img) and bright.mean() > img.mean()  # g < 1은 밝게
     assert dark[:, :, 0].ravel()[128] == 64  # 255 * (128 / 255) ** 2 = 64.25
     assert bright[:, :, 0].ravel()[64] == 128  # 255 * sqrt(64 / 255) = 127.75
     expected = np.rint(255.0 * (np.arange(256) / 255.0) ** 2.0)
@@ -195,7 +194,7 @@ def test_blur_smooths_and_keeps_constants() -> None:
     assert out.std() < 0.5 * images.std()
     assert abs(out.mean() - images.mean()) < 3.0
     assert perturb.gaussian_blur(images, 4.0).std() < out.std()
-    for value in (0, 37, 255):  # replicated edges: a constant image stays constant, corners included
+    for value in (0, 37, 255):  # 가장자리 복제: 상수 이미지는 모서리까지 상수로 남는다
         const = np.full((S, S, 3), value, dtype=np.uint8)
         assert np.array_equal(perturb.gaussian_blur(const, 3.0), const)
 
@@ -204,12 +203,12 @@ def test_blur_smooths_and_keeps_constants() -> None:
 # 사각형은 빨강 채널 안에서만 퍼져야 한다(구현의 sigma=(σ, σ, 0)).
 def test_blur_does_not_mix_channels_or_images() -> None:
     batch = np.zeros((2, S, S, 3), dtype=np.uint8)
-    batch[1] = 255  # a black and a white image
+    batch[1] = 255  # 검정 이미지 한 장과 흰 이미지 한 장
     assert np.array_equal(perturb.gaussian_blur(batch, 3.0), batch)
     red = np.zeros((S, S, 3), dtype=np.uint8)
     red[8:16, 8:16, 0] = 255
     out = perturb.gaussian_blur(red, 2.0)
-    assert out[:, :, 0].max() < 255 and out[4, 12, 0] > 0  # spread within the red channel
+    assert out[:, :, 0].max() < 255 and out[4, 12, 0] > 0  # 빨강 채널 안에서만 퍼진다
     assert out[:, :, 1:].max() == 0
 
 
@@ -242,8 +241,6 @@ def _pil_round_trip(img: np.ndarray, quality: int, **save_options: object) -> np
 # 4:2:0을 명시한 결과와는 같고 4:4:4(subsampling=0)와는 달라야 한다. 정사각형이 아닌 홀수 크기도 확인한다.
 @pytest.mark.parametrize("quality", [5, 30, 50, 75, 90, 100])
 def test_jpeg_is_the_plain_pil_round_trip(quality: int) -> None:
-    # Pins the encoder settings: PIL defaults, i.e. 4:2:0 chroma subsampling at every quality. A change
-    # such as subsampling=0 (4:4:4) would silently alter what a given JPEG strength means.
     images = np.concatenate([_smooth(2, 32), _noise((2, 32, 32, 3), seed=9)])
     out = perturb.jpeg(images, quality)
     for i, img in enumerate(images):
@@ -251,7 +248,7 @@ def test_jpeg_is_the_plain_pil_round_trip(quality: int) -> None:
         assert np.array_equal(perturb.jpeg(img, quality), out[i]), i
         assert np.array_equal(_pil_round_trip(img, quality, subsampling="4:2:0"), out[i]), i
         assert not np.array_equal(_pil_round_trip(img, quality, subsampling=0), out[i]), i
-    # Not square, odd sizes: still the plain round trip.
+    # 정사각형이 아닌 홀수 크기도 단순 왕복과 같다.
     odd = _noise((13, 21, 3), seed=10)
     assert np.array_equal(perturb.jpeg(odd, quality), _pil_round_trip(odd, quality))
 
@@ -259,7 +256,6 @@ def test_jpeg_is_the_plain_pil_round_trip(quality: int) -> None:
 # 4:2:0이 이미지에 실제로 어떤 뜻인지 보여 주는 테스트다. 밝기는 비슷하고 색만 다른 한 화소 체크무늬는 색차를
 # 절반 해상도로 줄이면 색이 뭉개지므로, 기본 설정의 오차가 4:4:4보다 3배 넘게 커야 한다.
 def test_jpeg_blurs_colour_more_than_a_444_encoding() -> None:
-    # What 4:2:0 means for the image: a one-pixel colour checkerboard of equal luma loses its chroma.
     img = np.zeros((32, 32, 3), dtype=np.uint8)
     yy, xx = np.mgrid[0:32, 0:32]
     img[(yy + xx) % 2 == 0] = (200, 60, 60)
@@ -270,7 +266,7 @@ def test_jpeg_blurs_colour_more_than_a_444_encoding() -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Shift
+# 이동(shift)
 # ---------------------------------------------------------------------------------------------------------
 
 
@@ -285,7 +281,6 @@ def _hot(y: int, x: int, size: int = 12) -> np.ndarray:
 # 이동이 이 규약을 따른다. 같은 이동을 마스크에 걸면 표시 화소가 같은 곳으로 가야 한다.
 @pytest.mark.parametrize(("dx", "dy"), [(2, 0), (0, 3), (2, 3), (-4, 0), (0, -1), (-2, 5), (1, -3)])
 def test_shift_direction(dx: int, dy: int) -> None:
-    # Positive dx moves content right (larger column index), positive dy moves it down (larger row index).
     y, x = 5, 6
     out = perturb.shift(_hot(y, x), dx, dy)
     assert np.array_equal(out, _hot(y + dy, x + dx))
@@ -310,7 +305,7 @@ def test_shift_replicates_edges() -> None:
     assert np.array_equal(up[:-2], img[2:])
     assert np.array_equal(up[-2:], np.repeat(img[-1:], 2, axis=0))
 
-    # A shift larger than the image leaves only the replicated edge.
+    # 이미지보다 큰 이동은 복제한 가장자리 줄만 남긴다.
     assert np.array_equal(perturb.shift(img, 100, 0), np.repeat(img[:, :1], 8, axis=1))
     assert np.array_equal(perturb.shift(img, 0, -100), np.repeat(img[-1:], 6, axis=0))
 
@@ -325,7 +320,7 @@ def test_shift_is_separable_and_matches_roll_inside() -> None:
     rolled = np.roll(img, shift=(-3, 2), axis=(0, 1))
     assert np.array_equal(out[:-3, 2:], rolled[:-3, 2:])
     assert np.array_equal(perturb.apply(img, "shift", 2.0), perturb.shift(img, 2, 2))
-    assert np.array_equal(perturb.apply(img, "shift", -2.9), perturb.shift(img, -2, -2))  # int() truncates
+    assert np.array_equal(perturb.apply(img, "shift", -2.9), perturb.shift(img, -2, -2))  # int()는 버림
 
 
 # 마스크 이동은 빈 곳을 0(정상)으로 채운다. 마스크까지 가장자리를 복제하면 없던 결함이 생기기 때문이다. 크기
@@ -342,7 +337,7 @@ def test_shift_mask_zero_fills_and_follows_the_image() -> None:
     assert perturb.shift_mask(mask, 0, -6).sum() == 0
     assert perturb.shift_mask(mask, -7, 5).sum() == 1
 
-    # Same translation as `shift`: a mask drawn into an image lands on the shifted mask.
+    # `shift`와 같은 이동: 이미지에 그린 마스크가 이동한 마스크 위치에 온다.
     rng = np.random.default_rng(6)
     masks = np.zeros((3, S, S), dtype=np.uint8)
     masks[:, 6:-6, 6:-6] = rng.integers(0, 2, size=(3, S - 12, S - 12))
@@ -369,7 +364,7 @@ def test_shift_mask_shapes_and_dtypes(dtype: type) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# [S, S, 3] and [N, S, S, 3] give the same result
+# [S, S, 3]과 [N, S, S, 3]이 같은 결과를 낸다
 # ---------------------------------------------------------------------------------------------------------
 
 
@@ -398,7 +393,7 @@ def test_apply_dispatches_to_the_named_function() -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Input validation
+# 입력 검증
 # ---------------------------------------------------------------------------------------------------------
 
 
@@ -433,15 +428,13 @@ def test_rejects_bad_parameters() -> None:
         perturb.brightness(img, float("nan"))
 
 
-# 무한대·NaN 밝기와 흐림을 경고 없이 ValueError로 거절하는지 본다. 아래 영어 주석처럼 예전에는 inf 밝기가 0 ×
-# inf = nan을 uint8로 바꾸며 경고만 내고 통과했고, 흐림은 scipy 안에서 OverflowError가 났다. 경고를 오류로
-# 바꿔 그런 경고가 다시 새지 않는지도 함께 확인한다.
+# 무한대·NaN 밝기와 흐림을 경고 없이 ValueError로 거절하는지 본다. 예전에는 inf 밝기가 0 × inf = nan을
+# uint8로 바꾸며 경고(RuntimeWarning)만 내고 통과했고, 흐림은 scipy 안에서 OverflowError가 났다. 경고를
+# 오류로 바꿔 그런 경고가 다시 새지 않는지도 함께 확인한다.
 @pytest.mark.parametrize("bad", [float("inf"), float("nan"), -float("inf"), np.float32("inf"), np.inf])
 def test_rejects_non_finite_brightness_and_blur(bad: float) -> None:
-    # inf used to get through brightness (0 * inf = nan cast to uint8, with RuntimeWarnings) and to
-    # surface as an OverflowError from inside scipy for the blur.
     images = _noise((2, S, S, 3), seed=11)
-    images[0, 0, 0] = 0  # a zero pixel is what made 0 * inf undefined
+    images[0, 0, 0] = 0  # 0 * inf를 정의되지 않게 만든 것이 값 0인 화소다
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         with pytest.raises(ValueError, match="factor"):

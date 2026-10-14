@@ -1,7 +1,7 @@
-"""The synthetic capture-condition changes of stage 3, as registered in docs/experiments.md.
+"""3단계의 합성 촬영 조건 변화(교란)를 docs/experiments.md에 등록한 그대로 정의한다.
 
-Strengths are given on the 256 grid. Length-like strengths (blur sigma, shift distance) are scaled by
-`size / 256` so that an image at another input size gets the same physical change.
+강도는 256 격자 기준으로 적는다. 길이 단위 강도(흐림 σ, 이동 거리)는 `size / 256`배 하여, 다른 입력 크기의
+이미지도 원본 위에서 같은 물리적 변화를 받게 한다.
 """
 
 # [파일 역할] 3단계의 합성 교란 표(밝기·감마·흐림·이동·JPEG 5종 × 강도 3)를 코드로 옮긴 것이다.
@@ -36,11 +36,10 @@ LEVELS: dict[str, tuple[float, float, float]] = {
 REFERENCE_SIZE = 256
 
 
-# 등록 순서대로 조건 이름 목록을 만든다: clean, brightness-1, ..., jpeg-3(모두 16개). 명령행에서 받은 조건
-# 이름을 검사하거나 모든 조건을 차례로 돌릴 때 쓴다. include_clean=False면 교란 15개만 준다(run_m2ad의 합성
-# 조건 P).
+# 모두 16개(clean, brightness-1, ..., jpeg-3)다. 명령행에서 받은 조건 이름을 검사하거나 모든 조건을 차례로
+# 돌릴 때 쓴다. include_clean=False면 교란 15개만 준다(run_m2ad의 합성 조건 P).
 def condition_names(include_clean: bool = True) -> list[str]:
-    """`clean`, then `<kind>-<level>` for every kind and level 1..3, in the registered order."""
+    """등록 순서대로 `clean`, 그다음 모든 종류와 강도 1..3의 `<종류>-<강도>` 이름 목록을 만든다."""
     names = [f"{kind}-{level}" for kind in LEVELS for level in (1, 2, 3)]
     return [CLEAN, *names] if include_clean else names
 
@@ -54,14 +53,13 @@ def parse(name: str) -> tuple[str, int]:
     return kind, int(level)
 
 
-# 조건 이름과 입력 크기에서 perturb.apply에 넘길 실제 강도 값을 계산한다.
 # - 흐림: σ에 size/256을 곱한다(소수 그대로).
 # - 이동: size/256을 곱한 뒤 정수 픽셀로 반올림한다. 예를 들어 shift-1은 280px에서 1px(256 격자로 0.91px),
 #   392·448px에서 2px다(docs/experiments.md 6단계 정정). 이동 거리가 크기마다 반올림되므로 방법끼리의 실제
 #   이동량은 조금씩 다르다.
 # - 나머지(밝기, 감마, JPEG): 크기와 무관하게 표의 값을 그대로 쓴다.
 def strength(name: str, size: int) -> float:
-    """The value passed to `perturb.apply` for condition `name` at input size `size`."""
+    """조건 `name`과 입력 크기 `size`에서 `perturb.apply`에 넘길 실제 강도 값을 계산한다."""
     kind, level = parse(name)
     value = LEVELS[kind][level - 1]
     if kind == "blur":
@@ -73,12 +71,11 @@ def strength(name: str, size: int) -> float:
     return float(value)
 
 
-# uint8 이미지 배열(한 장 [S, S, 3] 또는 여러 장 [N, S, S, 3])에 조건을 적용한 새 배열을 돌려준다. 입력 크기
-# S는 images.shape[-2](정사각형이라 너비 = 높이)에서 읽어 강도를 맞춘다.
-# clean도 복사본을 돌려준다. perturb의 함수들처럼 항상 새 배열을 주어, 호출한 쪽이 결과를 고쳐도 원본 캐시
-# 배열이 바뀌지 않게 한다.
+# 입력 크기 S는 images.shape[-2](정사각형이라 너비 = 높이)에서 읽어 강도를 맞춘다.
+# clean도 복사본을 돌려주는 것은, perturb의 함수들처럼 항상 새 배열을 주어 호출한 쪽이 결과를 고쳐도 원본 캐시
+# 배열이 바뀌지 않게 하려는 것이다.
 def apply_condition(images: np.ndarray, name: str) -> np.ndarray:
-    """uint8 images [N, S, S, 3] (or [S, S, 3]) under condition `name`; `clean` returns a copy."""
+    """uint8 이미지 [N, S, S, 3](또는 [S, S, 3])에 조건 `name`을 적용한 새 배열. `clean`이면 복사본."""
     if name == CLEAN:
         return images.copy()
     kind, _ = parse(name)

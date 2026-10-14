@@ -36,7 +36,7 @@ from defect_inspect.patchcore import (  # noqa: E402
 # grid, grid, 3] 패치 특징을 낸다. 실제 추출기처럼 name과 dim 속성을 가진다(collect_features가 빈 입력일 때
 # dim을 읽는다). 결과를 numpy로 쉽게 다시 계산할 수 있어 기대값을 독립적으로 만들 수 있다.
 class PoolExtractor(torch.nn.Module):
-    """Fake extractor: average-pools the normalised image into a [B, grid, grid, 3] feature grid."""
+    """가짜 추출기: 정규화된 이미지를 평균 풀링해 [B, grid, grid, 3] 특징 격자로 만든다."""
 
     name = "pool"
     dim = 3
@@ -52,7 +52,7 @@ class PoolExtractor(torch.nn.Module):
 # PoolExtractor 출력을 numpy로 다시 계산한 기대값. 파이프라인과 같이 fp16으로 한 번 반올림한 뒤 float64로
 # 돌려준다.
 def pooled_features(images: np.ndarray, grid: int) -> np.ndarray:
-    """What PoolExtractor returns, computed with numpy: float64 [N, grid * grid, 3] after fp16 rounding."""
+    """PoolExtractor 출력을 numpy로 계산한 값: fp16으로 반올림한 뒤 float64 [N, grid * grid, 3]."""
     n, size = images.shape[0], images.shape[1]
     x = (
         images.astype(np.float32) / np.float32(255.0) - np.array(IMAGENET_MEAN, dtype=np.float32)
@@ -65,7 +65,7 @@ def pooled_features(images: np.ndarray, grid: int) -> np.ndarray:
 # score_images가 실제로 쓰는 질의 특징(fp16 반올림된 값)을 float64 [N, 패치 수, D]로 꺼낸다. numpy 기준 계산이
 # 같은 입력에서 출발하게 하려는 것이다.
 def query_features(extractor: torch.nn.Module, images: np.ndarray) -> np.ndarray:
-    """The fp16 features score_images works with, as float64 [N, patches, D]."""
+    """score_images가 쓰는 fp16 특징을 float64 [N, 패치 수, D]로 돌려준다."""
     feats, (h, w) = collect_features(extractor, images, device="cpu")
     return feats.double().numpy().reshape(len(images), h * w, -1)
 
@@ -86,7 +86,7 @@ def nearest_numpy(query: np.ndarray, bank: np.ndarray) -> tuple[np.ndarray, np.n
 # 가까운 뱅크 행 k개(m*가 맨 앞이어야 함), 그 k개까지의 거리 d로 가중치 1 - softmax(d)[0]를 만들어 s*에
 # 곱한다(experiments.md 1단계 P0: PatchCore 논문의 재가중, 이웃 9개).
 def image_score_numpy(feats: np.ndarray, bank: np.ndarray, reweight_k: int) -> float:
-    """PatchCore image score for one image, written out step by step in float64."""
+    """이미지 한 장의 PatchCore 이미지 점수를 float64로 한 단계씩 풀어 계산한다."""
     dist, index = nearest_numpy(feats, bank)
     p_star = int(dist.argmax())
     s_star = dist[p_star]
@@ -116,10 +116,10 @@ def test_collect_features_shape_order_and_values():
     assert feats.device.type == "cpu"
     expected = pooled_features(images, 4).reshape(-1, 3)
     np.testing.assert_allclose(feats.double().numpy(), expected, atol=2e-3)
-    # Batching does not change anything.
+    # 배치 크기는 결과를 바꾸지 않는다.
     whole, _ = collect_features(extractor, images, batch_size=32, device="cpu")
     assert torch.equal(whole, feats)
-    # Row order: image, then row-major patches. Patch (1, 2) of image 3 is the mean of its 2x2 block.
+    # 행 순서: 이미지 순, 그 안에서 행 우선 패치 순. 이미지 3의 패치 (1, 2)는 자기 2x2 블록의 평균이다.
     block = images[3, 2:4, 4:6].reshape(-1, 3).astype(np.float64).mean(axis=0) / 255.0
     manual = (block - np.array(IMAGENET_MEAN)) / np.array(IMAGENET_STD)
     np.testing.assert_allclose(feats[3 * 16 + 1 * 4 + 2].double().numpy(), manual, atol=2e-3)
@@ -150,7 +150,7 @@ def test_collect_features_rejects_fp16_overflow():
 
 # 출력에 드롭아웃을 붙인 추출기. train 모드면 출력이 매번 달라지고 eval 모드에서만 결정적이다.
 class DropoutExtractor(PoolExtractor):
-    """PoolExtractor followed by dropout: its output is only deterministic in eval mode."""
+    """PoolExtractor 뒤에 드롭아웃을 붙인 추출기: eval 모드에서만 출력이 결정적이다."""
 
     def __init__(self, grid: int = 4) -> None:
         super().__init__(grid)
@@ -166,7 +166,7 @@ class DropoutExtractor(PoolExtractor):
 def test_extractor_is_switched_to_eval_mode():
     train, test = random_images(3, 8, seed=19), random_images(2, 8, seed=20)
     plain, _ = collect_features(PoolExtractor(), train, device="cpu")
-    # Sanity: left in train mode, the dropout layer does change the features.
+    # 사전 점검: train 모드로 두면 드롭아웃 층이 실제로 특징을 바꾼다.
     noisy = DropoutExtractor().train()
     with torch.no_grad():
         assert not torch.equal(noisy(torch.ones(1, 3, 8, 8)), PoolExtractor()(torch.ones(1, 3, 8, 8)))
@@ -190,19 +190,19 @@ def test_build_bank_size_order_and_nesting():
     assert bank.shape == (20, 6)
     assert bank.dtype == torch.float16 and bank.device.type == "cpu"
     assert torch.equal(bank, feats[kcenter_greedy(feats, 20, seed=0)])
-    # Selection order: a smaller ratio is a prefix of a larger one.
+    # 선택 순서: 작은 비율의 뱅크는 큰 비율 뱅크의 앞부분이다.
     big = build_bank(feats, 0.5, seed=0, device="cpu")
     assert big.shape == (100, 6)
     assert torch.equal(big[:20], bank)
     assert torch.equal(build_bank(feats, 0.01, seed=0, device="cpu"), big[:2])
-    # At least one row, and everything for ratio >= 1.
+    # 최소 1행이고, 비율 >= 1이면 전부다.
     assert build_bank(feats, 1e-6, seed=0, device="cpu").shape == (1, 6)
     for ratio in (1.0, 2.5):
         everything = build_bank(feats, ratio, seed=0, device="cpu")
         assert everything.shape == (200, 6)
         assert torch.equal(everything[:100], big)
         assert sorted(map(tuple, everything.tolist())) == sorted(map(tuple, feats.tolist()))
-    # fp32 features still give an fp16 bank.
+    # fp32 특징을 넣어도 fp16 뱅크가 나온다.
     assert build_bank(feats.float(), 0.1, seed=0, device="cpu").dtype == torch.float16
 
 
@@ -210,11 +210,11 @@ def test_build_bank_size_order_and_nesting():
 # 앞부분 길이를 계산하므로 둘이 어긋나면 안 된다.
 def test_build_bank_rounds_the_row_count_to_nearest():
     feats = torch.randn(96, 6, generator=torch.Generator().manual_seed(2)).to(torch.float16)
-    # 0.3 * 96 = 28.8 -> 29 (truncating would give 28).
+    # 0.3 * 96 = 28.8 -> 29 (내림이면 28).
     assert build_bank(feats, 0.3, seed=0, device="cpu").shape == (29, 6)
-    # 0.1 * 94 = 9.4 -> 9 (rounding up would give 10).
+    # 0.1 * 94 = 9.4 -> 9 (올림이면 10).
     assert build_bank(feats[:94], 0.1, seed=0, device="cpu").shape == (9, 6)
-    # 0.1 * 4 = 0.4 -> 0, raised to the minimum of one row.
+    # 0.1 * 4 = 0.4 -> 0이지만 최소 1행으로 올린다.
     assert build_bank(feats[:4], 0.1, seed=0, device="cpu").shape == (1, 6)
 
 
@@ -247,7 +247,7 @@ def test_score_result_shapes_and_dtypes():
     assert result.maps.shape == (3, 16, 16) and result.maps.dtype == np.float16
     assert np.isfinite(result.image_scores).all() and np.isfinite(result.maps).all()
     assert (result.image_scores > 0).all() and (result.maps > 0).all()
-    # The default configuration (sigma 4, 9 neighbours, 256 maps) runs on a 32 px input as well.
+    # 기본 구성(sigma 4, 이웃 9, 256 맵)도 32px 입력에서 돈다.
     default = score_images(extractor, bank, test, device="cpu")
     assert default.maps.shape == (3, 256, 256)
 
@@ -283,7 +283,7 @@ def test_bank_members_score_zero():
 # 근처 거리가 반올림 잡음이 된다. 구현은 뱅크를 중심화하고, 찾은 행까지 거리를 직접 뺄셈으로 다시 계산한다. 그
 # 결과 1e-3 크기의 작은 거리도 5% 안으로 맞고, 뱅크 행을 그대로 질의하면 정확히 0이어야 한다.
 def test_nearest_is_accurate_near_zero_for_large_norms():
-    # Post-ReLU features sit far from the origin; the expanded form alone would return noise here.
+    # ReLU 뒤 특징은 원점에서 멀리 있어, 전개식만 쓰면 여기서 잡음 같은 거리가 나온다.
     generator = torch.Generator().manual_seed(0)
     bank = torch.randn(500, 64, generator=generator) + 50.0
     offset = 1e-3 * torch.randn(20, 64, generator=generator)
@@ -296,7 +296,7 @@ def test_nearest_is_accurate_near_zero_for_large_norms():
     assert index.tolist() == list(range(100, 120))
     np.testing.assert_allclose(dist.numpy(), expected.numpy(), rtol=0.05)
     assert float(dist.max()) < 0.02
-    # Exact members give exactly zero.
+    # 뱅크 행 그대로의 질의는 정확히 0을 낸다.
     dist, index = patchcore._nearest(centred[:50].clone(), centred, bank_sq)
     assert index.tolist() == list(range(50))
     assert float(dist.abs().max()) == 0.0
@@ -306,7 +306,7 @@ def test_nearest_is_accurate_near_zero_for_large_norms():
 # 거리 격자다. 이것을 numpy 전수 계산과 맞추고, reweight_k = 1이면 이미지 점수가 가장 큰 패치 점수와 같은지
 # 본다. 맵은 fp16으로 저장되므로 허용 오차를 그만큼 둔다.
 def test_patch_scores_match_brute_force():
-    # One patch per pixel and no blur: the map is the grid of nearest-neighbour distances itself.
+    # 화소 하나가 패치 하나이고 흐림이 없으면, 맵은 최근접 거리 격자 그 자체다.
     extractor = PoolExtractor(grid=4)
     train, test = random_images(6, 4, seed=3), random_images(5, 4, seed=4)
     feats, grid = collect_features(extractor, train, device="cpu")
@@ -322,7 +322,7 @@ def test_patch_scores_match_brute_force():
         np.testing.assert_allclose(
             result.maps[i].astype(np.float64).reshape(-1), expected, rtol=2e-3, atol=1e-4
         )
-        # reweight_k <= 1: the image score is the largest patch score.
+        # reweight_k <= 1: 이미지 점수는 가장 큰 패치 점수다.
         np.testing.assert_allclose(result.image_scores[i], expected.max(), rtol=1e-5)
 
 
@@ -360,23 +360,23 @@ def test_reweighting_with_a_bank_smaller_than_k():
     np.testing.assert_allclose(result.image_scores, expected, rtol=1e-4)
 
 
-# fp32 전개식이 m*와 다른 행 b를 구별하지 못하는 경우를 일부러 만든다(아래 영어 주석의 2^24 계산). 그래도
+# fp32 전개식이 m*와 다른 행 b를 구별하지 못하는 경우를 일부러 만든다(아래 주석의 2^24 계산). 그래도
 # 구현은 m* 자리를 -inf로 두어 지지 집합의 맨 앞에 m*를 놓으므로, 가중치는 b까지 거리(4)가 아니라 m*까지
 # 거리(3)로 계산되어야 한다. m*가 뱅크의 0번이든 1번이든 같아야 한다.
 @pytest.mark.parametrize("m_index", [0, 1])
 def test_reweighting_forces_the_nearest_row_first_when_the_search_cannot_separate_it(m_index):
-    # m* = (4096, 0) and b = (4096, 1) are indistinguishable to the fp32 expanded form around m*:
-    # ||b||^2 = 2**24 + 1 rounds to 2**24 and m*.b = 2**24, so both rows get exactly -2**24. The
-    # weight must still use the distance to m* (3), not to b (4), wherever m* sits in the bank.
+    # m* = (4096, 0)과 b = (4096, 1)은 m* 주변에서 fp32 전개식으로 구별되지 않는다: ||b||^2 = 2**24 + 1이
+    # 2**24로 반올림되고 m*.b = 2**24라 두 행 모두 정확히 -2**24가 된다. 그래도 가중치는 m*가 뱅크 어디에
+    # 있든 b까지 거리(4)가 아니라 m*까지 거리(3)로 계산해야 한다.
     m, b, far = [4096.0, 0.0], [4096.0, 1.0], [0.0, 0.0]
     bank = torch.tensor([m, b, far] if m_index == 0 else [b, m, far])
     bank_sq = torch.linalg.vector_norm(bank, dim=1).square_()
     assert bank_sq[0] == bank_sq[1] == 2.0**24
-    query = torch.tensor([[[4096.0, -3.0]]])  # one image, one patch
+    query = torch.tensor([[[4096.0, -3.0]]])  # 이미지 하나, 패치 하나
     patch_scores = torch.tensor([[3.0]])
     nearest = torch.tensor([[m_index]])
     score = patchcore._image_scores(patch_scores, nearest, query, bank, bank_sq, reweight_k=2)
-    # softmax([3, 4])[0] = 1 / (1 + e); with b first it would be e / (1 + e).
+    # softmax([3, 4])[0] = 1 / (1 + e). b가 맨 앞이었다면 e / (1 + e)가 된다.
     assert float(score[0]) == pytest.approx(3.0 * (1.0 - 1.0 / (1.0 + np.e)), rel=1e-6)
 
 
@@ -384,8 +384,6 @@ def test_reweighting_forces_the_nearest_row_first_when_the_search_cannot_separat
 # 행으로 세어야 하고, 탐색이 어느 복사본을 돌려주든 가중치가 같아야 한다. 기대값은 거리 0인 복사본 셋 + 네
 # 번째로 가까운 행으로 직접 만든다.
 def test_reweighting_counts_duplicated_bank_rows_separately():
-    # The bank holds every row three times: the support of m* is its three copies, then the next
-    # distinct row. Whichever copy the search returns, the weight is the same.
     extractor = PoolExtractor(grid=4)
     train, test = random_images(2, 8, seed=9), random_images(3, 8, seed=10)
     feats, _ = collect_features(extractor, train, device="cpu")
@@ -399,7 +397,7 @@ def test_reweighting_counts_duplicated_bank_rows_separately():
         p_star = int(dist.argmax())
         to_m_star = np.sqrt(((bank64 - bank64[index[p_star]]) ** 2).sum(axis=1))
         fourth = np.sort(to_m_star)[3]
-        # Three copies of m* at distance 0, then the next distinct row.
+        # 거리 0인 m* 복사본 셋, 그다음 다른 행.
         d = np.array(
             [dist[p_star]] * 3 + [np.sqrt(((queries[i][p_star] - bank64[to_m_star == fourth][0]) ** 2).sum())]
         )
@@ -416,12 +414,12 @@ def test_chunked_search_gives_the_same_scores(monkeypatch):
     feats, _ = collect_features(extractor, train, device="cpu")
     bank = build_bank(feats, 0.5, device="cpu")
     whole = score_images(extractor, bank, test, device="cpu", sigma=0.0, map_size=8)
-    # 80 bank rows and a budget of 200 values: two query rows per block.
+    # 뱅크 80행에 상한 200원소: 블록마다 질의 2행.
     monkeypatch.setattr(patchcore, "_MAX_DIST_ELEMS", 200)
     chunked = score_images(extractor, bank, test, device="cpu", sigma=0.0, map_size=8)
     np.testing.assert_allclose(chunked.image_scores, whole.image_scores, rtol=1e-6)
     np.testing.assert_allclose(chunked.maps.astype(np.float32), whole.maps.astype(np.float32), rtol=1e-3)
-    # A budget smaller than one bank row still works, one query row at a time.
+    # 상한이 뱅크 한 행보다 작아도 질의를 한 행씩 처리해 동작한다.
     monkeypatch.setattr(patchcore, "_MAX_DIST_ELEMS", 1)
     single = score_images(extractor, bank, test, device="cpu", sigma=0.0, map_size=8)
     np.testing.assert_allclose(single.image_scores, whole.image_scores, rtol=1e-6)
@@ -464,7 +462,7 @@ def test_gaussian_kernel1d():
     np.testing.assert_allclose(kernel.numpy(), expected / expected.sum(), rtol=1e-6)
     assert gaussian_kernel1d(1.0).shape == (9,)
     assert gaussian_kernel1d(0.6).shape == (5,)
-    # The radius is 4 * sigma rounded to nearest, not truncated: 1.6 -> 2 and 0.5 -> 1.
+    # 반경은 4 * sigma를 내림이 아니라 반올림한 값이다: 1.6 -> 2, 0.5 -> 1.
     assert gaussian_kernel1d(0.4).shape == (5,)
     assert gaussian_kernel1d(0.125).shape == (3,)
     assert gaussian_kernel1d(0.0).tolist() == [1.0]
@@ -475,7 +473,7 @@ def test_gaussian_kernel1d():
 # gaussian_filter(mode="mirror" = torch reflect 패딩, truncate=4로 같은 반경)와 맞춰 분리형 흐림과 패딩이
 # 맞는지 본다.
 def test_map_blur_matches_scipy():
-    # One patch per pixel: upsampling is the identity, so the map is the blurred distance grid.
+    # 화소 하나가 패치 하나라 확대가 항등이므로, 맵은 흐린 거리 격자 그 자체다.
     extractor = PoolExtractor(grid=32)
     train, test = random_images(2, 32, seed=17), random_images(2, 32, seed=18)
     feats, grid = collect_features(extractor, train, device="cpu")
@@ -485,7 +483,7 @@ def test_map_blur_matches_scipy():
     for sigma in (1.0, 2.0):
         blurred = score_images(extractor, bank, test, device="cpu", sigma=sigma, map_size=32).maps
         for i in range(len(test)):
-            # scipy "mirror" is torch "reflect"; truncate=4 gives the same radius int(4 * sigma + 0.5).
+            # scipy "mirror"는 torch "reflect"와 같고, truncate=4면 반경이 같은 int(4 * sigma + 0.5)다.
             expected = gaussian_filter(sharp[i], sigma=sigma, mode="mirror", truncate=4.0)
             np.testing.assert_allclose(blurred[i].astype(np.float64), expected, rtol=3e-3, atol=1e-4)
 
@@ -501,7 +499,7 @@ def test_blur_needs_a_map_larger_than_its_radius():
 # 균일한 회색 학습 이미지 2장과, 격자 칸 (row, col) 하나만 밝게(250) 칠한 시험 이미지 1장을 만든다. 이상
 # 위치와 점수를 손으로 계산할 수 있게 하려는 것이다.
 def hot_patch_images(row: int, col: int, size: int = 32, grid: int = 4) -> tuple[np.ndarray, np.ndarray]:
-    """Uniform grey training images and one test image with a single bright block."""
+    """균일한 회색 학습 이미지들과, 밝은 블록 하나가 있는 시험 이미지 한 장."""
     train = np.full((2, size, size, 3), 100, dtype=np.uint8)
     test = np.full((1, size, size, 3), 100, dtype=np.uint8)
     block = size // grid
@@ -521,13 +519,13 @@ def test_single_hot_patch_keeps_the_maximum_location(sigma):
     bank = build_bank(feats, 1.0, device="cpu")
     result = score_images(extractor, bank, test, device="cpu", reweight_k=1, sigma=sigma, map_size=32)
     heat = result.maps[0].astype(np.float32)
-    # Patch (row, col) covers pixels 8*row..8*row+7; bilinear upsampling peaks at its two centre pixels.
+    # 패치 (row, col)은 화소 8*row..8*row+7을 덮고, bilinear 확대의 최댓값은 가운데 두 화소에 온다.
     peak_r, peak_c = np.unravel_index(int(heat.argmax()), heat.shape)
     assert peak_r in (8 * row + 3, 8 * row + 4)
     assert peak_c in (8 * col + 3, 8 * col + 4)
-    # Every other patch equals the bank exactly, so the map fades to zero away from the hot block.
+    # 나머지 패치는 뱅크와 정확히 같아서, 밝은 블록에서 멀어지면 맵이 0으로 사라진다.
     assert heat[28:, :8].max() < 1e-3 * heat.max()
-    # The hot patch differs from grey by 150/255 per channel, scaled by the ImageNet std.
+    # 밝은 패치는 회색과 채널마다 150/255 다르고, 이를 ImageNet 표준편차로 나눈 값이 차이가 된다.
     expected = np.sqrt((((250 - 100) / 255.0 / np.array(IMAGENET_STD)) ** 2).sum())
     np.testing.assert_allclose(result.image_scores[0], expected, rtol=2e-3)
     assert heat.max() <= expected * 1.002
@@ -556,5 +554,5 @@ def test_map_is_resized_to_map_size():
     np.testing.assert_allclose(half.astype(np.float32), expected, rtol=2e-3, atol=1e-4)
     peak_r, peak_c = np.unravel_index(int(half[0].argmax()), (16, 16))
     assert peak_r in (4 * row + 1, 4 * row + 2) and peak_c in (4 * col + 1, 4 * col + 2)
-    # Larger than the input works too.
+    # 입력보다 큰 맵도 된다.
     assert score_images(extractor, bank, test, device="cpu", sigma=1.0, map_size=48).maps.shape == (1, 48, 48)

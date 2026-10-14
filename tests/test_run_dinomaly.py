@@ -46,10 +46,10 @@ SIZE = 32
 # 돌려준다(입력에만 의존). calls에 (학습 모드 여부, global_step, 배치 모양, dtype)을 남겨 학습 루프가 무엇을
 # 넘겼는지 확인한다. map_dims = 3이면 채널 축 없는 맵을 낸다.
 class TinyModel(torch.nn.Module):
-    """Stand-in with Dinomaly's call convention: a frozen encoder and a trainable decoder.
+    """Dinomaly와 호출 규약이 같은 가짜 모델: 인코더는 고정, 디코더는 학습 가능하다.
 
-    Training mode returns a scalar loss and needs `global_step`; eval mode returns an InferenceBatch
-    whose map is the mean absolute value of the normalised image (so it depends on the input only).
+    학습 모드는 스칼라 손실을 돌려주고 `global_step`이 있어야 한다. 평가 모드는 정규화 이미지의 절댓값
+    평균을 맵으로 담은 InferenceBatch를 돌려준다(그래서 입력에만 의존한다).
     """
 
     def __init__(self, nan_at: int | None = None, map_dims: int = 4) -> None:
@@ -80,7 +80,7 @@ class TinyModel(torch.nn.Module):
 # 학습 손실이 드롭아웃을 거치는 가짜 모델. Dinomaly 병목의 드롭아웃처럼 torch 난수를 쓰므로, 학습이 드롭아웃
 # 난수까지 seed로 고정하는지 확인하는 데 쓴다.
 class DropoutModel(TinyModel):
-    """TinyModel whose training loss goes through dropout, like the bottleneck of Dinomaly."""
+    """Dinomaly의 병목처럼 학습 손실이 드롭아웃을 거치는 TinyModel."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -103,10 +103,10 @@ def _images(n: int, seed: int = 0, size: int = SIZE) -> np.ndarray:
 # 결과가 비트 단위로 같으면 직접 쓴 루프가 Lightning 모듈의 학습과 같다는 근거가 된다. 순서는 zero_grad → 손실
 # → backward → 클리핑 → 옵티마이저 → 스케줄러다.
 def _reference_train(model, images, *, steps: int, batch_size: int, seed: int) -> list[float]:
-    """The fp32 training of anomalib's Lightning module written out step by step; returns the losses.
+    """anomalib Lightning 모듈의 fp32 학습을 한 스텝씩 풀어 쓴 것. 손실 목록을 돌려준다.
 
-    Built from anomalib's TRAINING_CONFIG and components only: it shares no code with
-    `run_dinomaly.train` apart from the batch order.
+    anomalib의 TRAINING_CONFIG와 부품만으로 만들어, 배치 순서 말고는 `run_dinomaly.train`과 공유하는
+    코드가 없다.
     """
     from anomalib.models.image.dinomaly.lightning_model import TRAINING_CONFIG
 
@@ -130,7 +130,7 @@ def _reference_train(model, images, *, steps: int, batch_size: int, seed: int) -
     return losses
 
 
-# ---------------------------------------------------------------- batch_order
+# ---------------------------------------------------------------- batch_order(배치 순서)
 
 
 # batch_order가 [steps, batch] int64 인덱스를 내고, 같은 seed면 같고 다른 seed면 다르며, 앞쪽 행이 전체 스텝
@@ -142,7 +142,7 @@ def test_batch_order_shape_and_determinism():
     assert order.min() >= 0 and order.max() < 50
     assert np.array_equal(order, batch_order(50, 20, 16, seed=3))
     assert not np.array_equal(order, batch_order(50, 20, 16, seed=4))
-    # The first batches do not depend on how many steps follow.
+    # 앞쪽 배치는 뒤에 몇 스텝이 이어지는지와 무관하다.
     assert np.array_equal(order[:7], batch_order(50, 7, 16, seed=3))
     assert batch_order(50, 0, 16, seed=0).shape == (0, 16)
 
@@ -153,7 +153,7 @@ def test_batch_order_shape_and_determinism():
 @pytest.mark.parametrize(("n", "batch"), [(50, 16), (20, 16), (16, 16), (17, 16), (64, 16), (31, 5), (9, 8)])
 def test_batch_order_is_a_stream_of_permutations_without_repeats_in_a_batch(n, batch):
     for seed in range(5):
-        steps = 4 * n  # many epoch boundaries inside batches
+        steps = 4 * n  # 배치 안에 에폭 경계가 많이 생긴다
         order = batch_order(n, steps, batch, seed=seed)
         for row in order:
             assert len(set(row.tolist())) == batch
@@ -166,11 +166,11 @@ def test_batch_order_is_a_stream_of_permutations_without_repeats_in_a_batch(n, b
 # 보이고, batch_order는 첫 배치는 그대로 두면서 둘째 배치의 중복을 없애는지 확인한다(_keep_out이 새 에폭
 # 앞쪽의 겹치는 이미지를 뒤로 보냄).
 def test_batch_order_repairs_an_epoch_boundary():
-    # 20 images in batches of 16: the second batch takes 4 images of epoch 0 and 12 of epoch 1. A plain
-    # concatenation of permutations repeats an image there for most seeds.
+    # 이미지 20장을 16장씩: 둘째 배치는 에폭 0의 4장과 에폭 1의 12장을 담는다. 순열을 그냥 이어 붙이면
+    # 대부분의 seed에서 이 배치에 같은 이미지가 두 번 들어간다.
     rng = np.random.default_rng(0)
     plain = np.concatenate([rng.permutation(20), rng.permutation(20)])[:32].reshape(2, 16)
-    assert len(set(plain[1].tolist())) < 16  # this seed does collide, so the repair is exercised
+    assert len(set(plain[1].tolist())) < 16  # 이 seed는 실제로 겹치므로 고치는 경로를 탄다
     order = batch_order(20, 2, 16, seed=0)
     assert np.array_equal(order[0], plain[0])
     assert len(set(order[1].tolist())) == 16
@@ -195,7 +195,7 @@ def test_batch_order_rejects_bad_arguments():
             batch_order(*args, seed=0)
 
 
-# ---------------------------------------------------------------- train
+# ---------------------------------------------------------------- train(학습 루프)
 
 
 # 직접 옮겨 적은 학습 상수(옵티마이저, 스케줄러, 스텝 수, 클리핑, 입력 크기, 기본 인코더)가 설치된 anomalib의
@@ -237,7 +237,7 @@ def test_train_logs_and_follows_the_schedule(tmp_path):
     assert all(np.isfinite(e["loss"]) and e["vram_mb"] == 0.0 and e["skipped"] == 0 for e in log)
     seconds = [e["seconds"] for e in log]
     assert seconds == sorted(seconds)
-    # Warm-up (100 steps from 0 to 2e-3), then a cosine from 2e-3 towards 2e-4 over the other 50 steps.
+    # warmup(100스텝 동안 0에서 2e-3까지), 그다음 나머지 50스텝은 2e-3에서 2e-4 쪽으로 코사인.
     cosine = 2e-4 + 0.5 * (2e-3 - 2e-4) * (1 + np.cos(np.pi * np.arange(50) / 50))
     expected = np.concatenate([np.linspace(0.0, 2e-3, 100), cosine])
     assert np.allclose([e["lr"] for e in log], expected, rtol=1e-12, atol=0)
@@ -247,7 +247,7 @@ def test_train_logs_and_follows_the_schedule(tmp_path):
     assert lines == log
     assert b"\r" not in log_path.read_bytes()
 
-    # The model saw every step once, in training mode, with normalised fp32 batches in batch_order.
+    # 모델은 모든 스텝을 학습 모드로 한 번씩, batch_order 순서의 정규화된 fp32 배치로 보았다.
     assert [c[:2] for c in model.calls] == [(True, step) for step in range(steps)]
     assert all(c[2] == (4, 3, SIZE, SIZE) and c[3] == torch.float32 for c in model.calls)
     assert model.training
@@ -325,14 +325,14 @@ def test_train_uses_the_optimiser_scheduler_and_clipping_of_anomalib(monkeypatch
     assert made["optimizer"] == run_dinomaly.OPTIMIZER
     assert [id(p) for group in made["params"] for p in group["params"]] == trainable
     assert made["scheduler"] == {"total_iters": steps, **run_dinomaly.SCHEDULER}
-    # Every iteration: clip, then the optimiser, then the scheduler.
+    # 매 반복: 클리핑, 옵티마이저, 스케줄러 순서.
     assert [e for e in events if e != "scheduler"] == ["clip", "optimizer"] * steps
     assert events[-3 * steps :] == ["clip", "optimizer", "scheduler"] * steps
     assert len(clips) == steps
     for max_norm, ids, _before, after in clips:
         assert max_norm == 0.1 and ids == trainable
         assert after <= 0.1 * (1 + 1e-5)
-    assert max(before for _, _, before, _ in clips) > 0.1  # the clipping really had something to cut
+    assert max(before for _, _, before, _ in clips) > 0.1  # 클리핑이 실제로 자를 것이 있었다
 
 
 # 학습이 seed 하나로 완전히 결정되는지 본다. 호출 전에 프로세스가 어떤 난수를 썼든(noise) 같은 seed면 손실과
@@ -341,7 +341,7 @@ def test_train_is_deterministic_for_a_seed():
     def run(seed, noise):
         torch.manual_seed(0)
         model = DropoutModel()
-        torch.manual_seed(noise)  # what the process drew before the call must not matter
+        torch.manual_seed(noise)  # 호출 전에 프로세스가 뽑은 난수는 결과를 바꾸면 안 된다
         log = train(model, _images(12), steps=8, batch_size=4, device="cpu", seed=seed, log_every=1)
         return [e["loss"] for e in log], model.decoder.weight.detach().clone()
 
@@ -356,14 +356,12 @@ def test_train_is_deterministic_for_a_seed():
 # 목록과 디코더 가중치가 비트 단위로 같은지 본다. 기울기가 스텝마다 쌓이거나, 드롭아웃 난수 흐름이 다르거나,
 # 클리핑과 스텝 순서가 다르면 모두 다른 가중치가 나오므로 학습 루프 전체의 동등성을 확인하는 테스트다.
 def test_train_matches_a_plain_reference_loop():
-    # Gradients that pile up over the steps, another dropout stream or another order of clipping and
-    # stepping all end in other weights than the loop written out in `_reference_train`.
     images = _images(10, seed=4)
     torch.manual_seed(0)
     ours = DropoutModel()
     reference = copy.deepcopy(ours)
     start = ours.decoder.weight.detach().clone()
-    torch.manual_seed(999)  # train seeds the dropout stream itself
+    torch.manual_seed(999)  # train이 드롭아웃 난수 흐름을 스스로 고정한다
     log = train(ours, images, steps=12, batch_size=4, device="cpu", seed=3, log_every=1)
     losses = _reference_train(reference, images, steps=12, batch_size=4, seed=3)
 
@@ -374,13 +372,11 @@ def test_train_matches_a_plain_reference_loop():
 
 
 # fp16 경로에서 GradScaler가 손실을 키우므로(처음 65536배), 클리핑은 unscale_ 뒤의 실제 기울기를 봐야 한다.
-# 그렇지 않으면 매 스텝이 norm 0.1/65536으로 깎인다(아래 영어 주석). CPU에서도 실제로 스케일하는 GradScaler를
+# 그렇지 않으면 매 스텝이 norm 0.1/65536으로 깎인다. CPU에서도 실제로 스케일하는 GradScaler를
 # 강제로 만들어, 스케일한 실행과 하지 않은 실행의 클리핑 입력·손실·가중치가 똑같은지 본다(2의 거듭제곱으로
 # 곱했다 나누는 것은 정확하므로 같아야 한다). 매 스텝 순서는 unscale → clip → step → update이고, 건너뛴 스텝은
 # 0이어야 한다. 강제하지 않으면 CPU에서는 enabled=False인 스케일러가 만들어진다.
 def test_train_clips_after_unscaling_with_a_working_grad_scaler(monkeypatch):
-    # The fp16 path multiplies the loss by the scale of a GradScaler (65536 at the start). The clipping
-    # has to see the gradients after `unscale_`, or every step is cut down to a norm of 0.1 / 65536.
     real_scaler = torch.amp.GradScaler
     real_clip = torch.nn.utils.clip_grad_norm_
     force = {"on": False}
@@ -391,7 +387,7 @@ def test_train_clips_after_unscaling_with_a_working_grad_scaler(monkeypatch):
     class SpyScaler(real_scaler):
         def __init__(self, device="cuda", **kwargs):
             made.append((device, dict(kwargs)))
-            if force["on"]:  # a scaler that really scales, on the CPU
+            if force["on"]:  # CPU에서도 실제로 스케일하는 스케일러
                 device, kwargs = "cpu", {**kwargs, "enabled": True}
             super().__init__(device, **kwargs)
 
@@ -430,9 +426,9 @@ def test_train_clips_after_unscaling_with_a_working_grad_scaler(monkeypatch):
         return [e["loss"] for e in log], list(norms), model.decoder.weight.detach().clone()
 
     plain = run(scaling=False)
-    assert made == [("cuda", {"enabled": False})]  # on the CPU `amp` does not apply: plain fp32
+    assert made == [("cuda", {"enabled": False})]  # CPU에서는 `amp`가 적용되지 않아 그냥 fp32
     scaled = run(scaling=True)
-    # Scaling by a power of two and back is exact: the clipping saw the same gradients both times.
+    # 2의 거듭제곱으로 곱했다가 나누는 것은 정확하므로 클리핑은 두 번 모두 같은 기울기를 봤다.
     assert max(plain[1]) > 0.1 and scaled[1] == plain[1]
     assert scaled[0] == plain[0] and torch.equal(scaled[2], plain[2])
 
@@ -468,7 +464,7 @@ def test_train_flushes_each_log_line(tmp_path):
 
     class Watcher(TinyModel):
         def forward(self, batch, global_step=None):
-            # What another process would see of the log while this step is running.
+            # 이 스텝이 도는 동안 다른 프로세스가 볼 수 있는 로그 내용.
             text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
             visible.append(len(text.splitlines()))
             return super().forward(batch, global_step)
@@ -502,7 +498,7 @@ def test_train_rejects_bad_input():
         train(frozen, _images(8), steps=2, batch_size=4, device="cpu")
 
 
-# ---------------------------------------------------------------- predict
+# ---------------------------------------------------------------- predict(추론)
 
 
 # predict가 모델을 평가 모드로 바꾸고(global_step 없음), 배치를 3, 3, 1로 나눠 돌리며, 점수는 pred_score
@@ -528,14 +524,14 @@ def test_predict_shapes_order_and_resizing():
 # 채널 축 없는 [B, H, W] 맵도 받아들이고, 맵이 이미 map_size면 크기를 바꾸지 않는지 본다. 가짜 모델은 맵
 # 최댓값이 점수이므로 저장된 맵(fp16)의 최댓값이 점수와 맞아야 한다.
 def test_predict_keeps_a_map_that_already_has_the_size():
-    model = TinyModel(map_dims=3)  # maps without the channel axis are accepted too
+    model = TinyModel(map_dims=3)  # 채널 축 없는 맵도 받아들인다
     images = _images(3, seed=3)
     result = predict(model, images, batch_size=2, device="cpu", map_size=SIZE)
     with torch.no_grad():
         out = model(to_tensor(images, "cpu", torch.float32))
     assert result.maps.shape == (3, SIZE, SIZE)
     assert np.array_equal(result.maps, out.anomaly_map.to(torch.float16).numpy())
-    # The brightest or darkest pixel of each image carries the score.
+    # 이미지마다 가장 밝거나 가장 어두운 화소가 점수를 결정한다.
     assert np.allclose(result.maps.reshape(3, -1).max(axis=1), result.image_scores, rtol=1e-3)
 
 
@@ -561,7 +557,7 @@ def test_predict_raises_on_non_finite_scores():
         predict(Broken(), _images(2), device="cpu")
 
 
-# ---------------------------------------------------------------- the real model, random weights
+# ---------------------------------------------------------------- 실제 모델, 무작위 가중치
 
 
 # 가짜 모델이 아니라 anomalib의 실제 DinomalyModel(ViT-S 인코더)로 만들기·학습·채점·저장·불러오기를 CPU에서
@@ -582,20 +578,18 @@ def test_real_model_builds_trains_and_predicts_without_pretrained_weights(monkey
 
     def create_without_download(name, *args, **kwargs):
         requested.append((name, kwargs.get("pretrained")))
-        kwargs["pretrained"] = False  # tests never download DINOv2 weights
+        kwargs["pretrained"] = False  # 테스트는 DINOv2 가중치를 절대 내려받지 않는다
         return real_create(name, *args, **kwargs)
 
     monkeypatch.setattr(timm, "create_model", create_without_download)
     # anomalib은 ViT 인코더를 만들 때 timm의 이 함수를 프로세스 전체에서 바꿔 끼운다. 같은 값으로
     # monkeypatch에 등록해 두면 테스트가 끝날 때 원래 함수로 되돌려져 다른 테스트에 영향이 남지 않는다.
-    # anomalib replaces this timm function for the whole process when it builds a ViT encoder;
-    # registering it here makes monkeypatch put the original back after the test.
     monkeypatch.setattr(vit, "resample_abs_pos_embed", vit.resample_abs_pos_embed)
 
     encoder = "vit_small_patch14_reg4_dinov2"
     torch.manual_seed(0)
     model = run_dinomaly.build_model(encoder)
-    assert requested == [(encoder, True)]  # the real run asks for the pretrained encoder
+    assert requested == [(encoder, True)]  # 실제 실행은 사전학습 인코더를 요청한다
 
     trainable = {name for name, p in model.named_parameters() if p.requires_grad}
     assert trainable and all(name.startswith(("bottleneck.", "decoder.")) for name in trainable)
@@ -612,7 +606,7 @@ def test_real_model_builds_trains_and_predicts_without_pretrained_weights(monkey
             elif isinstance(layer, torch.nn.LayerNorm):
                 assert bool((layer.weight == 1).all()) and not layer.bias.any()
 
-    images = _images(8, seed=5, size=56)  # a 4x4 patch grid
+    images = _images(8, seed=5, size=56)  # 4x4 패치 격자
     reference = copy.deepcopy(model)
     frozen = {name: p.clone() for name, p in model.encoder.named_parameters()}
     before = run_dinomaly.trainable_state(model)
@@ -622,7 +616,7 @@ def test_real_model_builds_trains_and_predicts_without_pretrained_weights(monkey
     after = run_dinomaly.trainable_state(model)
     assert set(after) == trainable
     assert sum(not torch.equal(after[name], before[name]) for name in after) > len(after) // 2
-    # The same steps written out with anomalib's pieces: the same losses and weights, bit for bit.
+    # anomalib 부품으로 풀어 쓴 같은 스텝: 손실과 가중치가 비트 단위로 같다.
     assert _reference_train(reference, images, steps=3, batch_size=4, seed=0) == [e["loss"] for e in log]
     expected = run_dinomaly.trainable_state(reference)
     assert all(torch.equal(after[name], expected[name]) for name in after)
@@ -630,14 +624,14 @@ def test_real_model_builds_trains_and_predicts_without_pretrained_weights(monkey
     result = predict(model, images, batch_size=5, device="cpu")
     assert result.image_scores.shape == (8,) and result.maps.shape == (8, 256, 256)
     assert np.isfinite(result.image_scores).all() and np.isfinite(result.maps).all()
-    assert result.maps.min() > -1e-3 and result.maps.max() < 2 + 1e-3  # 1 - cosine similarity
+    assert result.maps.min() > -1e-3 and result.maps.max() < 2 + 1e-3  # 1 - 코사인 유사도
 
-    # The saved file holds the trainable part only; with the same encoder it reproduces the scores.
+    # 저장 파일에는 학습 파라미터만 있고, 같은 인코더와 함께 쓰면 같은 점수를 다시 낸다.
     path = tmp_path / "model.pt"
     run_dinomaly.save_model(path, model, encoder=encoder, steps=3, amp=False)
     saved = torch.load(path, map_location="cpu", weights_only=True)
     assert set(saved) == {"encoder", "steps", "amp", "state"} and set(saved["state"]) == trainable
-    torch.manual_seed(0)  # the same random "pretrained" encoder as above
+    torch.manual_seed(0)  # 위와 같은 무작위 '사전학습' 인코더
     loaded, meta = run_dinomaly.load_model(path)
     assert meta == {"encoder": encoder, "steps": 3, "amp": False} and not loaded.training
     again = predict(loaded, images, batch_size=5, device="cpu")
@@ -650,14 +644,14 @@ def test_real_model_builds_trains_and_predicts_without_pretrained_weights(monkey
         run_dinomaly.load_model(path)
 
 
-# ---------------------------------------------------------------- evaluation and the CLI
+# ---------------------------------------------------------------- 평가와 명령줄(CLI)
 
 
 # 평가·CLI 테스트용 가짜 캐시. 결함 이미지에만 흰 사각형과 마스크를 넣어 가짜 모델(밝기 점수)이 결함을 확실히
 # 높게 매기게 한다. ledger를 주면 봉인 테스트 이미지(SEALED_ROLES)를 내주기 전에 장부에 이미 줄이 있는지
 # 단언하므로, '읽기 전에 기록' 규칙을 캐시 쪽에서 강제한다. requested에 요청된 이미지 이름을 순서대로 남긴다.
 class FakeCache:
-    """In-memory stand-in for ImageCache: defects carry a bright square that no normal image has."""
+    """ImageCache 대신 쓰는 메모리 안 가짜: 결함 이미지에만 정상에 없는 밝은 사각형이 있다."""
 
     size = SIZE
 
@@ -678,7 +672,7 @@ class FakeCache:
 
     def _note(self, rows):
         if self._ledger is not None and any(self._role[r.image] in SEALED_ROLES for r in rows):
-            # The read of sealed images must already be on record.
+            # 봉인 이미지 읽기는 이미 장부에 기록돼 있어야 한다.
             assert self._ledger.exists() and self._ledger.read_text(encoding="utf-8").strip()
         self.requested += [r.image for r in rows]
 
@@ -749,7 +743,7 @@ def test_eval_category_dev_writes_the_common_format(tmp_path):
         assert z["eval_score"].dtype == np.float32 and z["eval_score"].shape == (14,)
         assert z["cal_score"].dtype == np.float32 and z["cal_score"].shape == (0,)
         assert z["cal_images"].shape == (0,)
-        # The stand-in scores by brightness: every defect is above every normal, also per pixel.
+        # 가짜 모델은 밝기로 채점하므로 모든 결함이 모든 정상보다 높다(픽셀 단위로도).
         assert z["eval_score"][8:].min() > z["eval_score"][:8].max()
         assert z["pixel_auroc"].dtype == np.float64 and float(z["pixel_auroc"]) > 0.95
         assert z["aupro"].dtype == np.float64 and float(z["aupro"]) > 0.8
@@ -778,7 +772,7 @@ def test_eval_category_test_protocol_needs_permission(tmp_path):
         assert z["eval_images"].tolist() == [f"toy/tn{i}.JPG" for i in range(10)] + [
             f"toy/td{i}.JPG" for i in range(4)
         ]
-        # Thresholds come from the fold-0 normals, which are not part of the training pool.
+        # 임계값은 학습 풀에 들지 않는 겹 0 정상에서 나온다.
         assert z["cal_images"].tolist() == [f"toy/n{i}.JPG" for i in range(0, 40, 5)]
         assert z["cal_score"].shape == (8,) and z["cal_score"].dtype == np.float32
         assert z["eval_score"][10:].min() > max(z["eval_score"][:10].max(), z["cal_score"].max())
@@ -790,21 +784,21 @@ def test_eval_category_test_protocol_needs_permission(tmp_path):
 def test_cli_refuses_test_protocol_without_flags(tmp_path, monkeypatch):
     ledger = tmp_path / "ledger.jsonl"
     monkeypatch.setattr(run_dinomaly.paths, "TEST_LEDGER", ledger)
-    monkeypatch.setattr(run_dinomaly, "ImageCache", None)  # nothing may be opened before the refusal
+    monkeypatch.setattr(run_dinomaly, "ImageCache", None)  # 거절 전에는 아무것도 열면 안 된다
     base = ["eval", "--protocol", "test", "--out", str(tmp_path / "out")]
     for extra in ([], ["--allow-test"], ["--stage", "2"]):
         with pytest.raises(SystemExit):
             run_dinomaly.main(base + extra)
     assert not ledger.exists() and not (tmp_path / "out").exists()
     with pytest.raises(SystemExit):
-        run_dinomaly.main(["eval", "--out", str(tmp_path / "out")])  # the protocol must be named
+        run_dinomaly.main(["eval", "--out", str(tmp_path / "out")])  # 절차를 밝혀야 한다
 
 
 # CLI를 가짜 매니페스트(CSV로 실제 저장)·가짜 캐시·가짜 모델·임시 장부로 연결한 환경. build_model을 가로채
 # 만들어진 모델·옵션·초기 가중치를 기록하고, 캐시를 연 크기도 기록한다. git_commit은 고정값을 돌려준다.
 @pytest.fixture
 def toy_project(tmp_path, monkeypatch):
-    """The CLI wired to a toy manifest, a fake cache, the stand-in model and a ledger under tmp_path."""
+    """가짜 매니페스트·가짜 캐시·가짜 모델과 tmp_path 아래 장부에 연결한 CLI 환경."""
     manifest = _manifest()
     ledger = tmp_path / "ledger.jsonl"
     cache = FakeCache(manifest, ledger=ledger)
@@ -856,17 +850,17 @@ def test_cli_train_then_eval_dev(toy_project, capsys):
     outputs = toy_project["outputs"]
     torch.manual_seed(123)
     run_dinomaly.main(TRAIN_ARGS + TOY)
-    # The stage 2 model: the 392 px cache and anomalib's model without any option.
+    # 2단계 모델: 392px 캐시와 옵션 없는 anomalib 모델.
     assert toy_project["sizes"] == [run_dinomaly.IMG_SIZE] == [392] and toy_project["options"] == [{}]
 
-    # Trained on the dev normal pool (folds 1-4) only: no fold-0 normal, no defect, no test image.
+    # dev 정상 풀(겹 1~4)로만 학습한다: 겹 0 정상, 결함, 테스트 이미지는 없다.
     pool = [f"toy/n{i}.JPG" for i in range(40) if i % 5 != 0]
     assert toy_project["cache"].requested == pool
     train_dir = outputs / "dm"
     info = json.loads((train_dir / "train.json").read_text(encoding="utf-8"))
     assert info["method"] == "dinomaly" and info["commit"] == "abc1234" and info["device"] == "cpu"
     assert info["config"]["encoder"] == run_dinomaly.ENCODER and info["config"]["steps"] == 6
-    # `--no-amp` was not given, but fp16 autocast only exists on CUDA: the record says what really ran.
+    # `--no-amp`를 주지 않았지만 fp16 autocast는 CUDA에만 있으므로, 기록은 실제로 돈 정밀도를 적는다.
     assert info["config"]["batch_size"] == 4 and info["config"]["amp"] is False
     assert info["config"]["img_size"] == 392 and info["config"]["grad_clip_norm"] == 0.1
     assert info["train_images"] == 32 and info["train_images_by_category"] == {"toy": 32}
@@ -879,7 +873,7 @@ def test_cli_train_then_eval_dev(toy_project, capsys):
     assert torch.equal(saved["state"]["decoder.weight"], trained.decoder.weight.detach())
     assert not list(train_dir.glob("*.part"))
 
-    # A finished training run is not overwritten by accident.
+    # 끝난 학습은 실수로 덮어쓰지 않는다.
     with pytest.raises(SystemExit):
         run_dinomaly.main(TRAIN_ARGS + TOY)
     assert len(toy_project["built"]) == 1
@@ -902,7 +896,7 @@ def test_cli_train_then_eval_dev(toy_project, capsys):
     assert run["config"]["amp"] is False and run["config"]["train_amp"] is False
     assert run["config"]["score_precision"] == "fp32"
     assert run["categories"][0]["category"] == "toy" and run["categories"][0]["eval_defect"] == 6
-    # The evaluation used the saved weights, not the fresh ones of the rebuilt model.
+    # 평가는 다시 만든 모델의 새 초기값이 아니라 저장된 가중치를 썼다.
     name, evaluated = toy_project["built"][1]
     assert name == run_dinomaly.ENCODER
     assert torch.equal(evaluated.decoder.weight.detach(), saved["state"]["decoder.weight"])
@@ -926,13 +920,13 @@ def test_cli_eval_test_protocol_records_the_read_first(toy_project):
     model = ["--model", str(outputs / "m" / "model.pt")]
     common = ["eval", "--protocol", "test", "--device", "cpu"] + TOY + model
 
-    # A missing model file stops the run before anything is recorded or read.
+    # 모델 파일이 없으면 아무것도 기록하거나 읽기 전에 멈춘다.
     toy_project["cache"].requested.clear()
     with pytest.raises(SystemExit):
         run_dinomaly.main(common[:-1] + [str(outputs / "nowhere.pt"), "--allow-test", "--stage", "2"])
     assert not toy_project["ledger"].exists() and toy_project["cache"].requested == []
 
-    # FakeCache asserts that the ledger line exists before it hands out a sealed image.
+    # FakeCache는 봉인 이미지를 내주기 전에 장부 줄이 있는지 단언한다.
     run_dinomaly.main(common + ["--allow-test", "--stage", "2", "--note", "toy"])
     lines = toy_project["ledger"].read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
@@ -957,7 +951,7 @@ def test_cli_rejects_unknown_categories(toy_project):
 def test_cli_rejects_repeated_categories(toy_project):
     outputs = toy_project["outputs"]
     with pytest.raises(SystemExit):
-        run_dinomaly.main(TRAIN_ARGS + ["--categories", "toy", "toy"])  # would train on every image twice
+        run_dinomaly.main(TRAIN_ARGS + ["--categories", "toy", "toy"])  # 모든 이미지로 두 번씩 학습하게 된다
     assert toy_project["built"] == [] and toy_project["cache"].requested == []
     assert not (outputs / "dm").exists()
 
@@ -974,7 +968,7 @@ def test_cli_train_seed_fixes_the_initial_weights_and_the_result(toy_project):
     outputs = toy_project["outputs"]
     states = {}
     for name, seed, noise in (("a", 0, 11), ("b", 0, 22), ("c", 1, 11)):
-        torch.manual_seed(noise)  # what the process drew before the run must not matter
+        torch.manual_seed(noise)  # 실행 전에 프로세스가 뽑은 난수는 결과를 바꾸면 안 된다
         run_dinomaly.main(TRAIN_ARGS + TOY + ["--seed", str(seed), "--out", str(outputs / name)])
         saved = torch.load(outputs / name / "model.pt", map_location="cpu", weights_only=True)
         states[name] = saved["state"]
@@ -996,15 +990,15 @@ def test_cli_eval_overwrite_clears_the_results_of_the_earlier_run(toy_project, m
     base = ["eval", "--protocol", "dev", "--device", "cpu"] + TOY
     eval_dir = outputs / "dm-dev"
     run_dinomaly.main(base)
-    # As if the earlier run had covered one more category: a reader that lists *.npz would mix the runs.
+    # 이전 실행이 범주를 하나 더 다룬 것처럼 만든다: *.npz를 나열하는 쪽은 두 실행을 섞게 된다.
     shutil.copy(eval_dir / "toy.npz", eval_dir / "gone.npz")
     shutil.copy(eval_dir / "toy_maps.npy", eval_dir / "gone_maps.npy")
     (eval_dir / "notes.txt").write_text("not a result file", encoding="utf-8")
     run_dinomaly.main(base + ["--overwrite"])
     assert sorted(p.name for p in eval_dir.iterdir()) == ["notes.txt", "run.json", "toy.npz", "toy_maps.npy"]
 
-    # Result files without run.json (a run that broke off) are not mixed into a new run either, and
-    # nothing is deleted without --overwrite.
+    # run.json 없는 결과 파일(중단된 실행)도 새 실행에 섞이지 않고, --overwrite 없이는 아무것도 지우지
+    # 않는다.
     partial = outputs / "partial"
     partial.mkdir()
     shutil.copy(eval_dir / "toy.npz", partial / "gone.npz")
@@ -1015,7 +1009,7 @@ def test_cli_eval_overwrite_clears_the_results_of_the_earlier_run(toy_project, m
     run_dinomaly.main(base + ["--out", str(partial), "--overwrite"])
     assert sorted(p.name for p in partial.iterdir()) == ["run.json", "toy.npz", "toy_maps.npy"]
 
-    # A redo that breaks half-way must not look like the finished run it was replacing.
+    # 다시 하다 중간에 깨진 실행이 바꾸려던 끝난 실행처럼 보이면 안 된다.
     def broken(*args, **kwargs):
         raise RuntimeError("stopped")
 
@@ -1045,7 +1039,7 @@ def test_cli_eval_precision_follows_the_training_run(toy_project, monkeypatch):
     # 저장 파일의 amp 기록만 바꾼 복사본으로 eval을 돌려, predict가 받은 amp 값과 run.json의 config를
     # 돌려준다.
     def evaluate(train_amp, *flags):
-        """Score with a model file that says it was trained with `train_amp` (None: it says nothing)."""
+        """`train_amp`로 학습했다고 적힌 모델 파일로 채점한다(None이면 아무것도 적혀 있지 않다)."""
         asked.clear()
         path = outputs / "model-under-test.pt"
         content = {key: value for key, value in saved.items() if key != "amp"}
@@ -1062,14 +1056,14 @@ def test_cli_eval_precision_follows_the_training_run(toy_project, monkeypatch):
     asked_amp, config = evaluate(False)
     assert asked_amp is False and config["train_amp"] is False
     assert config["amp"] is False and config["score_precision"] == "fp32"
-    # A model trained in fp16 is scored in fp16 unless told otherwise. The CPU cannot meet that
-    # request, and run.json records what really ran.
+    # fp16으로 학습한 모델은 따로 말하지 않으면 fp16으로 채점한다. CPU는 그 요청을 들어줄 수 없고,
+    # run.json은 실제로 돈 정밀도를 기록한다.
     asked_amp, config = evaluate(True)
     assert asked_amp is True and config["train_amp"] is True
     assert config["amp"] is False and config["score_precision"] == "fp32"
     assert evaluate(True, "--no-amp")[0] is False
     assert evaluate(False, "--amp")[0] is True
-    # A file that does not say how it was trained: the precision has to be named.
+    # 어떻게 학습했는지 적혀 있지 않은 파일: 정밀도를 직접 밝혀야 한다.
     with pytest.raises(SystemExit):
         evaluate(None)
     assert asked == []
@@ -1078,7 +1072,7 @@ def test_cli_eval_precision_follows_the_training_run(toy_project, monkeypatch):
     assert evaluate(None, "--amp")[0] is True
 
 
-# ---------------------------------------------------------------- stage 6: configurations and the gate
+# ---------------------------------------------------------------- 6단계: 구성과 관문
 
 
 # 등록된 구성 표가 experiments.md 2·6단계와 같은지 고정한다. dm은 2단계 등록값(ViT-B, 392px, 5,000스텝, 배치
@@ -1090,7 +1084,7 @@ def test_registered_configs():
     configs = run_dinomaly.CONFIGS
     assert set(configs) == {"dm", "dms-252", "dms-280", "dms-294", "dms-308", "dms-252-car", "dms-280-car"}
     dm = configs["dm"]
-    # Stage 2 is unchanged: the constants it was registered with, and no option for build_model.
+    # 2단계는 그대로다: 등록 당시의 상수이고 build_model 옵션이 없다.
     assert (dm.encoder, dm.img_size, dm.steps, dm.batch_size) == (run_dinomaly.ENCODER, 392, 5000, 16)
     assert dm.build_options() == {} and dm.build_options("original") == {}
     for name, cfg in configs.items():
@@ -1117,7 +1111,7 @@ def test_gate_verdict():
     ref = [1.0] * 30
     ok = run_dinomaly.gate_verdict(ref, [1.02] * 30, skipped=0)
     assert ok["passed"] and ok["window_rel_diff"] == pytest.approx([0.02] * 3)
-    # One noisy step inside a window passes when the window mean stays within 3%.
+    # 구간 안 한 스텝이 튀어도 구간 평균이 3% 안이면 통과한다.
     noisy = [1.0] * 30
     noisy[4] = 1.25
     assert run_dinomaly.gate_verdict(ref, noisy, skipped=0)["passed"]
@@ -1172,7 +1166,7 @@ def test_attention_parity_and_save_load_of_a_stage6_model(monkeypatch, tmp_path)
     run_dinomaly.save_model(
         path, model, encoder=cfg.encoder, steps=2, amp=False, config=cfg.name, options=options
     )
-    torch.manual_seed(0)  # the same random "pretrained" encoder
+    torch.manual_seed(0)  # 같은 무작위 '사전학습' 인코더
     loaded, meta = run_dinomaly.load_model(path)
     assert meta == {"encoder": cfg.encoder, "steps": 2, "amp": False, "config": cfg.name, "options": options}
     assert loaded.use_context_recentering and attention_mode(loaded) == "scaled"
@@ -1198,7 +1192,7 @@ def test_cli_trains_and_evaluates_a_stage6_config(toy_project, capsys):
     saved = torch.load(outputs / "dms-280" / "model.pt", map_location="cpu", weights_only=True)
     assert saved["config"] == "dms-280" and saved["options"] == toy_project["options"][0]
 
-    # A dm evaluation cannot pick up the stage 6 model, and the other way round.
+    # dm 평가는 6단계 모델을 집을 수 없고, 반대도 마찬가지다.
     stage6_model = ["--model", str(outputs / "dms-280" / "model.pt")]
     with pytest.raises(SystemExit):
         run_dinomaly.main(["eval", "--protocol", "dev", "--device", "cpu"] + TOY + stage6_model)
@@ -1235,7 +1229,7 @@ def test_cli_train_takes_precision_and_attention_from_a_gate_file(toy_project, t
     info = json.loads((outputs / "dms-308" / "train.json").read_text(encoding="utf-8"))
     assert info["config"]["attention"] == "fp32" and toy_project["options"][-1]["attention"] == "fp32"
     assert info["config"]["gate"]["file"] == str(gate) and len(info["config"]["gate"]["sha256"]) == 64
-    assert info["config"]["amp"] is False  # asked for fp16, but the CPU has no fp16 autocast
+    assert info["config"]["amp"] is False  # fp16을 요청했지만 CPU에는 fp16 autocast가 없다
 
     again = base + ["--overwrite", "--precision-from", str(gate)]
     for extra in (["--no-amp"], ["--attention", "scaled"]):
@@ -1244,7 +1238,7 @@ def test_cli_train_takes_precision_and_attention_from_a_gate_file(toy_project, t
     gate.write_text("{}", "utf-8")
     with pytest.raises(SystemExit):
         run_dinomaly.main(again)
-    with pytest.raises(SystemExit):  # the encoder of a registered stage 6 config is fixed
+    with pytest.raises(SystemExit):  # 등록된 6단계 구성의 인코더는 고정
         run_dinomaly.main(TRAIN_ARGS + TOY + ["--config", "dms-252", "--encoder", run_dinomaly.ENCODER])
 
 
@@ -1266,7 +1260,7 @@ def test_run_gate_picks_the_first_fp16_variant_that_passes(tmp_path, monkeypatch
         calls.append((attention, amp))
         losses = [1.0] * 20
         if attention == "scaled":
-            losses = [1.0] * 10 + [1.2] * 10  # too far from fp32
+            losses = [1.0] * 10 + [1.2] * 10  # fp32에서 너무 멀다
         return {"attention": attention, "amp": amp, "error": "", "losses": losses, "skipped": 0}
 
     monkeypatch.setattr(run_dinomaly, "_gate_run", fake_run)

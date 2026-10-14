@@ -21,11 +21,10 @@ from defect_inspect import coreset  # noqa: E402
 from defect_inspect.coreset import kcenter_greedy  # noqa: E402
 
 
-# 비교 기준이 되는 가장 단순한 탐욕적 k-center. float64로 실제 거리 차를 직접 제곱해 더하므로 전개식(||a||² +
-# ||b||² − 2ab)의 fp32 반올림 문제가 없다. 이미 고른 점의 최소 거리를 −1로 두어 다시 뽑지 않는 규칙은 실제
-# 구현과 같다.
+# float64로 실제 거리 차를 직접 제곱해 더하므로 전개식(||a||² + ||b||² − 2ab)의 fp32 반올림 문제가 없다. 이미
+# 고른 점의 최소 거리를 −1로 두어 다시 뽑지 않는 규칙은 실제 구현과 같다.
 def reference_kcenter(points: np.ndarray, first: int, n_select: int) -> list[int]:
-    """Plain float64 greedy k-center."""
+    """비교 기준이 되는 가장 단순한 float64 탐욕적 k-center."""
     chosen = [first]
     min_dist = np.full(len(points), np.inf)
     while len(chosen) < n_select:
@@ -65,20 +64,20 @@ def test_matches_reference_with_projection():
     projected = (feats.double() @ proj.double()).numpy()
     got = kcenter_greedy(feats, 30, seed=seed, proj_dim=proj_dim)
     assert got.tolist() == reference_kcenter(projected, first, 30)
-    # The projection changes the geometry: selecting in the full space gives a different order.
+    # 투영은 점 사이의 기하를 바꾼다: 투영하지 않은 원래 공간에서 고르면 순서가 달라진다.
     assert got.tolist() != kcenter_greedy(feats, 30, seed=seed, proj_dim=32).tolist()
 
 
 # 확인: 투영은 차원이 proj_dim보다 '클 때만' 일어난다(같으면 투영 없음). 경계 한 칸 차이로 난수 소비 순서와
 # 시작점이 달라지므로 두 경우를 모두 기준 구현과 맞춘다.
 def test_projection_starts_strictly_above_proj_dim():
-    # D == proj_dim: no projection, and the first centre is the generator's first draw.
+    # D == proj_dim: 투영하지 않고, 첫 중심은 Generator에서 처음 뽑은 값이다.
     seed, proj_dim = 4, 8
     feats = random_features(200, proj_dim, seed=10)
     first = int(torch.randint(200, (1,), generator=torch.Generator().manual_seed(seed)))
     got = kcenter_greedy(feats, 40, seed=seed, proj_dim=proj_dim)
     assert got.tolist() == reference_kcenter(feats.double().numpy(), first, 40)
-    # D == proj_dim + 1: projected, and the first centre is drawn after the projection matrix.
+    # D == proj_dim + 1: 투영하며, 첫 중심은 투영 행렬을 뽑은 다음에 뽑는다.
     wide = random_features(200, proj_dim + 1, seed=10)
     generator = torch.Generator().manual_seed(seed)
     proj = torch.randn(proj_dim + 1, proj_dim, generator=generator) / math.sqrt(proj_dim)
@@ -129,9 +128,9 @@ def test_input_is_not_modified_and_fp16_is_accepted():
     before = half.clone()
     got = kcenter_greedy(half, 20, seed=0, proj_dim=4)
     assert torch.equal(half, before)
-    # fp16 input is only a storage format: it selects like the same values held in fp32.
+    # fp16 입력은 저장 형식일 뿐이라, 같은 값을 fp32로 담은 입력과 똑같이 고른다.
     assert got.tolist() == kcenter_greedy(half.float(), 20, seed=0, proj_dim=4).tolist()
-    # No projection and fp32 input: the caller's tensor must not be centred in place.
+    # 투영 없음 + fp32 입력: 호출자의 텐서가 제자리에서 중심화(평균 빼기)되면 안 된다.
     full = feats.clone()
     kcenter_greedy(full, 20, seed=0, proj_dim=16)
     assert torch.equal(full, feats)
@@ -145,7 +144,7 @@ def test_exact_duplicates_are_never_selected_twice():
     feats = torch.ones(12, 3)
     got = kcenter_greedy(feats, 12, seed=0)
     assert sorted(got.tolist()) == list(range(12))
-    # Two distinct values: the second pick must come from the other group.
+    # 서로 다른 값 두 개: 두 번째로 고른 점은 첫 점과 다른 무리에서 나와야 한다.
     feats = torch.cat([torch.zeros(6, 3), torch.ones(6, 3)])
     got = kcenter_greedy(feats, 12, seed=0)
     assert sorted(got.tolist()) == list(range(12))
@@ -166,7 +165,7 @@ def test_covers_well_separated_clusters():
 # 왜: 구현은 거리를 ||z||² + ||c||² − 2z·c 전개식으로 계산하는데, 원점에서 먼 점은 큰 수끼리 빼서 fp32
 # 정밀도를 잃는다. 구현이 먼저 평균을 빼(중심화) 이 문제를 피하는지 확인한다.
 def test_large_offset_does_not_break_the_expanded_distance():
-    # Far from the origin the naive ||a||^2 + ||b||^2 - 2ab loses all precision in fp32.
+    # 원점에서 멀면 단순 전개식 ||a||^2 + ||b||^2 - 2ab는 fp32에서 정밀도를 모두 잃는다.
     feats = random_features(100, 6, seed=8)
     shifted = feats + 1000.0
     first = int(torch.randint(100, (1,), generator=torch.Generator().manual_seed(0)))
@@ -189,13 +188,13 @@ def test_projection_is_chunked(monkeypatch):
 # 망가진 뱅크가 만들어진다.
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
 def test_non_finite_features_are_rejected(bad):
-    # Without the check a NaN row makes the loop return the same index over and over.
+    # 이 검사가 없으면 NaN 행 하나 때문에 선택 반복문이 같은 인덱스를 되풀이해 돌려준다.
     feats = random_features(100, 8, seed=12)
     feats[7, 3] = bad
     for n_select in (1, 10, 100):
         with pytest.raises(ValueError, match="non-finite"):
             kcenter_greedy(feats, n_select, seed=0)
-    # The same behind the random projection, with fp16 storage.
+    # 무작위 투영을 거치고 fp16으로 저장된 경우도 마찬가지다.
     wide = random_features(100, 16, seed=12).to(torch.float16)
     wide[99, 0] = bad
     with pytest.raises(ValueError, match="non-finite"):
@@ -205,7 +204,7 @@ def test_non_finite_features_are_rejected(bad):
 # 확인: fp16 최댓값(65504)으로 채운 1,536차원 특징도 정상 처리한다. 비유한값 검사가 '큰 유한값'까지 잘못
 # 거부하지 않는지, fp32 제곱 노름이 넘치지 않는지 본다(WRN-50 패치 특징이 1,536차원이다).
 def test_large_finite_features_are_accepted():
-    # The largest fp16 value in every entry is still far from overflowing the fp32 squared norms.
+    # 모든 칸이 fp16 최댓값이어도 fp32 제곱 노름이 넘치기에는 아직 한참 모자란다.
     feats = torch.full((20, 1536), 65504.0, dtype=torch.float16)
     feats[::2] = -65504.0
     got = kcenter_greedy(feats, 20, seed=0)
@@ -214,18 +213,15 @@ def test_large_finite_features_are_accepted():
 
 
 # 확인(선택형 GPU 테스트): CUDA에서 선택 반복문이 장치→호스트 동기화를 한 번도 하지 않는다.
-# torch.cuda.set_sync_debug_mode("error")가 동기화를 오류로 바꿔 준다.
-# 왜: 반복마다 .item()이나 0차원 텐서 인덱싱으로 값을 읽어 오면 계산보다 동기화 비용이 커진다(_select
-# docstring). 기본 테스트는 GPU를 건드리면 안 되므로(다른 프로젝트와 GPU를 나눠 씀)
+# torch.cuda.set_sync_debug_mode("error")가 그런 읽기를 모두 오류로 바꿔 준다.
+# 왜: 반복마다 장치에서 값을 읽어 오면(`.item()`, 0차원 텐서로 인덱싱) 그 반복의 계산 자체보다 동기화 비용이
+# 커진다(_select docstring). 기본 테스트는 GPU를 건드리면 안 되므로(다른 프로젝트와 GPU를 나눠 씀)
 # DEFECT_INSPECT_GPU_TESTS=1일 때만 돈다.
 @pytest.mark.skipif(
     os.environ.get("DEFECT_INSPECT_GPU_TESTS") != "1" or not torch.cuda.is_available(),
     reason="opt-in GPU test: set DEFECT_INSPECT_GPU_TESTS=1 (the default test run must not touch the GPU)",
 )
 def test_selection_loop_does_not_synchronise_on_cuda():
-    # Reading a value back from the device in every iteration (`.item()`, indexing by a 0-dim
-    # tensor) costs more than the arithmetic of the iteration itself. Sync debug mode turns any
-    # such read into an error.
     n, n_select = 512, 64
     z = random_features(n, 16, seed=13).to("cuda")
     z -= z.mean(dim=0, keepdim=True)

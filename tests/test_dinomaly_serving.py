@@ -29,11 +29,11 @@ from defect_inspect.inspector import ReconstructionInspector, preprocess  # noqa
 from defect_inspect.splits import SEALED_ROLES, ManifestRow, write_manifest  # noqa: E402
 
 # 28px = 14px 패치 2×2 격자. 내보내기와 채점을 CPU에서 빠르게 돌리려는 최소 크기다.
-SIZE = 28  # a 2x2 patch grid
+SIZE = 28
 
 
-# 6단계 구성과 같은 옵션(입력 크기 고정, 인코더 10블록, scaled 어텐션)의 무작위 가중치 ViT-S Dinomaly를
-# 파일에서 한 번만 내보내는 fixture(내보내기와 INT8 양자화가 느려서 module 범위).
+# 6단계 구성과 같은 옵션(입력 크기 고정, 인코더 10블록, scaled 어텐션)을 쓴다. 내보내기와 INT8 양자화가
+# 느려서 module 범위로 파일에서 한 번만 내보낸다.
 # - timm.create_model을 pretrained=False로 바꿔 내려받기를 막고, anomalib가 바꿔 두는 resample_abs_pos_embed를
 #   context가 끝날 때 원래대로 되돌린다.
 # - git_commit을 고정값으로 바꿔 기록되는 commit을 확인할 수 있게 한다.
@@ -41,7 +41,7 @@ SIZE = 28  # a 2x2 patch grid
 # - 범주 두 개(toy, other)와 동적 INT8 모델까지 쓴다.
 @pytest.fixture(scope="module")
 def exported(tmp_path_factory):
-    """A random-weight ViT-S Dinomaly with a disturbed decoder, exported once for the module."""
+    """디코더를 흔든 무작위 가중치 ViT-S Dinomaly를 이 모듈에서 한 번만 내보내는 fixture."""
     import timm
     import timm.models.vision_transformer as vit
 
@@ -117,7 +117,7 @@ def test_export_writes_an_artifact_set_that_matches_torch(exported):
 # 검사하려는 것이다. requested에는 요청된 이미지 경로가 쌓여 dev 실행이 테스트 이미지를 건드리지 않았는지 볼
 # 수 있다.
 class FakeCache:
-    """Images by manifest row; asserts that a sealed image is only handed out after the ledger line."""
+    """매니페스트 행별 이미지를 내주되, 봉인 이미지는 장부에 줄이 생긴 뒤에만 내주는지 단언한다."""
 
     def __init__(self, manifest, ledger):
         rng = np.random.default_rng(0)
@@ -216,7 +216,7 @@ def test_score_cli_dev_test_conditions_and_calibrate(exported, project, tmp_path
         np.testing.assert_array_equal(z["eval_score"], expected)
     assert not any("/t" in image for image in project["cache"].requested)
 
-    with pytest.raises(SystemExit):  # the sealed test set needs both flags
+    with pytest.raises(SystemExit):  # 봉인 테스트는 두 플래그가 모두 있어야 한다
         dinomaly_serving.main(base + ["--protocol", "test", "--allow-test"])
     assert not project["ledger"].exists()
     dinomaly_serving.main(base + ["--protocol", "test", "--allow-test", "--stage", "6"])
@@ -224,12 +224,12 @@ def test_score_cli_dev_test_conditions_and_calibrate(exported, project, tmp_path
     assert line["stage"] == "6" and line["config"] == "dms-toy-onnx-fp32"
     test_dir = project["outputs"] / "dms-toy-onnx-fp32-test"
     with np.load(test_dir / "toy.npz") as z:
-        assert z["cal_images"].tolist() == [f"toy/n{i}.JPG" for i in range(0, 20, 5)]  # fold 0
+        assert z["cal_images"].tolist() == [f"toy/n{i}.JPG" for i in range(0, 20, 5)]  # 겹 0
         assert z["eval_images"].tolist()[:5] == [f"toy/tn{i}.JPG" for i in range(5)]
         cal_score = z["cal_score"]
         clean_eval = z["eval_score"]
 
-    # A condition changes the evaluation images only; the thresholds stay those of the clean normals.
+    # 교란 조건은 평가 이미지만 바꾸고, 임계값용 보정 점수는 교란 없는 정상의 점수 그대로다.
     dinomaly_serving.main(
         base + ["--protocol", "test", "--allow-test", "--stage", "6", "--condition", "brightness-3"]
     )
@@ -242,7 +242,7 @@ def test_score_cli_dev_test_conditions_and_calibrate(exported, project, tmp_path
     with pytest.raises(SystemExit):
         dinomaly_serving.main(base + ["--protocol", "dev", "--condition", "fog-1"])
 
-    # Thresholds for the service: hold-out on the fold-0 normals of the clean test run only.
+    # 서비스용 임계값: 교란 없는 test 실행의 겹 0 정상 점수로만 홀드아웃 보정한다.
     for run_dir in (dev_dir, project["outputs"] / "dms-toy-onnx-fp32-test-brightness-3"):
         with pytest.raises(SystemExit):
             dinomaly_serving.main(["calibrate", "--artifacts", str(art), "--scores", str(run_dir)])

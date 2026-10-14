@@ -1,13 +1,13 @@
-"""Stage 7: multi-illumination enrolment and per-image feature centring for the M2AD inspectors.
+"""7단계: M2AD 검사기의 다조명 등록과 이미지별 특징 중심화.
 
-Candidates (per method, P0 or D-S): e0 as in stage 3-B (bank and threshold from the 30 train specimens
-under I01), e1 with per-image feature centring, e2 enrolled under I01 and one of two illumination groups
-(two arms that swap the groups, so every illumination is unseen once), e3 both.
+후보(방법 P0, D-S마다): e0은 3-B와 같다(I01에서 찍은 학습 시편 30개로 뱅크와 임계값). e1은 이미지별 특징
+중심화. e2는 I01과 두 조명 묶음 중 하나를 등록한다(묶음을 맞바꾼 두 팔이라 모든 조명이 한 번씩 못 본 조명이
+된다). e3은 둘 다.
 
-`val` reads train specimens only: outer specimen folds, a bank and a nested cross-fitted threshold from
-the other folds, scores of the held-out specimens under all ten illuminations. `test` reads the sealed
-M2AD test images (logged): e0 and the candidate `val` picked, and with --loop the closed-loop re-enrolment
-arm on e0. Tables and verdicts: `defect_inspect.analyze_m2ad_enrol`. Rules: docs/experiments.md, stage 7.
+`val`은 학습 시편만 읽는다: 시편 단위 바깥 겹마다, 나머지 겹으로 뱅크와 중첩 교차 적합 임계값을 만들고
+빼 둔 시편을 조명 열 가지 모두에서 채점한다. `test`는 봉인된 M2AD 테스트 이미지를 읽는다(장부에 기록):
+e0과 `val`이 고른 후보, 그리고 --loop면 e0 위의 폐루프 재등록 팔. 표와 판정은
+`defect_inspect.analyze_m2ad_enrol`, 규칙은 docs/experiments.md 7단계.
 """
 
 # [파일 역할] 7단계 실행기(python -m defect_inspect.run_m2ad_enrol val|test). M2AD의 검사기 6개(Motor·Bird ×
@@ -70,12 +70,12 @@ from .splits import SealedTestError, path_key
 #   + 결함 0/1/2장과 대조(거르지 않음 + 결함 2장)
 # - INSPECTORS: 검사기 이름 "범주_시점" 6개
 METHODS = ("p0", "d-s")
-CANDIDATES = ("e0", "e1", "e2", "e3")  # in order of simplicity (ties in `val` go to the earlier one)
+CANDIDATES = ("e0", "e1", "e2", "e3")  # 단순한 순서(`val`에서 동률이면 앞의 것)
 CENTRE = {"e0": False, "e1": True, "e2": False, "e3": True}
 MULTI = {"e0": False, "e1": False, "e2": True, "e3": True}
-# Closed-loop arm (test only, on e0): n unlabelled images under the new illumination, k of them defects.
+# 폐루프 팔(test에서만, e0 위): 새 조명의 무라벨 이미지 n장, 그중 k장이 결함.
 LOOP_N = 20
-LOOP_TRIM = 0.2  # share of the batch dropped by the robust filter: the highest within-batch scores
+LOOP_TRIM = 0.2  # 강건 거르기가 버리는 묶음 비율: 묶음 안 점수가 가장 높은 것부터
 LOOP_ARMS = (("trim", 0), ("trim", 1), ("trim", 2), ("none", 2))
 INSPECTORS = tuple(f"{category}_{view}" for category in CATEGORIES for view in VIEWS)
 
@@ -84,7 +84,7 @@ INSPECTORS = tuple(f"{category}_{view}" for category in CATEGORIES for view in V
 # E3)는 I01 + 묶음 A인 팔 A와 I01 + 묶음 B인 팔 B다. 묶음은 조명 이름의 SHA-256 순으로 고정된다(A = 03, 07,
 # 08, 09 / B = 02, 04, 05, 06, 10).
 def arms(candidate: str) -> list[tuple[str, tuple[str, ...]]]:
-    """(arm, enrolled illuminations): one arm `ref` (I01 only) or the arms `A` and `B` (I01 + a group)."""
+    """(팔, 등록 조명) 목록: 팔 `ref` 하나(I01만) 또는 팔 `A`와 `B`(I01 + 묶음 하나)."""
     if candidate not in CANDIDATES:
         raise ValueError(f"unknown candidate {candidate!r}; known: {CANDIDATES}")
     if not MULTI[candidate]:
@@ -96,14 +96,14 @@ def arms(candidate: str) -> list[tuple[str, tuple[str, ...]]]:
 # 팔 × 조명 10개의 등록 여부 표. npz에 같이 저장해 분석 코드가 "못 본 조명"과 "등록한 조명"을 이 표만 보고
 # 가를 수 있게 한다.
 def enrolled_matrix(candidate: str) -> np.ndarray:
-    """bool [n_arms, 10]: which illuminations each arm enrols (columns in ILLUMINATIONS order)."""
+    """bool [팔 수, 10]: 팔마다 어느 조명을 등록하는지(열은 ILLUMINATIONS 순서)."""
     return np.array([[light in enrolled for light in ILLUMINATIONS] for _, enrolled in arms(candidate)])
 
 
 # 폐루프 결과의 행 이름 "조명:거르기:k"(새 조명 9개 × 팔 4개 = 36행). 저장 배열의 행 순서를 이 목록으로
 # 고정한다.
 def loop_keys() -> list[str]:
-    """`<LL>:<filter>:<k>` for every new illumination and closed-loop arm, illuminations first."""
+    """새 조명마다, 폐루프 팔마다 `<LL>:<filter>:<k>`. 조명이 바깥 순서다."""
     return [f"{light}:{filt}:{k}" for light in ILLUMINATIONS if light != REFERENCE for filt, k in LOOP_ARMS]
 
 
@@ -118,7 +118,7 @@ def centred(extractor):
 # 구성 하나(백본, 코어셋 비율, 시드, 재가중 k, σ, 배치)의 옵션을 묶어 뱅크 만들기·채점·특징 추출·교차 적합을
 # 같은 설정으로 부르게 하는 작은 도우미. 후보마다 추출기(그대로 / 중심화)만 바꿔 새로 만든다.
 class Tools:
-    """Bank building, scoring, cross-fitting and feature extraction with the options of one config."""
+    """구성 하나의 옵션으로 뱅크 만들기, 채점, 교차 적합, 특징 추출을 한다."""
 
     def __init__(self, cfg: PatchCoreConfig, extractor, device: str):
         self.cfg, self.extractor, self.device = cfg, extractor, device
@@ -154,14 +154,14 @@ class Tools:
         return feats.view(len(images), grid_h * grid_w, feats.shape[1])
 
     def crossfit(self, features, images: np.ndarray, folds: np.ndarray):
-        """`run_m2ad.crossfit` with this config: (bank of all, cross-fitted scores, threshold, bank rows)."""
+        """이 구성으로 부르는 `run_m2ad.crossfit`: (전체 뱅크, 교차 적합 점수, 임계값, 뱅크 행 수)."""
         return _crossfit(self.build, self.score, features, images, folds)
 
 
 # 검사기 하나의 학습 이미지를 조명 10개 모두에 대해 고른다. 모든 조명에 같은 시편이 같은 순서로 있어야 "시편
 # 단위 겹"이 조명 사이에서 맞으므로, 다르면 _same_specimens가 멈춘다. _test_rows는 같은 일을 test 시편에 한다.
 def _train_rows(rows: Sequence[M2adRow], category: str, view: str) -> tuple[dict, list[str]]:
-    """Train rows of one inspector under every illumination (same specimens, sorted by name)."""
+    """검사기 하나의 조명별 학습 행(모든 조명에서 같은 시편, 이름 순)."""
     train = {light: inspector_rows(rows, category, view, "train", light) for light in ILLUMINATIONS}
     names = [r.specimen for r in train[REFERENCE]]
     if not names:
@@ -211,11 +211,10 @@ def validate_inspector(
     cache: M2adCache,
     out_dir: Path,
 ) -> dict:
-    """Validation of one candidate on one inspector, train specimens only; writes its npz.
+    """후보 하나를 검사기 하나에서 학습 시편만으로 검증하고 npz를 쓴다.
 
-    For every arm and outer fold f: bank = the arm's illuminations of the specimens outside f, threshold =
-    conformal threshold of their scores cross-fitted over the remaining folds (nested), and the specimens
-    of f are scored under all ten illuminations by that bank.
+    팔마다, 바깥 겹 f마다: 뱅크 = f 밖 시편의 그 팔 등록 조명 이미지, 임계값 = 그 이미지들을 나머지
+    겹으로 교차 적합(중첩)한 점수의 conformal 임계값. 그 뱅크로 f의 시편을 조명 열 가지 모두에서 채점한다.
     """
     import torch
 
@@ -299,11 +298,11 @@ def sealed_inspector(
     *,
     allow_test: bool = False,
 ) -> dict:
-    """One candidate on one inspector against the sealed test specimens; writes its npz.
+    """후보 하나를 검사기 하나에서 봉인 테스트 시편으로 재고 npz를 쓴다.
 
-    Per arm: bank of the arm's illuminations of all train specimens, conformal threshold of their
-    scores cross-fitted over the specimen folds, test specimens scored under every illumination
-    (one call of all test specimens per illumination, as in stage 3-B).
+    팔마다: 뱅크 = 모든 학습 시편의 그 팔 등록 조명 이미지, 임계값 = 그 이미지들을 시편 겹으로 교차
+    적합한 점수의 conformal 임계값. 테스트 시편을 조명마다 채점한다(3-B처럼 조명 하나의 테스트 시편 전부를
+    한 번에 채점).
     """
     import torch
 
@@ -391,15 +390,14 @@ def loop_inspector(
     *,
     allow_test: bool = False,
 ) -> dict:
-    """Closed-loop re-enrolment on e0 for one inspector; writes `<category>_<view>_loop.npz`.
+    """검사기 하나에서 e0 위의 폐루프 재등록을 재고 `<category>_<view>_loop.npz`를 쓴다.
 
-    Under each new illumination L and arm (filter, k): a batch of LOOP_N unlabelled images = the first
-    LOOP_N - k train specimens in SHA-256 order (normal) and the first k test specimens with a visible
-    defect under L, in SHA-256 order of the specimen name. `trim` scores every batch image with a bank of
-    the other batch folds (specimen folds of the batch) and drops the ceil(LOOP_TRIM * LOOP_N) highest;
-    `none` keeps all. The kept images join the I01 bank and the cross-fitting (train specimens keep their
-    fold, defect specimens get folds by their own SHA-256 rank). Test images under L are then scored; the
-    enrolled defect specimens are excluded (label -1) from the detection rate.
+    새 조명 L과 팔 (filter, k)마다: 무라벨 이미지 LOOP_N장의 묶음 = SHA-256 순 앞 LOOP_N - k개 학습
+    시편(정상) + L에서 결함이 보이는 테스트 시편을 시편 이름 SHA-256 순으로 앞 k개. `trim`은 묶음의 이미지마다
+    묶음의 다른 겹(묶음 안 시편 겹)으로 만든 뱅크로 채점해 가장 높은 ceil(LOOP_TRIM * LOOP_N)장을 버리고,
+    `none`은 모두 남긴다. 남긴 이미지는 I01 뱅크와 교차 적합에 더해진다(학습 시편은 원래 겹을 쓰고, 결함
+    시편은 자기들끼리의 SHA-256 순위로 겹을 받는다). 그다음 L의 테스트 이미지를 채점하며, 등록에 들어간 결함
+    시편은 검출률에서 뺀다(라벨 -1).
     """
     import torch
 
@@ -516,7 +514,7 @@ def _make_extractor(cfg: PatchCoreConfig, device: str):
 # analyze_m2ad_enrol val이 reports/stage7/val.json에 적은 방법별 선택 후보를 읽는다. 규칙상 val 결과를 커밋한
 # 뒤에만 test를 돌리므로, test가 고를 후보는 이 파일에서만 온다.
 def read_pick(val_report: Path, method: str) -> str:
-    """The candidate `analyze_m2ad_enrol val` picked for `method`."""
+    """`analyze_m2ad_enrol val`이 `method`에 대해 고른 후보."""
     with open(val_report, encoding="utf-8") as f:
         report = json.load(f)
     try:
@@ -550,19 +548,21 @@ def main(argv: list[str] | None = None) -> None:
     for name in ("val", "test"):
         p = sub.add_parser(name)
         p.add_argument("--method", choices=METHODS, required=True)
-        p.add_argument("--out", type=Path, default=None, help=f"default: outputs/m2ad-enrol-{name}-<method>")
+        p.add_argument("--out", type=Path, default=None, help=f"기본값: outputs/m2ad-enrol-{name}-<method>")
         p.add_argument("--device", default="cuda")
         p.add_argument("--overwrite", action="store_true")
-        p.add_argument("--jsons", type=Path, default=None, help="default: data/raw/m2ad/jsons.zip")
-        p.add_argument("--cache", type=Path, default=None, help="cache directory (data/cache)")
+        p.add_argument("--jsons", type=Path, default=None, help="기본값: data/raw/m2ad/jsons.zip")
+        p.add_argument("--cache", type=Path, default=None, help="캐시 폴더(기본값: data/cache)")
     val = sub.choices["val"]
     val.add_argument("--candidates", nargs="+", choices=CANDIDATES, default=list(CANDIDATES))
-    val.add_argument("--inspectors", nargs="+", default=list(INSPECTORS), help="e.g. Motor_000")
+    val.add_argument("--inspectors", nargs="+", default=list(INSPECTORS), help="검사기 이름. 예: Motor_000")
     test = sub.choices["test"]
-    test.add_argument("--pick-from", type=Path, required=True, help="reports/stage7/val.json")
-    test.add_argument("--loop", action="store_true", help="also run the closed-loop arm on e0")
-    test.add_argument("--allow-test", action="store_true", help="read the M2AD test images (logged)")
-    test.add_argument("--stage", default="", help="stage label for the test ledger")
+    test.add_argument(
+        "--pick-from", type=Path, required=True, help="val 선택이 적힌 파일(reports/stage7/val.json)"
+    )
+    test.add_argument("--loop", action="store_true", help="e0 위의 폐루프 팔도 함께 잰다")
+    test.add_argument("--allow-test", action="store_true", help="M2AD 테스트 이미지를 읽는다(장부에 기록)")
+    test.add_argument("--stage", default="", help="봉인 테스트 장부에 남길 단계 이름")
     test.add_argument("--note", default="")
     args = parser.parse_args(argv)
 
@@ -588,8 +588,8 @@ def main(argv: list[str] | None = None) -> None:
             parser.error(str(err))
 
     # 메타데이터·캐시·추출기 준비처럼 실패할 수 있는 일을 장부 기록 전에 끝낸다. 장부(config
-    # m2ad-enrol-<방법>, stage 7-m2ad)에는 후보와 폐루프 여부를 메모로 남긴다.
-    # Everything that can fail without touching a test image comes before the ledger line.
+    # m2ad-enrol-<방법>, stage 7-m2ad)에는 후보와 폐루프 여부를 메모로 남긴다. 테스트 이미지를 건드리지 않고
+    # 실패할 수 있는 일은 모두 장부 줄보다 먼저 한다.
     rows = read_meta(args.jsons or paths.RAW / "m2ad" / "jsons.zip")
     cache = M2adCache(args.cache or paths.CACHE, cfg.img_size)
     plain = _make_extractor(cfg, args.device)
@@ -636,7 +636,7 @@ def main(argv: list[str] | None = None) -> None:
             "method": args.method,
             "config": asdict(cfg),
             "commit": commit,
-            # Coreset selection differs between devices at float rounding level.
+            # 코어셋 선택은 장치에 따라 부동소수 반올림 수준으로 달라진다.
             "device": args.device,
             "candidates": candidates,
             "inspectors": [f"{category}_{view}" for category, view in inspectors],

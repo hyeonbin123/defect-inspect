@@ -1,9 +1,8 @@
-"""Stage 7 tables and verdicts: the validation pick, H18 and H19 on the sealed M2AD test, the closed-loop
-arm, and the VisA dev table of the feature centring (E1). Rules: docs/experiments.md, stage 7.
+"""7단계 표와 판정을 만든다: 검증 선택, 봉인 M2AD test의 H18·H19, 폐루프 팔, 특징 중심화(E1)의 VisA dev 표.
 
-Rates are pooled over the inspectors. Intervals come from bootstraps whose unit is the specimen (M2AD)
-or the image within category and class (VisA dev), with the same draws for everything compared, so
-differences are paired.
+규칙은 docs/experiments.md 7단계에 있다. 비율은 검사기를 모두 합쳐 낸다. 구간은 부트스트랩에서 나오는데,
+추출 단위는 M2AD에서는 시편, VisA dev에서는 범주·클래스 안의 이미지다. 비교하는 모든 것에 같은 추출을
+쓰므로 차이가 짝지어진다.
 """
 
 # [파일 역할] 7단계 "조명 변화 대응" 분석 모듈이다. 하위 명령 세 개가 7단계의 순서와 같다.
@@ -55,13 +54,11 @@ N_BOOT = 2000
 SEED = 0
 ALPHA = 0.05
 JUDGED_METHOD = "p0"
-H18_MARGIN = -0.50  # supported when the interval of (pick - e0) unseen FPR lies below -50 points
-GUARD = -0.10  # "improvement" only if the I01 detection rate falls by no more than 10 points
+H18_MARGIN = -0.50
+GUARD = -0.10
 H19_LIMIT = 0.06
 VISA_CONDITIONS = ("clean", "brightness-3", "gamma-3")
-_TOL = (
-    1e-9  # pooled rates are ratios of integers: keeps an end equal to a bound where exact arithmetic has it
-)
+_TOL = 1e-9  # 합산 비율은 정수의 비다. 정확한 산술에서 경계와 같은 구간 끝을 부동소수에서도 경계에 둔다
 
 
 # 작은 도우미들: 95% 백분위 구간, 분모 0이면 nan인 비율, 유한하지 않은 값을 None으로 바꿔 쓰는 JSON 저장, 실행
@@ -98,12 +95,12 @@ def _read_meta(run_dir: Path) -> dict:
         return json.load(f)
 
 
-# ---------------------------------------------------------------- validation (train specimens only)
+# ---------------------------------------------------------------- 검증 (학습 시편만)
 
 
-# val 실행을 읽는다. command가 val이 아니면 다른 종류의 실행을 잘못 넘긴 것이라 거절한다.
+# command가 val이 아니면 다른 종류의 실행을 잘못 넘긴 것이라 거절한다.
 def load_val(run_dir: Path) -> dict:
-    """A `run_m2ad_enrol val` run: {"meta", "cands": {candidate: {inspector: arrays}}}."""
+    """`run_m2ad_enrol val` 실행을 읽는다: {"meta", "cands": {후보: {검사기: 배열}}}."""
     meta = _read_meta(run_dir)
     if meta.get("command") != "val":
         raise ValueError(f"{run_dir} is not a validation run")
@@ -114,7 +111,7 @@ def load_val(run_dir: Path) -> dict:
 # b에서 시편 j가 몇 번 뽑혔나" 행렬을 만든다. 같은 범주의 시점들, 그리고 모든 후보가 같은 시편 목록이어야 같은
 # 가중치를 공유할 수 있어 먼저 확인한다. 이 구간은 선택에 쓰지 않는 참고다(규칙).
 def _val_weights(run: dict, n_boot: int, seed: int) -> dict[str, np.ndarray]:
-    """Specimen draws per category ([n_boot, n_specimens] counts), shared by every candidate."""
+    """범주마다 시편 추출([n_boot, n_specimens] 횟수)을 만든다. 모든 후보가 이것을 함께 쓴다."""
     first = next(iter(run["cands"].values()))
     names: dict[str, list[str]] = {}
     for inspector, arr in first.items():
@@ -137,12 +134,12 @@ def _val_weights(run: dict, n_boot: int, seed: int) -> dict[str, np.ndarray]:
     return weights
 
 
-# 후보 하나의 검증 결과: 못 본 조명과 등록한 조명의 합산 오검출(수, 비율, 구간)과 조명별 못 본 조명 오검출 수.
-# 임계값은 바깥 겹마다 다르므로(평가 시편이 뱅크에도 임계값에도 들어가지 않는 중첩 교차 적합) thresholds[arm,
-# folds]로 시편마다 자기 겹의 임계값을 고른다. enrolled[arm, 조명]이 참이면 그 팔에서 등록한 조명(seen),
-# 거짓이면 못 본 조명(unseen)이다.
+# 결과에는 합산 오검출(수, 비율, 구간)과 조명별 못 본 조명 오검출 수가 들어간다. 임계값은 바깥 겹마다
+# 다르므로(평가 시편이 뱅크에도 임계값에도 들어가지 않는 중첩 교차 적합) thresholds[arm, folds]로 시편마다
+# 자기 겹의 임계값을 고른다. enrolled[arm, 조명]이 참이면 그 팔에서 등록한 조명(seen), 거짓이면 못 본
+# 조명(unseen)이다.
 def val_candidate(cand: dict[str, dict], weights: dict[str, np.ndarray]) -> dict:
-    """Unseen and seen illumination false alarm counts of one candidate, pooled, with bootstrap samples."""
+    """후보 하나의 검증 결과: 못 본 조명과 등록한 조명의 합산 오검출 수를 부트스트랩 표본과 함께 낸다."""
     n_boot = next(iter(weights.values())).shape[0]
     point = {"unseen": np.zeros(2), "seen": np.zeros(2)}
     samples = {"unseen": np.zeros((n_boot, 2)), "seen": np.zeros((n_boot, 2))}
@@ -151,7 +148,7 @@ def val_candidate(cand: dict[str, dict], weights: dict[str, np.ndarray]) -> dict
         if arr["lights"].tolist() != list(ILLUMINATIONS):
             raise ValueError(f"{inspector}: unexpected illumination order")
         w = weights[inspector.split("_")[0]]
-        thresholds = arr["thresholds"][:, arr["folds"]]  # [arms, specimens]
+        thresholds = arr["thresholds"][:, arr["folds"]]  # [팔 수, 시편 수]
         for a in range(len(arr["arms"])):
             for li, light in enumerate(ILLUMINATIONS):
                 flagged = (arr["scores"][a, li].astype(np.float64) > thresholds[a]).astype(np.float64)
@@ -177,11 +174,12 @@ def val_candidate(cand: dict[str, dict], weights: dict[str, np.ndarray]) -> dict
     return out
 
 
-# 선택 규칙: 못 본 조명 합산 오검출률이 가장 낮은 후보. 비율을 Fraction(정확한 분수)으로 비교하고,
-# 같으면(오검출 수가 같으면) 단순한 쪽(CANDIDATES 순서 E0 < E1 < E2 < E3)을 고른다. P0에서 E2와 E3가 865장으로
-# 같아 E2가 뽑혔다.
+# P0에서 E2와 E3가 865장으로 같아 E2가 뽑혔다.
 def choose(rows: dict[str, dict]) -> str:
-    """Lowest pooled unseen FPR (exact ratio); ties go to the simpler candidate (CANDIDATES order)."""
+    """선택 규칙: 못 본 조명 합산 FPR(Fraction으로 정확한 분수 비교)이 가장 낮은 후보를 고른다.
+
+    같으면 단순한 쪽(CANDIDATES 순서 E0 < E1 < E2 < E3)을 고른다.
+    """
     ranked = sorted(
         rows,
         key=lambda c: (
@@ -234,12 +232,12 @@ def format_val(report: dict) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------- sealed test
+# ---------------------------------------------------------------- 봉인 테스트
 
 
-# test 실행을 읽는다. 후보(E0과 선택 후보) 점수와, --loop로 돌렸으면 폐루프 팔 점수(`<검사기>_loop.npz`)까지.
+# 후보(E0과 선택 후보) 점수와, --loop로 돌렸으면 폐루프 팔 점수(`<검사기>_loop.npz`)까지 읽는다.
 def load_test(run_dir: Path) -> dict:
-    """A `run_m2ad_enrol test` run: {"meta", "cands": {candidate: {inspector: arrays}}, "loop": ...}."""
+    """`run_m2ad_enrol test` 실행을 읽는다: {"meta", "cands": {후보: {검사기: 배열}}, "loop": ...}."""
     meta = _read_meta(run_dir)
     if meta.get("command") != "test":
         raise ValueError(f"{run_dir} is not a test run")
@@ -266,11 +264,11 @@ def _bootstrap(run: dict, n_boot: int | None, seed: int) -> ClusterBootstrap:
     return ClusterBootstrap(shell, n_boot, seed)
 
 
-# 후보 하나, 조명 하나에 대해 팔(arm)마다의 Cell 목록. E2·E3는 팔이 둘(A: I01 + 묶음 A 등록, B: I01 + 묶음 B
-# 등록)이라, 못 본 조명은 그 조명을 등록하지 않은 팔의 점수와 임계값으로 잰다. want_enrolled로 등록한 팔
-# 쪽(seen)과 등록하지 않은 팔 쪽(unseen)을 고른다. E0·E1은 팔이 하나이고 I01만 등록했다.
+# E2·E3는 팔이 둘(A: I01 + 묶음 A 등록, B: I01 + 묶음 B 등록)이라, 못 본 조명은 그 조명을 등록하지 않은 팔의
+# 점수와 임계값으로 잰다. want_enrolled로 등록한 팔 쪽(seen)과 등록하지 않은 팔 쪽(unseen)을 고른다. E0·E1은
+# 팔이 하나이고 I01만 등록했다.
 def _arm_cell(cand: dict[str, dict], names: list[str], light: str, want_enrolled: bool) -> list:
-    """Cells (one per arm that has `light` enrolled, or not) in inspector order."""
+    """후보 하나, 조명 하나의 Cell 목록: `light`를 등록한(또는 등록하지 않은) 팔마다 하나, 검사기 순서."""
     li = ILLUMINATIONS.index(light)
     first = cand[names[0]]
     cells = []
@@ -309,11 +307,10 @@ def _public(rates: dict) -> dict:
     return out
 
 
-# 후보 하나의 test 수치. 못 본 조명(I01을 뺀 아홉 조명 × 그 조명을 등록하지 않은 팔) 1,080장, 등록한
-# 조명(E2·E3는 두 팔의 등록 조명 1,320장, I01은 두 팔에서 한 번씩), 기준 조명 I01(E2·E3는 두 팔 합산)의 비율을
-# 내고, 조명·팔별 표와 못 본 조명 AUROC의 평균도 낸다.
+# 못 본 조명(I01을 뺀 아홉 조명 × 그 조명을 등록하지 않은 팔)은 1,080장, 등록한 조명은 E2·E3에서 두 팔의 등록
+# 조명 1,320장(I01은 두 팔에서 한 번씩)이고, 기준 조명 I01은 E2·E3에서 두 팔 합산이다.
 def candidate_rates(run: dict, cand_name: str, boot: ClusterBootstrap) -> dict:
-    """Unseen, seen and I01 rates of one candidate, a per-illumination table and the mean unseen AUROC."""
+    """후보 하나의 test 수치: 못 본 조명·등록한 조명·I01의 비율, 조명·팔별 표, 못 본 조명 AUROC의 평균."""
     cand = run["cands"][cand_name]
     names = boot.names
     real = [light for light in ILLUMINATIONS if light != REFERENCE]
@@ -353,7 +350,7 @@ def candidate_rates(run: dict, cand_name: str, boot: ClusterBootstrap) -> dict:
 # - H19: 선택 후보의 등록 조명 합산 오검출률 ≤ 6%면 지지.
 # 못 본 조명 검출률 차이는 판정 없이 함께 적는다.
 def h18_h19(e0: dict, pick: dict, pick_name: str) -> dict:
-    """H18 (unseen FPR vs e0, with the I01 detection guard) and H19 (seen FPR of the pick)."""
+    """H18(e0 대비 못 본 조명 FPR, I01 검출률 가드 포함)과 H19(선택 후보의 등록 조명 FPR)를 판정한다."""
     d_fpr = pick["unseen"]["fpr"] - e0["unseen"]["fpr"]
     lo, hi = _ci(pick["unseen"]["fpr_samples"] - e0["unseen"]["fpr_samples"])
     # 선택이 E0이면 비교할 다른 후보가 없으므로 규칙대로 기각이다. 아니면 구간 끝을 −50%p와 비교한다(경계는
@@ -385,12 +382,11 @@ def h18_h19(e0: dict, pick: dict, pick_name: str) -> dict:
     }
 
 
-# 폐루프 자동 재등록 표(P0 E0). 팔(거르기 trim 또는 거르지 않음 none, 섞은 결함 k = 0/1/2)마다 아홉 새 조명을
-# 합쳐 오검출률·검출률을 내고, 실행 기록(run.json의 loop_runs)에서 묶음에 섞인 결함 수, 거르기가 버린
-# 결함·정상 수를 더한다. 결과: 거르기 k = 2에서 오검출률 9.8%, 검출률 63.5%, 섞인 결함의 59%를 버렸다. 거르지
-# 않으면 검출률이 34.3%로 떨어졌다.
+# 팔은 (거르기 trim 또는 거르지 않음 none, 섞은 결함 k = 0/1/2)다. 오검출률·검출률과 함께 실행 기록(run.json의
+# loop_runs)에서 묶음에 섞인 결함 수, 거르기가 버린 결함·정상 수를 더한다. 결과: 거르기 k = 2에서 오검출률
+# 9.8%, 검출률 63.5%, 섞인 결함의 59%를 버렸다. 거르지 않으면 검출률이 34.3%로 떨어졌다.
 def loop_table(run: dict, boot: ClusterBootstrap) -> list[dict]:
-    """Closed loop on e0: pooled over the nine new illuminations, one row per (filter, k)."""
+    """e0의 폐루프 자동 재등록 표: 아홉 새 조명을 합쳐 (거르기, k)마다 한 행을 만든다."""
     loop = run["loop"]
     names = boot.names
     # run.json에 검사기마다 기록된 폐루프 묶음 정보(키 `<조명>:<거르기>:<k>`별로 섞인 결함 수, 거르기가 버린
@@ -424,7 +420,7 @@ def loop_table(run: dict, boot: ClusterBootstrap) -> list[dict]:
 # 검사기·조명마다 최대 절대 점수 차이와 임계값이 같은지 적는다(규칙의 stage3b_match). 결과: 두 방법 모두 차이
 # 0, 임계값 같음. 3-B 실행이 없으면 None.
 def stage3b_match(run: dict, ref_dir: Path) -> dict | None:
-    """e0 against the stage 3-B run of the same method: largest score difference and equal thresholds."""
+    """e0을 같은 방법의 3-B 실행과 비교한다: 가장 큰 점수 차이와 임계값이 같은지."""
     ref_dir = Path(ref_dir)
     if not (ref_dir / "run.json").exists():
         return None
@@ -523,13 +519,12 @@ def format_test(report: dict) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------- VisA dev: centring (E1)
+# ---------------------------------------------------------------- VisA dev: 중심화 (E1)
 
 
-# VisA dev 교란 실행 하나에서 범주마다 라벨, 세 조건의 점수 [조건, 이미지], 그 실행 자신의 교차 적합 점수로
-# 정한 임계값(목표 5%)을 꺼낸다. 필요한 조건이 없으면 오류.
+# 임계값은 그 실행 자신의 교차 적합 점수로 정한다(목표 5%). 필요한 조건이 없으면 오류.
 def _visa_arrays(run: dict, conditions: tuple[str, ...]) -> dict:
-    """Per category: labels, the scores of `conditions` [n_cond, n] and the conformal threshold."""
+    """VisA dev 교란 실행에서 범주마다 라벨, `conditions`의 점수 [n_cond, n], conformal 임계값을 꺼낸다."""
     out = {}
     for category, cat in run["cats"].items():
         names = [str(c) for c in cat["conditions"]]
@@ -545,8 +540,7 @@ def _visa_arrays(run: dict, conditions: tuple[str, ...]) -> dict:
     return out
 
 
-# E1 VisA dev 점검 표(판정 없음, 선택에 쓰지 않음). 조건마다 E0과 E1의 평균 AUROC, 합산 오검출률·검출률(각자
-# 자기 임계값), 그리고 E1 − E0 차이와 짝지은 구간. 두 실행이 같은 이미지를 같은 순서로 채점했는지 먼저
+# E1 VisA dev 점검 표(판정 없음, 선택에 쓰지 않음). 두 실행이 같은 이미지를 같은 순서로 채점했는지 먼저
 # 확인한다. 교란 없는 조건의 E1 − E0 AUROC 차이가 "결함 없는 조건에서의 정확도 손실"이다(스켑틱 지적). 결과:
 # P0 밝기 0.7에서 오검출률 38.9% → 14.0%, 교란 없음 AUROC −0.75%p [−1.77, +0.20].
 def visa_dev_table(
@@ -556,8 +550,9 @@ def visa_dev_table(
     n_boot: int | None = None,
     seed: int = SEED,
 ) -> list[dict]:
-    """Per condition: mean image AUROC, pooled FPR and detection rate of E0 and E1 at their own thresholds,
-    and the paired differences E1 - E0 (stratified bootstrap, normals and defects per category)."""
+    """조건마다 E0과 E1의 평균 이미지 AUROC, 자기 임계값에서의 합산 FPR·검출률, E1 − E0의 짝지은 차이를 낸다.
+
+    구간은 범주마다 정상과 결함을 따로 뽑는 층화 부트스트랩으로 낸다."""
     n_boot = int(n_boot or N_BOOT)
     a, b = _visa_arrays(e0_run, conditions), _visa_arrays(e1_run, conditions)
     if list(a) != list(b):
@@ -625,11 +620,10 @@ def visa_dev_table(
     return table
 
 
-# 다시 만든 실행과 예전 실행의 전체 뱅크 평가 점수(eval_score_full)의 최대 상대 차이. P0는 dev 뱅크를 저장해
-# 두지 않아 7단계에서 outputs/p0-dev7로 다시 만들었고, 원래 outputs/p0-dev와 같은 점수인지 확인하는 데
-# 쓴다(결과: 차이 0). 같은 폴더이거나 비교할 실행이 없으면 None.
+# P0는 dev 뱅크를 저장해 두지 않아 7단계에서 outputs/p0-dev7로 다시 만들었고, 원래 outputs/p0-dev와 같은
+# 점수인지 확인하는 데 쓴다(결과: 차이 0). 같은 폴더이거나 비교할 실행이 없으면 None.
 def rerun_check(source_dir: Path, reference_dir: Path) -> dict | None:
-    """Largest relative difference of the full-bank evaluation scores between a rerun and an older run."""
+    """다시 만든 실행과 예전 실행의 전체 뱅크 평가 점수(eval_score_full)의 최대 상대 차이를 낸다."""
     source_dir, reference_dir = Path(source_dir), Path(reference_dir)
     if not (reference_dir / "run.json").exists() or source_dir.resolve() == reference_dir.resolve():
         return None
@@ -708,7 +702,7 @@ def main(argv: list[str] | None = None) -> None:
             "p0=perturb-p0-dev7:perturb-p0-c-dev",
             "d-s=perturb-d-s-dev:perturb-d-s-c-dev",
         ],
-        help="method=<E0 perturb run>:<E1 perturb run>, directories under outputs/",
+        help="방법=<E0 교란 실행>:<E1 교란 실행>. 실행은 outputs/ 아래 폴더 이름",
     )
     args = parser.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):

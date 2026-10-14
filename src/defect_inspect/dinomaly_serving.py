@@ -1,16 +1,15 @@
-"""The CPU pipeline of a Dinomaly model: ONNX export, scoring with onnxruntime, thresholds for the service.
+"""Dinomaly 모델의 CPU 파이프라인: ONNX 내보내기, onnxruntime 채점, 서비스용 임계값.
 
-`export` writes an artifact set: `model_fp32.onnx` (image in; `score` and `map` out, see
-`dinomaly_model.ServingGraph`), optionally `model_int8_dynamic.onnx` (dynamic INT8 quantization of the
-MatMul nodes), and per category a `meta.json` (`kind: reconstruction`). A trained model comes from
-`run_dinomaly train`; `--untrained` exports a freshly initialised model of a config, which is enough for
-the latency gate of stage 6 (the latency does not depend on the weights). The thresholds of a fresh export
-are placeholders (`calibration.strategy: none`) until `calibrate` sets them from a `score` run.
+`export`는 아티팩트 세트를 쓴다: `model_fp32.onnx`(이미지를 넣으면 `score`와 `map`이 나옴,
+`dinomaly_model.ServingGraph` 참고), 선택으로 `model_int8_dynamic.onnx`(MatMul 노드의 동적 INT8 양자화),
+범주마다 `meta.json`(`kind: reconstruction`). 학습한 모델은 `run_dinomaly train`에서 온다. `--untrained`는
+그 설정의 갓 초기화한 모델을 내보내는데, 지연은 가중치와 무관하므로 6단계 지연 관문에는 이것으로 충분하다.
+갓 내보낸 세트의 임계값은 `calibrate`가 `score` 실행으로 정하기 전까지 자리 표시 값이다
+(`calibration.strategy: none`).
 
-`score` scores the evaluation set of a protocol (and, in the test protocol, the fold-0 normals that fix
-the hold-out thresholds) with onnxruntime on the CPU, optionally under one synthetic condition of stage 3
-applied to the evaluation images. It writes `<category>.npz` in the common format of stage 2 (no maps)
-and `run.json`. Only `export` needs torch.
+`score`는 절차의 평가 세트(test 절차에서는 홀드아웃 임계값을 정할 겹 0 정상도)를 CPU의 onnxruntime으로
+채점한다. 선택으로 3단계 합성 조건 하나를 평가 이미지에 적용할 수 있다. 2단계 공통 형식의
+`<범주>.npz`(맵 없음)와 `run.json`을 쓴다. torch가 필요한 것은 `export`뿐이다.
 """
 
 # [파일 역할] 6단계 Dinomaly ViT-S(DMS) 모델을 CPU 서빙용으로 바꾸고 재는 파이프라인이다. 명령 세 개로 나뉜다.
@@ -59,7 +58,7 @@ from .visa import CATEGORIES
 # onnxruntime의 차이 허용치(점수는 상대, 맵은 절대 1e-3, 6단계 관문 1 규칙). 실제로는 학습 전 모델 6개가
 # 2.4e-7·6.0e-7 이하, dms-280-car가 8.0e-7·5.1e-7이었다.
 MAP_SIZE = 256
-PARITY_TOL = 1e-3  # largest torch-onnxruntime difference accepted at export (score relative, map absolute)
+PARITY_TOL = 1e-3
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -77,19 +76,16 @@ def _read_json(path: Path) -> dict:
         raise ValueError(f"{path} is missing or not readable JSON ({err})") from err
 
 
-# ---------------------------------------------------------------- export (torch)
+# ---------------------------------------------------------------- export (torch 필요)
 
 
-# 모델을 ServingGraph로 감싸 입력 크기를 고정한 ONNX(opset 18)로 내보내고, 바로 검증한다: onnx.checker로
-# 형식을 확인하고, 시드 0 무작위 이미지 probes장에서 torch 출력과 onnxruntime 출력을 비교해 허용치를 넘으면
-# RuntimeError를 낸다. 내보내기가 조용히 다른 계산을 하는 일을 막는 관문이다. 반환값(최대 차이)은
-# artifacts.json에 남는다.
+# ONNX는 opset 18이고, 내보낸 뒤 onnx.checker로 형식을 확인한다. 내보내기가 조용히 다른 계산을 하는 일을 막는
+# 관문이다. 반환값(최대 차이)은 artifacts.json에 남는다.
 def export_onnx(model, img_size: int, path: Path, *, opset: int = 18, probes: int = 2) -> dict:
-    """Export `model` (a DinomalyModel on the CPU, fp32) as a `ServingGraph` for one image of `img_size`.
+    """`model`(CPU·fp32의 DinomalyModel)을 `img_size` 이미지 한 장용 `ServingGraph` ONNX로 내보낸다.
 
-    Checks onnxruntime against torch on `probes` random images (seed 0) and raises when the score
-    differs by more than PARITY_TOL (relative) or the map by more than PARITY_TOL (absolute). Returns
-    the largest differences.
+    무작위 이미지 `probes`장(시드 0)에서 onnxruntime을 torch와 비교해, 점수가 PARITY_TOL(상대)보다,
+    또는 맵이 PARITY_TOL(절대)보다 크게 다르면 RuntimeError를 낸다. 가장 큰 차이를 돌려준다.
     """
     import onnx
     import torch
@@ -146,11 +142,10 @@ def _session(path: Path, threads: int | None = None):
     return ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
 
 
-# 동적 INT8 양자화(MatMul 노드만, 가중치 QInt8, 활성값은 호출마다 양자화). 6단계에서 판정 없는 보조로 쟀다:
-# 18% 빨랐지만(123.2ms) dev AUROC가 1.44%p 떨어져 서빙은 FP32로 둔다. 4단계 PatchCore의 정적 양자화(QDQ,
-# MinMax)와는 방식이 다르다.
+# 6단계에서 판정 없는 보조로 쟀다: 18% 빨랐지만(123.2ms) dev AUROC가 1.44%p 떨어져 서빙은 FP32로 둔다. 4단계
+# PatchCore의 정적 양자화(QDQ, MinMax)와는 방식이 다르다.
 def quantize_dynamic_matmul(fp32_path: Path, out_path: Path) -> Path:
-    """Dynamic INT8 quantization of the MatMul nodes (weights int8, activations quantized per call)."""
+    """MatMul 노드의 동적 INT8 양자화(가중치는 QInt8, 활성값은 호출마다 양자화)."""
     from onnxruntime.quantization import QuantType, quantize_dynamic
 
     quantize_dynamic(
@@ -159,7 +154,7 @@ def quantize_dynamic_matmul(fp32_path: Path, out_path: Path) -> Path:
     return Path(out_path)
 
 
-# 아티팩트 세트를 쓴다: model_fp32.onnx(+ 선택으로 model_int8_dynamic.onnx), 범주마다 meta.json, 전체 정보
+# 아티팩트 세트: model_fp32.onnx(+ 선택으로 model_int8_dynamic.onnx), 범주마다 meta.json, 전체 정보
 # artifacts.json. 12개 범주가 모델 파일 하나를 같이 쓰고 범주 폴더에는 임계값만 다르다(뱅크 없음). 처음에는
 # 임계값을 0.0, calibration.strategy를 none으로 적어 두고 calibrate가 채운다. meta에 커밋과 ONNX sha256을 넣어
 # 어떤 모델로 만든 임계값인지 추적한다. 쓰기 전에 check_reconstruction_meta로 서비스가 읽을 수 있는 형식인지
@@ -174,7 +169,7 @@ def build_artifacts(
     categories: list[str],
     int8_dynamic: bool = False,
 ) -> dict:
-    """Export `model` and write the meta of every category with a placeholder threshold."""
+    """`model`을 내보내고, 모든 범주의 meta를 자리 표시 임계값으로 쓴다."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
@@ -188,7 +183,7 @@ def build_artifacts(
     }
     int8_path = out_dir / RECONSTRUCTION_PRECISIONS["int8-dynamic"]
     # 예전 INT8 파일은 새 FP32 모델에서 나온 것이 아니므로, 이번에 만들지 않더라도 먼저 지워 둔다.
-    int8_path.unlink(missing_ok=True)  # an older quantized model does not belong to the new fp32 model
+    int8_path.unlink(missing_ok=True)
     if int8_dynamic:
         quantize_dynamic_matmul(fp32, int8_path)
         info["int8_dynamic"] = {"available": True, "op_types": ["MatMul"], "weight_type": "QInt8"}
@@ -265,31 +260,30 @@ def _export_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -
     print(json.dumps({"out": str(out_dir), **info}, ensure_ascii=False), flush=True)
 
 
-# ---------------------------------------------------------------- scoring (onnxruntime only)
+# ---------------------------------------------------------------- 채점 (onnxruntime만 필요)
 
 
-# 범주 하나의 (평가 정상, 평가 결함, 보정 정상) 행. 평가 세트는 절차가 정한다(dev: 겹 0 정상 + dev 결함, test:
-# 봉인 테스트). 보정 정상은 test 절차일 때만 겹 0 정상이다. 겹 0은 어떤 모델도 학습에 쓰지 않은 정상이라
-# 홀드아웃 임계값을 정하는 데 쓴다(6단계 규칙). dev 절차에서는 겹 0 정상이 곧 평가 정상이라 따로 읽지 않는다.
+# 평가 세트는 절차가 정한다(dev: 겹 0 정상 + dev 결함, test: 봉인 테스트). 보정 정상은 test 절차일 때만 겹 0
+# 정상이다(6단계 규칙).
 def _rows(
     manifest: list[ManifestRow], protocol: str, category: str, allow_test: bool
 ) -> tuple[list[ManifestRow], list[ManifestRow], list[ManifestRow]]:
-    """(evaluation normals, evaluation defects, calibration normals) of a category."""
+    """범주 하나의 (평가 정상, 평가 결함, 보정 정상) 행."""
     eval_normal = select(
         manifest, protocol=protocol, part="eval_normal", category=category, allow_test=allow_test
     )
     eval_defect = select(
         manifest, protocol=protocol, part="eval_defect", category=category, allow_test=allow_test
     )
-    # Hold-out thresholds come from the fold-0 normals, which no model was trained on. In the dev
-    # protocol those are the evaluation normals themselves.
+    # 홀드아웃 임계값은 어떤 모델도 학습에 쓰지 않은 겹 0 정상으로 정한다. dev 절차에서는 그것이 곧 평가
+    # 정상이라 따로 읽지 않는다.
     cal = (
         select(manifest, protocol="dev", part="eval_normal", category=category) if protocol == "test" else []
     )
     return eval_normal, eval_defect, cal
 
 
-# 한 범주를 CPU 파이프라인으로 채점해 `<범주>.npz`를 쓴다. 보정 점수는 교란 없이, 평가 이미지만 condition(예:
+# 보정 점수는 교란 없이, 평가 이미지만 condition(예:
 # shift-1, blur-2)을 적용해 채점한다. 그래서 dev 보조 표의 교란 칸은 "교란 없는 정상으로 정한 임계값을 교란된
 # 같은 정상 몇 장이 넘는가"를 보여 준다. 맵은 저장하지 않는다(AUPRO 등 픽셀 지표는 torch 실행 값을 쓴다). npz
 # 키는 2단계 공통 형식(eval_images, eval_labels, eval_defect_types, eval_score, cal_score, cal_images)이라
@@ -305,7 +299,7 @@ def score_category(
     *,
     condition: str = CLEAN,
 ) -> dict:
-    """Score one category with the CPU pipeline and write `<category>.npz` (common format, no maps)."""
+    """범주 하나를 CPU 파이프라인으로 채점해 `<범주>.npz`(공통 형식, 맵 없음)를 쓴다."""
     eval_normal, eval_defect, cal_rows = _rows(manifest, protocol, category, allow_test)
     rows = eval_normal + eval_defect
     labels = np.array([0] * len(eval_normal) + [1] * len(eval_defect), dtype=np.int8)
@@ -368,7 +362,7 @@ def _score_command(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     bad = [c for c in args.categories if c not in known or not (art / c / "meta.json").exists()]
     if bad or not args.categories or len(set(args.categories)) != len(args.categories):
         parser.error(f"categories {bad or args.categories} are unknown, repeated or not in {art}")
-    # Every inspector is built before an image is read: a broken artifact stops the run unrecorded.
+    # 이미지를 읽기 전에 모든 검사기를 만든다: 깨진 아티팩트는 장부에 기록되기 전에 실행을 멈춘다.
     try:
         inspectors = {
             c: ReconstructionInspector.load(art / c, precision=args.precision, threads=args.threads)
@@ -384,7 +378,7 @@ def _score_command(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     cache = ImageCache(paths.CACHE, sizes.pop())
     out_dir.mkdir(parents=True, exist_ok=True)
     for path in [out_dir / "run.json", *out_dir.glob("*.npz")]:
-        path.unlink(missing_ok=True)  # an earlier run's files must not mix into this one
+        path.unlink(missing_ok=True)  # 예전 실행의 파일이 이번 실행에 섞이면 안 된다
     if args.protocol == "test":
         record_test_access(
             paths.TEST_LEDGER,
@@ -429,7 +423,7 @@ def _score_command(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     _write_json(out_dir / "run.json", run)
 
 
-# ---------------------------------------------------------------- thresholds for the service
+# ---------------------------------------------------------------- 서비스용 임계값
 
 
 # calibrate 명령: 서비스용 임계값을 아티팩트에 적는다. 교란 없는 test 절차의 score 실행만 받는다(그 실행에만
@@ -475,35 +469,31 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
 
-    exp = commands.add_parser("export", help="export a Dinomaly model as an artifact set")
-    exp.add_argument("--config", required=True, help="a run_dinomaly config name, e.g. dms-280")
-    exp.add_argument("--model", type=Path, default=None, help="model.pt of run_dinomaly train")
-    exp.add_argument("--untrained", action="store_true", help="a freshly initialised model (latency only)")
-    exp.add_argument("--seed", type=int, default=0, help="initial weights of --untrained")
-    exp.add_argument("--int8-dynamic", action="store_true", help="also write the dynamic INT8 model")
+    exp = commands.add_parser("export", help="Dinomaly 모델을 아티팩트 세트로 내보낸다")
+    exp.add_argument("--config", required=True, help="run_dinomaly 설정 이름, 예: dms-280")
+    exp.add_argument("--model", type=Path, default=None, help="run_dinomaly train이 저장한 model.pt")
+    exp.add_argument("--untrained", action="store_true", help="갓 초기화한 모델(지연 측정용)")
+    exp.add_argument("--seed", type=int, default=0, help="--untrained의 초기 가중치 시드")
+    exp.add_argument("--int8-dynamic", action="store_true", help="동적 INT8 모델도 쓴다")
     exp.add_argument("--categories", nargs="*", default=list(CATEGORIES))
-    exp.add_argument("--out", type=Path, default=None, help="default: artifacts/<config>[-untrained]")
+    exp.add_argument("--out", type=Path, default=None, help="기본값: artifacts/<설정>[-untrained]")
 
-    score = commands.add_parser("score", help="score a protocol with onnxruntime on the CPU")
+    score = commands.add_parser("score", help="절차의 평가 세트를 CPU의 onnxruntime으로 채점한다")
     score.add_argument("--artifacts", type=Path, required=True)
     score.add_argument("--protocol", choices=["dev", "test"], required=True)
     score.add_argument("--precision", choices=sorted(RECONSTRUCTION_PRECISIONS), default="fp32")
+    score.add_argument("--condition", default=CLEAN, help="평가 이미지에 적용할 3단계 교란 조건")
     score.add_argument(
-        "--condition", default=CLEAN, help="a stage 3 condition, applied to the evaluation images"
-    )
-    score.add_argument(
-        "--threads", type=int, default=None, help="onnxruntime intra-op threads (default: its own)"
+        "--threads", type=int, default=None, help="onnxruntime 연산 안 스레드 수(기본값: onnxruntime 자체 값)"
     )
     score.add_argument("--categories", nargs="*", default=list(CATEGORIES))
     score.add_argument("--out", type=Path, default=None)
-    score.add_argument("--allow-test", action="store_true", help="read the sealed test set (logged)")
-    score.add_argument(
-        "--stage", default="", help="stage label for the test ledger (required with --allow-test)"
-    )
+    score.add_argument("--allow-test", action="store_true", help="봉인 테스트 세트를 읽는다(장부에 기록)")
+    score.add_argument("--stage", default="", help="테스트 장부에 적을 단계 이름(--allow-test와 함께 필수)")
     score.add_argument("--note", default="")
     score.add_argument("--overwrite", action="store_true")
 
-    cal = commands.add_parser("calibrate", help="hold-out thresholds from a clean test-protocol score run")
+    cal = commands.add_parser("calibrate", help="교란 없는 test 절차 score 실행으로 홀드아웃 임계값을 정한다")
     cal.add_argument("--artifacts", type=Path, required=True)
     cal.add_argument("--scores", type=Path, required=True)
     cal.add_argument("--alpha", type=float, default=0.05)

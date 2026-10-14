@@ -21,8 +21,8 @@ from defect_inspect.metrics import auroc
 from defect_inspect.stats import percentile_ci, stratified_indices
 
 # 범주별 (정상 수, 결함 수). 합계 정상 250장, 결함 64장이다. NAMES는 등록한 조건 16개(clean + 15)이고, 그
-# 가운데 세 조건만 점수를 바꿔 효과를 미리 안다.
-# Categories of different sizes, so that a pooled rate differs from a mean of per-category rates.
+# 가운데 세 조건만 점수를 바꿔 효과를 미리 안다. 범주 크기를 서로 다르게 해서 합산 비율이 범주별 비율의 평균과
+# 다르게 나오게 한다.
 SIZES = {"alpha": (80, 24), "beta": (50, 10), "gamma": (120, 30)}
 NAMES = condition_names()
 SHIFTED, BLURRED, BROKEN = "brightness-2", "blur-3", "jpeg-3"
@@ -32,18 +32,18 @@ SHIFTED, BLURRED, BROKEN = "brightness-2", "blur-3", "jpeg-3"
 # 단언이 가능하다. meta에는 run_perturb의 run.json처럼 방법, 프로토콜, 원본 실행, 범주별
 # clean_max_rel_diff(교란 없는 재채점이 원본 점수와 얼마나 같은지)를 넣는다.
 def _run(seed=0, cal=100, method="p0", protocol="dev"):
-    """A synthetic perturbation run.
+    """합성 교란 실행.
 
-    Normals and calibration scores are N(0, 1), defects N(3, 1). `SHIFTED` adds 2 to every score (the
-    ranking stays, the fixed thresholds are overrun), `BLURRED` pulls the defects down among the normals
-    (accuracy falls, the normals do not move), `BROKEN` does both. Every other condition equals clean.
+    정상과 보정 점수는 N(0, 1), 결함은 N(3, 1)이다. `SHIFTED`는 모든 점수에 2를 더하고(순위는 그대로,
+    고정 임계값은 넘어선다), `BLURRED`는 결함을 정상 사이로 끌어내리며(정확도는 떨어지고 정상은 움직이지
+    않는다), `BROKEN`은 둘 다 한다. 나머지 조건은 모두 clean과 같다.
     """
     rng = np.random.default_rng(seed)
     cats = {}
     for name, (n_neg, n_pos) in SIZES.items():
         labels = np.array([0] * n_neg + [1] * n_pos, dtype=np.int8)
         clean = np.concatenate([rng.normal(0, 1, n_neg), rng.normal(3, 1, n_pos)])
-        clean = np.round(clean * 1024) / 1024  # the shifts below are then exact in float32
+        clean = np.round(clean * 1024) / 1024  # 그러면 아래의 이동이 float32에서 정확하다
         scores = np.tile(clean, (len(NAMES), 1))
         scores[NAMES.index(SHIFTED)] += 2.0
         scores[NAMES.index(BLURRED), n_neg:] -= 2.5
@@ -86,9 +86,9 @@ def _row(table, name):
 # 범주 하나짜리 실행을 손으로 만든다. 조건마다 정상 점수만 바꾸고 결함 점수는 같게 두어, 경계 규칙을 정확한
 # 숫자로 시험한다.
 def _tiny(normals, defects, cal):
-    """A one-category run written out by hand: `normals` maps each condition to its normal scores.
+    """손으로 적은 범주 하나짜리 실행: `normals`는 조건마다 그 조건의 정상 점수를 담는다.
 
-    The defects score the same under every condition.
+    결함은 모든 조건에서 같은 점수다.
     """
     names = list(normals)
     n_neg = len(normals[names[0]])
@@ -106,7 +106,7 @@ def _tiny(normals, defects, cal):
 # 보정 점수 0..99(목표 5%)의 임계값은 95다. 정상 100장 가운데 정확히 count장만 그 위에 오도록 점수를 만들어
 # 오검출률을 count%로 맞춘다.
 def _above(count, of=100):
-    """Normal scores of which exactly `count` lie above the threshold 95 of `np.arange(100)`."""
+    """`np.arange(100)`의 임계값 95 위에 정확히 `count`장이 놓이는 정상 점수."""
     return [100.0] * count + [0.0] * (of - count)
 
 
@@ -132,7 +132,7 @@ def test_table_has_one_row_per_condition_with_clean_first():
         for key in ("macro_image_auroc", "fpr", "tpr"):
             lo, hi = row[f"{key}_ci"]
             assert lo <= row[key] <= hi
-    # Calibration scores and clean normals are both N(0, 1): the clean rate is near the 5% target.
+    # 보정 점수와 clean 정상이 둘 다 N(0, 1)이다: clean 오검출률은 목표 5% 근처다.
     assert 0.0 < clean["fpr"] < 0.12 and clean["macro_image_auroc"] > 0.95
 
 
@@ -154,8 +154,8 @@ def test_point_estimates_match_a_direct_computation():
             tp += int((scores[labels == 1] > threshold).sum())
         row = _row(table, name)
         assert row["macro_image_auroc"] == pytest.approx(np.mean(aucs), abs=1e-12)
-        assert row["fpr"] == fp / 250 and row["tpr"] == tp / 64  # pooled counts, not a mean of rates
-    # The target decides the thresholds: a stricter one flags fewer normals.
+        assert row["fpr"] == fp / 250 and row["tpr"] == tp / 64  # 비율의 평균이 아니라 합산한 개수
+    # 목표가 임계값을 정한다: 더 엄격한 목표는 정상을 덜 표시한다.
     strict = analyze_perturb.condition_table(run, alpha=0.01, n_boot=20)
     assert strict[0]["fpr"] < table[0]["fpr"]
 
@@ -165,16 +165,16 @@ def test_point_estimates_match_a_direct_computation():
 # 왜: conformal 임계값은 보정 점수 가운데 하나이므로 같은 값이 실제로 나온다. ≥로 바꾸면 오검출률이 이론값보다
 # 커진다.
 def test_a_score_equal_to_its_threshold_is_not_flagged():
-    # 100 calibration scores 0..99 at a 5% target: the 96th smallest, 95, is the threshold.
+    # 보정 점수 0..99 100개, 목표 5%: 96번째로 작은 값 95가 임계값이다.
     cal = np.arange(100)
     assert conformal_threshold(cal, 0.05).value == 95.0
     normals, defects = [95.0, 95.0, 96.0, 10.0], [95.0, 200.0]
     run = _tiny({"clean": normals, "same": normals}, defects, cal)
     n_boot, seed = 40, 2
     table = analyze_perturb.condition_table(run, n_boot=n_boot, seed=seed)
-    # The rule is `score > threshold`: the three scores of exactly 95 are not defects.
+    # 규칙은 `score > threshold`다: 정확히 95인 점수 세 개는 결함이 아니다.
     assert table[0]["fpr"] == 0.25 and table[0]["tpr"] == 0.5
-    # The resamples use the same rule.
+    # 재표본도 같은 규칙을 쓴다.
     neg_idx, pos_idx = stratified_indices([4, 2], n_boot=n_boot, seed=seed)
     fpr = (np.array(normals)[neg_idx] > 95.0).mean(axis=1)
     tpr = (np.array(defects)[pos_idx] > 95.0).mean(axis=1)
@@ -192,19 +192,19 @@ def test_a_score_equal_to_its_threshold_is_not_flagged():
 def test_upward_shift_keeps_accuracy_and_breaks_the_threshold_h9_supported():
     table = analyze_perturb.condition_table(_run(), n_boot=200)
     clean, shifted = table[0], _row(table, SHIFTED)
-    # Adding a constant changes no rank: the AUROC is exactly the clean one, also in every resample.
+    # 상수를 더해도 순위는 바뀌지 않는다: AUROC는 모든 재표본에서도 clean과 정확히 같다.
     assert shifted["macro_image_auroc"] == clean["macro_image_auroc"]
     assert shifted["d_auroc"] == 0.0 and shifted["d_auroc_ci"] == [0.0, 0.0]
     assert shifted["fpr"] > 0.5 and shifted["d_fpr"] > 0.45
     assert shifted["d_fpr_ci"][0] > 0.3 and shifted["d_tpr"] >= 0.0
-    # Lost defects: accuracy falls and the normals stay where they were.
+    # 결함을 놓친다: 정확도가 떨어지고 정상은 제자리다.
     blurred = _row(table, BLURRED)
     assert blurred["d_auroc"] < -0.1 and blurred["d_auroc_ci"][1] < -0.05
     assert blurred["d_fpr"] == 0.0 and blurred["d_fpr_ci"] == [0.0, 0.0] and blurred["d_tpr"] < -0.3
-    # Both at once: the false alarms are there, but so is a drop in accuracy that would be noticed.
+    # 둘 다 한꺼번에: 오검출이 있지만, 알아챌 만한 정확도 하락도 함께 있다.
     broken = _row(table, BROKEN)
     assert broken["fpr"] == shifted["fpr"] and broken["d_auroc"] == pytest.approx(blurred["d_auroc"])
-    # An unchanged condition differs from clean by exactly nothing (the draws are shared).
+    # 바뀌지 않은 조건은 clean과 정확히 차이가 없다(추출을 공유하므로).
     same = _row(table, "gamma-1")
     assert (same["d_auroc"], same["d_fpr"], same["d_tpr"]) == (0.0, 0.0, 0.0)
     assert same["d_auroc_ci"] == same["d_fpr_ci"] == same["d_tpr_ci"] == [0.0, 0.0]
@@ -220,31 +220,31 @@ def test_h9_rule_on_hand_made_tables():
     def row(name, d_auroc, fpr):
         return {"condition": name, "d_auroc": d_auroc, "fpr": fpr}
 
-    clean = {"condition": "clean", "fpr": 0.5}  # never a candidate, whatever its rate
+    clean = {"condition": "clean", "fpr": 0.5}  # 비율이 얼마든 후보가 되지 않는다
     assert analyze_perturb.h9([clean]) == {"verdict": "기각", "conditions": []}
     table = [
         clean,
-        row("a", -0.005, 0.20),  # accuracy holds, rate doubled: counts
-        row("b", -0.02, 0.30),  # accuracy fell by 2 points: the drop would be noticed
-        row("c", 0.0, 0.0999),  # rate just under twice the target
-        row("d", 0.003, 0.10),  # exactly twice the target counts ("at least")
-        row("e", -0.01, 0.50),  # exactly 1.0 point is not "less than 1.0 point"
+        row("a", -0.005, 0.20),  # 정확도는 그대로, 비율은 두 배: 센다
+        row("b", -0.02, 0.30),  # 정확도가 2%p 떨어졌다: 하락을 알아챌 수 있다
+        row("c", 0.0, 0.0999),  # 비율이 목표의 두 배에 조금 못 미친다
+        row("d", 0.003, 0.10),  # 정확히 목표의 두 배는 센다("이상")
+        row("e", -0.01, 0.50),  # 정확히 1.0%p는 "1.0%p 미만"이 아니다
         row("f", -0.0099, 0.15),
     ]
     assert analyze_perturb.h9(table) == {"verdict": "지지", "conditions": ["a", "d", "f"]}
     assert analyze_perturb.h9([clean, table[2], table[3], table[5]]) == {"verdict": "기각", "conditions": []}
-    # The limit follows the target.
+    # 기준은 목표를 따라 바뀐다.
     assert analyze_perturb.h9(table, alpha=0.1)["conditions"] == ["a"]
     assert analyze_perturb.h9(table, alpha=0.01)["conditions"] == ["a", "c", "d", "f"]
     with pytest.raises(ValueError, match="fixed thresholds"):
         analyze_perturb.h9([clean, row("a", 0.0, None)])
 
-    # The rate itself is compared with twice the target, not its increase over clean: rows as
-    # `condition_table` makes them carry both.
+    # clean 대비 증가분이 아니라 비율 자체를 목표의 두 배와 비교한다: `condition_table`이 만드는 행에는 둘 다
+    # 들어 있다.
     full = [
         {"condition": "clean", "fpr": 0.07},
-        {"condition": "g", "d_auroc": 0.0, "fpr": 0.12, "d_fpr": 0.05},  # rate 12%: counts
-        {"condition": "h", "d_auroc": 0.0, "fpr": 0.09, "d_fpr": 0.02},  # rate 9%: does not
+        {"condition": "g", "d_auroc": 0.0, "fpr": 0.12, "d_fpr": 0.05},  # 비율 12%: 센다
+        {"condition": "h", "d_auroc": 0.0, "fpr": 0.09, "d_fpr": 0.02},  # 비율 9%: 세지 않는다
         {"condition": "i", "d_auroc": 0.0, "fpr": 0.03, "d_fpr": -0.04},
     ]
     assert analyze_perturb.h9(full) == {"verdict": "지지", "conditions": ["g"]}
@@ -254,8 +254,8 @@ def test_h9_rule_on_hand_made_tables():
 # 조건은 증가분이 10%p가 안 돼도 H9 조건이고 9%는 아니다. 그런 조건이 없으면 clean 비율이 커도 '기각'이다.
 # condition_table이 만든 실제 표에서 등록 문구('합산 오검출률은 10% 이상')를 그대로 따르는지 본다.
 def test_h9_is_judged_on_the_rate_not_on_its_increase():
-    # A clean rate of 7%. Every defect scores above every normal under every condition, so the AUROC
-    # never moves and only the pooled false positive rate decides.
+    # clean 오검출률 7%. 모든 조건에서 모든 결함이 모든 정상보다 높게 나와 AUROC는 움직이지 않고, 합산
+    # 오검출률만 판정을 가른다.
     run = _tiny(
         {"clean": _above(7), "to-12": _above(12), "to-9": _above(9), "to-10": _above(10)},
         [200.0] * 20,
@@ -266,10 +266,10 @@ def test_h9_is_judged_on_the_rate_not_on_its_increase():
     assert [row["fpr"] for row in table] == [0.07, 0.12, 0.09, 0.10]
     assert [row["d_fpr"] for row in table[1:]] == pytest.approx([0.05, 0.02, 0.03])
     assert [row["d_auroc"] for row in table[1:]] == [0.0] * 3
-    # 12% and exactly 10% are "at least twice the target" although neither rose by 10 points; 9% is not.
+    # 12%와 정확히 10%는 둘 다 10%p 오르지 않았어도 "목표의 두 배 이상"이고, 9%는 아니다.
     assert analyze_perturb.h9(table) == {"verdict": "지지", "conditions": ["to-12", "to-10"]}
 
-    # Without such a condition the hypothesis is rejected, however large the clean rate is.
+    # 그런 조건이 없으면 clean 비율이 아무리 커도 가설은 기각이다.
     run = _tiny({"clean": _above(9), "to-9": _above(9), "to-8": _above(8)}, [200.0] * 20, np.arange(100))
     assert analyze_perturb.h9(analyze_perturb.condition_table(run, n_boot=50)) == {
         "verdict": "기각",
@@ -299,7 +299,7 @@ def test_intervals_and_paired_differences_match_a_direct_bootstrap():
     n_boot, seed = 60, 5
     table = analyze_perturb.condition_table(run, n_boot=n_boot, seed=seed)
 
-    # One generator, groups in order: normals then defects of each category.
+    # 생성기 하나, 묶음 순서: 범주마다 정상 다음 결함.
     sizes = [n for pair in SIZES.values() for n in pair]
     draws = stratified_indices(sizes, n_boot=n_boot, seed=seed)
     thresholds = [conformal_threshold(cat["cal_score"], 0.05).value for cat in run["cats"].values()]
@@ -329,11 +329,11 @@ def test_intervals_and_paired_differences_match_a_direct_bootstrap():
             ("auroc", "fpr", "tpr"), ("macro_image_auroc", "fpr", "tpr"), other, base, strict=True
         ):
             assert row[f"{full}_ci"] == pytest.approx(percentile_ci(mine), abs=1e-12)
-            # Paired: the interval of the per-resample differences, not a difference of intervals.
+            # 짝지은 차이: 구간끼리의 차가 아니라 재표본마다 낸 차이의 구간.
             assert row[f"d_{key}_ci"] == pytest.approx(percentile_ci(mine - clean), abs=1e-12)
             assert row[f"d_{key}"] == pytest.approx(row[full] - table[0][full], abs=1e-12)
 
-    # Deterministic for a seed; another seed gives other draws.
+    # seed가 같으면 결정적이고, 다른 seed는 다른 추출을 낸다.
     assert analyze_perturb.condition_table(run, n_boot=n_boot, seed=seed) == table
     assert analyze_perturb.condition_table(run, n_boot=n_boot, seed=6) != table
 
@@ -344,7 +344,7 @@ def test_intervals_and_paired_differences_match_a_direct_bootstrap():
 def test_thresholds_are_fixed_from_the_calibration_scores_only():
     run = _run()
     table = analyze_perturb.condition_table(run, n_boot=20)
-    # Moving the calibration scores moves every rate; the evaluation scores never feed a threshold.
+    # 보정 점수를 옮기면 모든 비율이 움직인다. 평가 점수는 임계값에 쓰이지 않는다.
     for cat in run["cats"].values():
         cat["cal_score"] = cat["cal_score"] + np.float32(10.0)
     moved = analyze_perturb.condition_table(run, n_boot=20)
@@ -372,7 +372,7 @@ def test_run_without_calibration_scores_has_accuracy_only():
     assert "| clean |" in text and "| - | - | - | - |" in text and "H9" not in text
     assert analyze_perturb.describe(run)["categories_guaranteed"] is None
 
-    # Calibration scores for some categories only: a broken run, not a run without thresholds.
+    # 일부 범주에만 보정 점수가 있다: 임계값 없는 실행이 아니라 잘못된 실행이다.
     partly = _run()
     partly["cats"]["beta"]["cal_score"] = np.empty(0, dtype=np.float32)
     with pytest.raises(ValueError, match="beta"):
@@ -441,9 +441,9 @@ def test_format_tables():
     assert sum(line.startswith("| clean |") for line in lines) == 2
     assert sum(line.startswith(f"| {SHIFTED} |") for line in lines) == 2
     clean = next(line for line in lines if line.startswith("| clean |"))
-    assert clean.count(" - ") == 3  # the clean row has nothing to be compared with
+    assert clean.count(" - ") == 3  # clean 행은 비교할 대상이 없다
     shifted = next(line for line in lines if line.startswith(f"| {SHIFTED} |"))
-    assert "+0.00 [+0.00, +0.00]" in shifted  # the AUROC change, signed and in points
+    assert "+0.00 [+0.00, +0.00]" in shifted  # 부호를 붙인 %p 단위의 AUROC 변화
     assert lines[-1] == f"H9 (p0): 지지 (conditions: {SHIFTED})"
     rejected = analyze_perturb.format_tables(tables, {"verdict": "기각", "conditions": []})
     assert rejected.splitlines()[-1] == "H9: 기각 (conditions: none)"
@@ -456,7 +456,7 @@ def project(tmp_path, monkeypatch):
     monkeypatch.setattr(analyze_perturb.paths, "OUTPUTS", tmp_path / "outputs")
     monkeypatch.setattr(analyze_perturb.paths, "REPORTS", tmp_path / "reports")
     monkeypatch.setattr(analyze_perturb, "N_BOOT", 100)
-    # The synthetic categories stand for the full set that conclusions are drawn over.
+    # 합성 범주가 결론을 내리는 전체 범주 집합을 대신한다.
     monkeypatch.setattr(analyze_perturb, "CATEGORIES", tuple(SIZES))
     return tmp_path
 
@@ -464,7 +464,7 @@ def project(tmp_path, monkeypatch):
 # 일부 범주만 다시 돌린 실행 흉내: run.json에는 그 범주만 남고, 다른 범주의 npz 파일은 디스크에 그대로 남아
 # 있는 상황이다.
 def _only(run, categories):
-    """The run as `run_perturb --categories ... --overwrite` leaves it: run.json lists only these."""
+    """`run_perturb --categories ... --overwrite`가 남기는 모습의 실행: run.json에는 이 범주만 있다."""
     meta = dict(run["meta"])
     meta["categories"] = [info for info in meta["categories"] if info["category"] in categories]
     return {"meta": meta, "cats": run["cats"]}
@@ -496,7 +496,7 @@ def test_cli_writes_every_table_and_judges_h9_on_p0(project, capsys):
     assert report["tables"]["dm"][1]["fpr"] is None
     expected = analyze_perturb.condition_table(analyze_perturb.load(outputs / "perturb-p0-dev"))
     assert report["tables"]["p0"] == json.loads(json.dumps(expected))
-    # What the tables stand on is said next to them.
+    # 표가 무엇을 바탕으로 했는지 표 옆에 적힌다.
     assert report["categories"] == list(SIZES) and report["complete"] is True
     assert "categories (3 of 3): alpha, beta, gamma" in text and "partial" not in text
     assert "p0: 250 normal and 64 defect images, 300 calibration scores" in text
@@ -506,8 +506,8 @@ def test_cli_writes_every_table_and_judges_h9_on_p0(project, capsys):
 # 위)는 기각이므로, 첫 번째 방법을 쓰는 실수를 잡는다(H9의 판정 대상은 P0로 등록됐다).
 def test_cli_judges_h9_on_p0_whatever_the_order_of_the_methods(project, capsys):
     outputs = project / "outputs"
-    # p0 with thresholds far above every score: no false positive under any condition, so H9 is
-    # rejected for it. The d-s run alone would support it.
+    # 임계값이 모든 점수보다 훨씬 높은 p0: 어떤 조건에서도 오검출이 없어 p0의 H9는 기각이다. d-s 실행만 보면
+    # 지지가 된다.
     p0 = _run(method="p0")
     for cat in p0["cats"].values():
         cat["cal_score"] = cat["cal_score"] + np.float32(10.0)
@@ -528,8 +528,8 @@ def test_cli_judges_h9_on_p0_whatever_the_order_of_the_methods(project, capsys):
 # 바뀌면 같은 추출이 아니게 된다(analyze_perturb의 CATEGORIES 주석).
 def test_cli_refuses_a_test_run_that_covers_part_of_the_categories(project, capsys):
     outputs = project / "outputs"
-    # A finished three-category run redone for one category: the other npz files are still on disk,
-    # run.json lists `alpha` only.
+    # 범주 세 개로 끝난 실행을 범주 하나만 다시 돌렸다: 다른 npz 파일은 디스크에 남아 있고, run.json에는
+    # `alpha`만 있다.
     _write(_only(_run(method="p0", protocol="test"), ["alpha"]), outputs / "perturb-p0-test")
     assert (outputs / "perturb-p0-test" / "gamma.npz").exists()
     with pytest.raises(SystemExit):
@@ -538,7 +538,7 @@ def test_cli_refuses_a_test_run_that_covers_part_of_the_categories(project, caps
     assert "['alpha']" in err.err and "beta" in err.err and "H9" not in err.out
     assert not (project / "reports").exists()
 
-    # The same set but in another order is not the registered resampling either.
+    # 같은 범주 집합이라도 순서가 다르면 역시 등록한 재표본 추출이 아니다.
     run = _run(method="d-s", protocol="test")
     run["meta"]["categories"] = run["meta"]["categories"][::-1]
     _write(run, outputs / "perturb-d-s-test")
@@ -555,7 +555,7 @@ def test_cli_dev_run_on_part_of_the_categories_is_marked_and_not_judged(project,
     _write(_only(_run(seed=1, method="d-s"), ["alpha", "beta"]), outputs / "perturb-d-s-dev")
     analyze_perturb.main(["--protocol", "dev", "--methods", "p0", "d-s"])
     text = capsys.readouterr().out
-    # The code check may run on a few categories, but it says so and gives no verdict.
+    # 코드 점검은 범주 몇 개로 돌 수 있지만, 그렇다고 밝히고 판정은 내지 않는다.
     assert "categories (2 of 3): alpha, beta" in text
     assert "partial run: H9 is not judged" in text and "H9 (p0)" not in text
     assert "지지" not in text and "기각" not in text
@@ -563,7 +563,7 @@ def test_cli_dev_run_on_part_of_the_categories_is_marked_and_not_judged(project,
     assert report["categories"] == ["alpha", "beta"] and report["complete"] is False
     assert report["h9"] is None
     assert report["runs"]["p0"]["categories"] == ["alpha", "beta"] and report["runs"]["p0"]["n_normal"] == 130
-    # The table of the two categories is still what it says it is.
+    # 두 범주의 표는 여전히 적힌 그대로의 표다.
     direct = _run(method="p0")
     del direct["cats"]["gamma"]
     assert report["tables"]["p0"] == json.loads(json.dumps(analyze_perturb.condition_table(direct)))
@@ -582,7 +582,7 @@ def test_methods_must_cover_the_same_categories(project, capsys):
     with pytest.raises(ValueError, match="different categories"):
         analyze_perturb.main(["--protocol", "dev", "--methods", "p0", "d-s"])
     assert capsys.readouterr().out == "" and not (project / "reports").exists()
-    # Each on its own is a table of what it covers.
+    # 각각 따로 넣으면 자기가 다루는 범주만큼의 표가 된다.
     assert analyze_perturb.build_report({"d-s": dirs["d-s"]}, n_boot=20)["complete"] is True
     alone = analyze_perturb.build_report({"p0": dirs["p0"]}, n_boot=20)
     assert alone["complete"] is False and alone["h9"] is None and len(alone["tables"]["p0"]) == 16
@@ -594,12 +594,12 @@ def test_the_full_set_is_the_twelve_visa_categories(tmp_path):
     from defect_inspect.visa import CATEGORIES
 
     assert analyze_perturb.CATEGORIES == CATEGORIES and len(CATEGORIES) == 12
-    # Three made-up categories are not the set H9 is registered on.
+    # 지어낸 범주 세 개는 H9를 등록한 범주 집합이 아니다.
     _write(_run(method="p0"), tmp_path / "three")
     report = analyze_perturb.build_report({"p0": tmp_path / "three"}, n_boot=20)
     assert report["complete"] is False and report["h9"] is None
 
-    # The same data under the twelve real names (each synthetic category four times) is.
+    # 같은 데이터를 실제 이름 12개로 붙이면(합성 범주마다 네 번씩) 그 집합이 된다.
     three = _run(method="p0")
     twelve = {"meta": dict(three["meta"]), "cats": {}}
     for i, category in enumerate(CATEGORIES):
@@ -629,16 +629,16 @@ def test_cli_rejects_missing_and_mismatched_runs(project, capsys):
     outputs = project / "outputs"
     _write(_run(method="p0"), outputs / "perturb-p0-dev")
     with pytest.raises(SystemExit):
-        analyze_perturb.main(["--protocol", "dev"])  # d-s and dm have not been run
+        analyze_perturb.main(["--protocol", "dev"])  # d-s와 dm은 아직 돌리지 않았다
     assert "perturb-d-s-dev" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         analyze_perturb.main(["--protocol", "dev", "--methods"])
     with pytest.raises(SystemExit):
         analyze_perturb.main(["--protocol", "dev", "--methods", "p1"])
     with pytest.raises(SystemExit):
-        analyze_perturb.main(["--methods", "p0"])  # the protocol must be named
+        analyze_perturb.main(["--methods", "p0"])  # 절차 이름을 꼭 줘야 한다
 
-    # A run directory that holds another method or protocol than its name says.
+    # 폴더 이름과 다른 방법이나 절차의 실행이 들어 있는 실행 폴더.
     _write(_run(method="d-s"), outputs / "perturb-p0-test")
     with pytest.raises(ValueError, match="not of 'p0'"):
         analyze_perturb.main(["--protocol", "test", "--methods", "p0"])

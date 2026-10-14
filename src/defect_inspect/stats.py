@@ -1,4 +1,4 @@
-"""Bootstrap resampling, intervals and the pre-registered verdict rule (docs/experiments.md)."""
+"""부트스트랩 재표본 추출, 구간, 미리 정한 판정 규칙(docs/experiments.md)."""
 
 # [파일 역할] 이 프로젝트의 통계 도구 모음: 층화 부트스트랩 인덱스, 군집 부트스트랩 인덱스, 백분위 구간,
 # Clopper-Pearson 이항 구간, 범주 평균 AUROC와 합산 비율의 부트스트랩 분포, 미리 정한 판정 문구(차이 있음/차이
@@ -28,9 +28,9 @@ from scipy.stats import beta, rankdata
 # 호출 위치: analyze.py, compare.py, analyze_perturb.py, analyze_m2ad.py, analyze_m2ad_enrol.py, 이 파일의 두
 # _bootstrap 함수.
 def stratified_indices(sizes: Sequence[int], n_boot: int = 2000, seed: int = 0) -> list[np.ndarray]:
-    """Resample every group separately: one int64 array [n_boot, size] per group, from a single rng.
+    """묶음마다 따로 복원 추출한다: 난수 생성기 하나에서 묶음마다 int64 배열 [n_boot, size] 하나.
 
-    The same sizes and seed always give the same indices, which is what makes comparisons paired.
+    크기와 시드가 같으면 늘 같은 인덱스가 나오고, 그래서 비교가 짝지어진다.
     """
     rng = np.random.default_rng(seed)
     out = []
@@ -53,10 +53,10 @@ def stratified_indices(sizes: Sequence[int], n_boot: int = 2000, seed: int = 0) 
 # 참고: 현재 src에서 부르는 곳은 없고 tests/test_stats.py만 쓴다(M2AD의 시편 단위 구간은 analyze_m2ad 등이
 # stratified_indices로 시편을 뽑아 계산한다).
 def cluster_indices(cluster_ids: np.ndarray, n_boot: int = 2000, seed: int = 0) -> list[np.ndarray]:
-    """Cluster bootstrap: draw whole clusters with replacement, as many as there are distinct clusters.
+    """군집 부트스트랩: 군집째로, 서로 다른 군집 수만큼 복원 추출한다.
 
-    Returns `n_boot` int64 index arrays into the original rows. Rows of a drawn cluster keep their
-    original order, and a cluster drawn twice contributes its rows twice.
+    원래 행을 가리키는 int64 인덱스 배열 `n_boot`개를 돌려준다. 뽑힌 군집의 행은 원래 순서를 지키고, 두 번
+    뽑힌 군집은 그 행들이 두 번 들어간다.
     """
     ids = np.asarray(cluster_ids).ravel()
     rng = np.random.default_rng(seed)
@@ -65,7 +65,7 @@ def cluster_indices(cluster_ids: np.ndarray, n_boot: int = 2000, seed: int = 0) 
     # np.unique로 군집마다 번호(inverse)와 크기(counts)를 구하고, 행을 군집별로 모은 순서(rows)와 각 군집이
     # rows에서 시작하는 자리(starts)를 미리 계산한다. 안정 정렬이라 군집 안의 원래 행 순서가 유지된다.
     _, inverse, counts = np.unique(ids, return_inverse=True, return_counts=True)
-    rows = np.argsort(inverse, kind="stable")  # rows grouped by cluster
+    rows = np.argsort(inverse, kind="stable")  # 군집별로 모은 행
     starts = np.cumsum(counts) - counts
     # 재표본 n_boot개 각각에서 군집 번호를 군집 수만큼 뽑는다. 아래 반복은 뽑힌 군집들의 행 위치를 np.repeat와
     # arange로 한 번에 계산해 파이썬 이중 반복을 피한다.
@@ -74,7 +74,7 @@ def cluster_indices(cluster_ids: np.ndarray, n_boot: int = 2000, seed: int = 0) 
     for draw in draws:
         lengths = counts[draw]
         ends = np.cumsum(lengths)
-        # position in `rows` of every output element: start of its cluster + offset within the cluster
+        # 출력 원소마다 `rows` 안의 위치: 그 군집의 시작 위치 + 군집 안에서의 오프셋
         position = np.repeat(starts[draw] - (ends - lengths), lengths) + np.arange(ends[-1])
         out.append(rows[position].astype(np.int64))
     return out
@@ -83,7 +83,7 @@ def cluster_indices(cluster_ids: np.ndarray, n_boot: int = 2000, seed: int = 0) 
 # 부트스트랩 분포의 가운데 conf 구간(기본 95%면 2.5~97.5 백분위). NaN(정의되지 않은 재표본, 예: 결함이 하나도
 # 안 뽑힌 경우)은 빼고 계산하며, 남는 값이 없으면 (nan, nan)이다.
 def percentile_ci(samples: np.ndarray, conf: float = 0.95) -> tuple[float, float]:
-    """Central percentile interval of the samples, ignoring nan. (nan, nan) when nothing is left."""
+    """표본의 가운데 백분위 구간(nan은 뺀다). 남는 값이 없으면 (nan, nan)."""
     if not 0.0 < conf < 1.0:
         raise ValueError(f"conf must be in (0, 1), got {conf}")
     values = np.asarray(samples, dtype=np.float64).ravel()
@@ -99,7 +99,7 @@ def percentile_ci(samples: np.ndarray, conf: float = 0.95) -> tuple[float, float
 # k=n이면 상한 1로 둔다(그 끝에서 베타 분위수가 정의되지 않음).
 # 호출 위치: analyze.py(fpr_clopper_pearson).
 def clopper_pearson(k: int, n: int, conf: float = 0.95) -> tuple[float, float]:
-    """Exact (Clopper-Pearson) binomial interval for k successes out of n."""
+    """n번 중 k번 성공에 대한 정확한(Clopper-Pearson) 이항 구간."""
     if not 0.0 < conf < 1.0:
         raise ValueError(f"conf must be in (0, 1), got {conf}")
     if n < 0 or not 0 <= k <= n:
@@ -120,10 +120,10 @@ def macro_auroc_bootstrap(
     n_boot: int = 2000,
     seed: int = 0,
 ) -> np.ndarray:
-    """Bootstrap distribution [n_boot] of the mean over categories of the image AUROC.
+    """범주 평균 이미지 AUROC의 부트스트랩 분포 [n_boot].
 
-    Groups are, per category in order, its negatives then its positives. A category without negatives
-    or positives has no AUROC, so the mean (every resample) is nan.
+    묶음은 범주 순서대로 그 범주의 정상, 그다음 결함이다. 정상이나 결함이 없는 범주는 AUROC가 없으므로
+    평균(모든 재표본)이 nan이 된다.
     """
     if len(neg_by_cat) != len(pos_by_cat):
         raise ValueError("neg_by_cat and pos_by_cat must have the same number of categories")
@@ -147,7 +147,7 @@ def macro_auroc_bootstrap(
         # 같음)를 매기고, 결함 쪽 순위 합에서 최소값 pos(pos+1)/2를 빼면 U다. 2,000개 재표본을 한 번의
         # rankdata 호출로 처리한다.
         sample = np.concatenate([neg[indices[2 * c]], pos[indices[2 * c + 1]]], axis=1)
-        ranks = rankdata(sample, axis=1)  # average ranks within each resample
+        ranks = rankdata(sample, axis=1)  # 재표본마다 그 안에서 매긴 평균 순위
         u = ranks[:, neg.size :].sum(axis=1) - pos.size * (pos.size + 1) / 2
         total += u / (neg.size * pos.size)
     return total / len(negs)
@@ -159,9 +159,9 @@ def macro_auroc_bootstrap(
 def pooled_rate_bootstrap(
     flags_by_cat: Sequence[np.ndarray], n_boot: int = 2000, seed: int = 0
 ) -> np.ndarray:
-    """Bootstrap distribution [n_boot] of the pooled rate: total flagged / total count over categories.
+    """합산 비율(범주 전체의 표시 수 합 / 전체 장수)의 부트스트랩 분포 [n_boot].
 
-    Each category is resampled separately (its size stays fixed). nan when there is nothing to count.
+    범주마다 따로 다시 뽑는다(범주 크기는 고정). 셀 것이 없으면 nan.
     """
     flags = [np.asarray(f).ravel() != 0 for f in flags_by_cat]
     sizes = [f.size for f in flags]
@@ -182,15 +182,15 @@ def pooled_rate_bootstrap(
 # 호출 위치: compare.difference(analyze_grid, analyze_export, analyze_stage6도 그 함수를 거친다).
 # tests/test_stats.py가 검증한다.
 def verdict(diff_samples: np.ndarray, point: float, min_effect: float) -> str:
-    """Pre-registered verdict for a difference: its 95% percentile interval and a minimum effect size.
+    """차이에 대한 미리 정한 판정: 차이의 95% 백분위 구간과 최소 효과 크기로 정한다.
 
-    An undefined (NaN) point estimate or interval is inconclusive, never a difference.
+    점추정이나 구간이 정의되지 않으면(NaN) 판정 불가이며, 결코 차이로 보지 않는다.
     """
     if math.isnan(point):
         return "판정 불가"
     lo, hi = percentile_ci(diff_samples, 0.95)
     # 구간이 0을 포함하거나 NaN이면 비교식이 모두 거짓이 되어 이 분기로 들어온다.
-    if not (lo > 0 or hi < 0):  # interval contains 0 (or is undefined)
+    if not (lo > 0 or hi < 0):
         return "판정 불가"
     if abs(point) >= min_effect:
         return "차이 있음"

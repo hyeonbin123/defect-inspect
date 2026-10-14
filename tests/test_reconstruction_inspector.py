@@ -28,7 +28,7 @@ MAP = 16
 # 맵으로, 그 최댓값을 이미지 점수로 돌려준다. score_value를 주면 점수를 그 값으로 고정해 NaN 같은 깨진 출력을
 # 시험할 수 있다.
 class FakeSession:
-    """Stand-in for the exported Dinomaly graph: the map is the mean brightness, the score its maximum."""
+    """내보낸 Dinomaly 그래프 대신 쓰는 가짜 세션: 맵은 평균 밝기, 점수는 그 최댓값이다."""
 
     def __init__(self, score_value=None):
         self.calls = 0
@@ -95,7 +95,7 @@ def test_inspect_scores_and_calibrate():
 
     normals = list(_images(40, seed=2))
     value = insp.calibrate(normals, alpha=0.05)
-    expected = np.sort(insp.scores(np.stack(normals)))[38]  # rank ceil(41 * 0.95) = 39 of 40
+    expected = np.sort(insp.scores(np.stack(normals)))[38]  # 40개 중 순위 ceil(41 * 0.95) = 39
     assert value == insp.threshold == insp.meta["threshold"] == float(expected)
     assert insp.meta["calibration"] == {"strategy": "holdout", "n": 40, "guaranteed": True}
     with pytest.raises(ValueError):
@@ -201,7 +201,7 @@ def test_load_turns_missing_files_into_value_errors(tmp_path):
         ReconstructionInspector.load(art, precision="int8")
 
 
-# ---------------------------------------------------------------- bench
+# ---------------------------------------------------------------- bench(지연 측정)
 
 
 # bench가 쓰는 time.perf_counter를 대신하는 가짜 시계. 실제 시간을 쓰지 않고 now 값을 테스트가 직접 움직여

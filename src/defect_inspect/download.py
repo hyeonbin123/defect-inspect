@@ -1,4 +1,4 @@
-"""Resumable download with SHA-256 verification (standard library only)."""
+"""이어 받기가 되는 다운로드와 SHA-256 검증(표준 라이브러리만 씀)."""
 
 # [파일 역할] VisA 원본 tar(1.93GB) 하나를 공식 S3 주소에서 받아 SHA-256으로 검증하는 0단계 다운로드
 # 모듈이다(`python -m defect_inspect.download`). 같은 파일의 sha256_file은 다른 모듈들이 ONNX·모델 파일의
@@ -25,22 +25,21 @@ VISA_URL = "https://amazon-visual-anomaly.s3.us-west-2.amazonaws.com/VisA_202209
 VISA_SHA256 = "2eb8690c803ab37de0324772964100169ec8ba1fa3f7e94291c9ca673f40f362"
 # 기본 opener의 소켓 시간 제한(초). 연결과 각 읽기에 적용되어, 전송이 멈추면 무한히 기다리지 않고 예외로
 # 끝난다.
-TIMEOUT_S = 60  # socket timeout of the default opener
+TIMEOUT_S = 60
 
-# import 시점의 urlopen을 따로 기억해 둔다. download()의 opener가 이 기본값과 같은 객체일 때만 시간 제한을
-# 붙인 _urlopen_with_timeout으로 바꾸고, 테스트처럼 다른 opener를 넣으면 그대로 쓴다.
-_URLOPEN = urllib.request.urlopen  # the default value of `opener`, as it was at import time
+# import 시점의 urlopen(곧 `opener`의 기본값)을 따로 기억해 둔다. download()의 opener가 이 기본값과 같은
+# 객체일 때만 시간 제한을 붙인 _urlopen_with_timeout으로 바꾸고, 테스트처럼 다른 opener를 넣으면 그대로 쓴다.
+_URLOPEN = urllib.request.urlopen
 
 # Content-Range 헤더(예: `bytes 100-199/1000`)에서 시작 위치와 전체 크기를 뽑는 정규식. 위치나 크기를 모를 때
 # 서버가 보내는 '*'도 받아 들인다.
 _CONTENT_RANGE = re.compile(r"bytes\s+(\d+|\*)(?:-\d+)?/(\d+|\*)")
 
 
-# 파일의 SHA-256 16진수 문자열. 1MB씩 읽어 수 GB 파일도 메모리에 다 올리지 않는다. 다른 모듈은 이 값을 실행
-# 기록(run.json·리포트)에 남겨 어떤 모델 파일로 쟀는지 증명한다(예: 서비스 교체 점검의 ONNX sha256
-# `3bcf8e04…`).
+# 1MB씩 읽어 수 GB 파일도 메모리에 다 올리지 않는다. 다른 모듈은 이 값을 실행 기록(run.json·리포트)에 남겨
+# 어떤 모델 파일로 쟀는지 증명한다(예: 서비스 교체 점검의 ONNX sha256 `3bcf8e04…`).
 def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
-    """Hex SHA-256 of a file, read in chunks."""
+    """파일을 조각씩 읽어 SHA-256 16진수 문자열을 구한다."""
     digest = hashlib.sha256()
     with open(path, "rb") as f:
         while block := f.read(chunk):
@@ -48,20 +47,18 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
-# 응답 헤더 하나를 문자열로 읽는다. 헤더 객체가 없는 응답(테스트의 가짜 응답 등)이면 None.
 def _header(headers, name: str) -> str | None:
-    """Read one response header; tolerate responses that have no headers object."""
+    """응답 헤더 하나를 문자열로 읽는다. 헤더 객체가 없는 응답(테스트의 가짜 응답 등)이면 None."""
     if headers is None:
         return None
     value = headers.get(name)
     return None if value is None else str(value)
 
 
-# Content-Range 헤더를 (시작 위치, 전체 크기)로 바꾼다. 헤더가 없거나 형식이 다르거나 '*'인 칸은 None이다.
 # _fetch가 이어 받기 응답이 정말 요청한 위치에서 시작하는지, 416 응답에서 서버가 말한 전체 크기가 무엇인지
 # 확인하는 데 쓴다.
 def _content_range(headers) -> tuple[int | None, int | None]:
-    """(start, total) from a Content-Range header; None for anything missing or '*'."""
+    """Content-Range 헤더를 (시작 위치, 전체 크기)로 바꾼다. 없거나 형식이 다르거나 '*'인 칸은 None."""
     match = _CONTENT_RANGE.match(_header(headers, "Content-Range") or "")
     if not match:
         return None, None
@@ -75,11 +72,9 @@ def _status(response) -> int:
     return int(status if status is not None else response.getcode())
 
 
-# 응답 본문을 `.part` 파일에 1MB씩 쓴다. mode "ab"는 이어 쓰기, "wb"는 처음부터 쓰기다. 서버가 알린
-# Content-Length와 실제로 받은 바이트 수가 다르면(중간에 끊김) 예외를 내되, 받은 부분은 지우지 않아 다음
-# 실행이 거기서부터 이어 받는다.
+# 1MB씩 쓴다. mode "ab"는 이어 쓰기, "wb"는 처음부터 쓰기다. 길이가 다르면(중간에 끊김) 예외를 낸다.
 def _stream(response, part: Path, mode: str, chunk: int = 1 << 20) -> None:
-    """Copy the response body to the part file and check the length the server announced."""
+    """응답 본문을 `.part` 파일에 복사하고, 서버가 알린 Content-Length와 받은 길이가 같은지 확인한다."""
     expected = _header(getattr(response, "headers", None), "Content-Length")
     written = 0
     with open(part, mode) as f:
@@ -87,11 +82,11 @@ def _stream(response, part: Path, mode: str, chunk: int = 1 << 20) -> None:
             f.write(block)
             written += len(block)
     if expected is not None and expected.isdigit() and written != int(expected):
-        # Keep the part file: the next call resumes from it.
+        # 받은 `.part` 파일은 지우지 않는다: 다음 호출이 거기서부터 이어 받는다.
         raise OSError(f"connection closed after {written} of {expected} bytes: {part}")
 
 
-# `.part` 파일을 전체 내용까지 채운다. 서버 응답에 따라 경우를 나눈다.
+# 서버 응답에 따라 경우를 나눈다.
 # - `.part`가 없으면: 처음부터 받는다(맨 아래).
 # - 있으면 `Range: bytes=<크기>-`로 나머지만 요청한다.
 #   - 416(범위가 파일 끝 이후): 서버가 알린 전체 크기가 정확히 지금 크기면 이미 다 받은 것이라 끝낸다. 아니면
@@ -100,7 +95,7 @@ def _stream(response, part: Path, mode: str, chunk: int = 1 << 20) -> None:
 #   - 200(서버가 Range를 무시하고 전체를 보냄)이면 처음부터 덮어쓴다.
 #   - 그 밖(다른 위치에서 시작하는 206 등)은 `.part`를 지우고 처음부터 받는다.
 def _fetch(url: str, part: Path, opener) -> None:
-    """Bring the part file up to the full content, resuming when the server allows it."""
+    """`.part` 파일을 전체 내용까지 채운다. 서버가 허락하면 이어 받는다."""
     offset = part.stat().st_size if part.exists() else 0
     if offset:
         request = urllib.request.Request(url, headers={"Range": f"bytes={offset}-"})
@@ -109,9 +104,9 @@ def _fetch(url: str, part: Path, opener) -> None:
         except urllib.error.HTTPError as err:
             if err.code != 416:
                 raise
-            # The range starts at or after the end. The part file is complete only when the server says
-            # that the total size is exactly this offset; a different or unknown total (no
-            # Content-Range) means the part file cannot be trusted: drop it and start again.
+            # 범위가 파일 끝이나 그 뒤에서 시작한다. 서버가 말한 전체 크기가 정확히 이 위치일 때만 `.part`가
+            # 완성된 것이다. 크기가 다르거나 모르면(Content-Range 없음) `.part`를 믿을 수 없으므로 버리고
+            # 처음부터 받는다.
             _, total = _content_range(err.headers)
             err.close()
             if total == offset:
@@ -126,7 +121,7 @@ def _fetch(url: str, part: Path, opener) -> None:
                     _stream(response, part, "ab")
                     return
                 if _status(response) == 200:
-                    # The server ignored the Range header and is sending everything again.
+                    # 서버가 Range 헤더를 무시하고 전체를 다시 보내고 있다.
                     _stream(response, part, "wb")
                     return
         # 위 어느 경우에도 해당하지 않으면 이어 받기를 포기하고 `.part`를 지운 뒤 아래에서 처음부터 받는다.
@@ -138,12 +133,12 @@ def _fetch(url: str, part: Path, opener) -> None:
 # 기본 opener: urlopen에 TIMEOUT_S 시간 제한을 붙인 것. 함수 안에서 urllib.request.urlopen을 매번 찾아
 # 부르므로 테스트가 monkeypatch로 바꿔 끼운 urlopen도 그대로 쓰인다.
 def _urlopen_with_timeout(request):
-    # The timeout covers connecting and every blocking read, so a stalled transfer raises (keeping
-    # the part file for the next call) instead of hanging forever.
+    # 시간 제한은 연결과 모든 대기 읽기에 걸리므로, 멈춘 전송은 무한히 기다리지 않고 예외를 낸다(`.part`
+    # 파일은 다음 호출을 위해 남는다).
     return urllib.request.urlopen(request, timeout=TIMEOUT_S)
 
 
-# url을 dest로 받는 공개 함수. expected_sha256을 주면 검증까지 하고, 대소문자는 소문자로 맞춰 비교한다.
+# expected_sha256을 주면 검증까지 하고, 대소문자는 소문자로 맞춰 비교한다.
 # - dest가 이미 있고 해시가 맞으면(또는 해시를 주지 않았으면) 요청 없이 바로 돌려준다. 해시가 틀린 dest는 다시
 #   받는다.
 # - 받은 `.part`의 해시가 틀리면 지우고 ValueError를 낸다. 손상된 파일로 이어 받기를 반복하지 않게 하려는
@@ -154,9 +149,9 @@ def _urlopen_with_timeout(request):
 def download(
     url: str, dest: Path, *, expected_sha256: str | None = None, opener=urllib.request.urlopen
 ) -> Path:
-    """Download `url` to `dest` through `dest` + ".part"; resume a partial file; verify the hash.
+    """`url`을 `dest` + ".part"를 거쳐 `dest`로 받는다. 덜 받은 파일은 이어 받고, 해시를 검증한다.
 
-    The default opener is `urllib.request.urlopen` with a timeout of `TIMEOUT_S` seconds.
+    기본 opener는 `TIMEOUT_S`초 시간 제한을 붙인 `urllib.request.urlopen`이다.
     """
     if opener is _URLOPEN:
         opener = _urlopen_with_timeout
@@ -181,7 +176,7 @@ def main() -> None:
     from defect_inspect import paths
 
     path = download(VISA_URL, paths.VISA_TAR, expected_sha256=VISA_SHA256)
-    # download() has just verified the hash, so it is not computed a second time here.
+    # download()가 방금 해시를 검증했으므로 여기서 다시 계산하지 않는다.
     print(f"{path}  {path.stat().st_size:,} bytes  sha256 {VISA_SHA256} (verified)")
 
 
