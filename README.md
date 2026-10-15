@@ -263,6 +263,21 @@ uv run python -m defect_inspect.analyze_m2ad_enrol visa-dev
 uv run python -m defect_inspect.run_m2ad_enrol test --method p0 --pick-from reports/stage7/val.json --loop --allow-test --stage 7-m2ad   # d-s 는 --loop 없이
 uv run python -m defect_inspect.analyze_m2ad_enrol test
 
+# 8단계: 조명 변화에서 임계값만 다시 잡기(8-A), 폐루프 원인 분해(8-B), 서빙 모델 구성의 M2AD(8-C)
+uv run python -m defect_inspect.run_m2ad_threshold --method p0     # d-s 도. 학습 시편만 읽고 3-B의 저장된 test 점수를 쓴다
+uv run python -m defect_inspect.analyze_stage8 calibrate            # reports/stage8/calibrate.json
+uv run python -m defect_inspect.run_m2ad_loop --allow-test --stage 8-m2ad-loop
+uv run python -m defect_inspect.analyze_stage8 loop                 # reports/stage8/loop.json
+uv run python -m defect_inspect.m2ad --size 280                     # 8-C의 M2AD 280px 캐시
+uv run python -m defect_inspect.run_m2ad_dinomaly train --arm e0    # e2-a, e2-b 도. 팔마다 전체 모델 + 겹 모델 5개
+uv run python -m defect_inspect.run_m2ad_dinomaly score-train --arm e0   # 세 팔 모두, 학습 시편만 읽는다
+uv run python -m defect_inspect.analyze_stage8 dms-train            # reports/stage8/dms-train.json (test 전에 커밋)
+uv run python -m defect_inspect.run_m2ad_dinomaly test --allow-test --stage 8-m2ad
+uv run python -m defect_inspect.analyze_stage8 dms-test             # reports/stage8/dms-test.json
+
+# 9단계: 촬영 통계 품질 게이트와 변화 감지 (CPU, VisA dev와 M2AD 학습 시편만)
+uv run python -m defect_inspect.capture                             # reports/stage9/capture.json
+
 # CPU 런타임 대조: 같은 ONNX를 onnxruntime(기본, 12스레드)과 OpenVINO로 (dev만, 지연은 한가할 때까지 기다린 뒤)
 uv run python -m defect_inspect.runtime_compare parity --artifacts artifacts/dms-280-car --recorded outputs/dms-280-car-onnx-fp32-dev
 uv run python -m defect_inspect.runtime_compare latency --artifacts artifacts/dms-280-car --parity reports/runtime/parity.json
