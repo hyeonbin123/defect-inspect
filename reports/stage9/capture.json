@@ -1,0 +1,2691 @@
+{
+  "features": [
+    "mean_r",
+    "mean_g",
+    "mean_b",
+    "y_std",
+    "y_p01",
+    "y_p99",
+    "log_laplacian_var",
+    "log_gradient_mean",
+    "saturated_share",
+    "foreground_share",
+    "foreground_y_mean"
+  ],
+  "floors": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.01,
+    0.01,
+    0.001,
+    0.001,
+    0.5
+  ],
+  "shrink": 0.2,
+  "alpha_gate": 0.01,
+  "visa": {
+    "gate_thresholds": {
+      "candle": {
+        "value": 4.551077738587654,
+        "rank": 477,
+        "n": 480,
+        "guaranteed": true
+      },
+      "capsules": {
+        "value": 5.571610522799234,
+        "rank": 287,
+        "n": 288,
+        "guaranteed": true
+      },
+      "cashew": {
+        "value": 6.2207261705605434,
+        "rank": 239,
+        "n": 240,
+        "guaranteed": true
+      },
+      "chewinggum": {
+        "value": 5.86036111228188,
+        "rank": 240,
+        "n": 241,
+        "guaranteed": true
+      },
+      "fryum": {
+        "value": 5.054935789962337,
+        "rank": 239,
+        "n": 240,
+        "guaranteed": true
+      },
+      "macaroni1": {
+        "value": 4.572431396707662,
+        "rank": 477,
+        "n": 480,
+        "guaranteed": true
+      },
+      "macaroni2": {
+        "value": 5.0653045869627595,
+        "rank": 477,
+        "n": 480,
+        "guaranteed": true
+      },
+      "pcb1": {
+        "value": 4.597846193850025,
+        "rank": 478,
+        "n": 481,
+        "guaranteed": true
+      },
+      "pcb2": {
+        "value": 4.546922436615914,
+        "rank": 477,
+        "n": 480,
+        "guaranteed": true
+      },
+      "pcb3": {
+        "value": 6.351376185451613,
+        "rank": 480,
+        "n": 483,
+        "guaranteed": true
+      },
+      "pcb4": {
+        "value": 5.7095767954241206,
+        "rank": 479,
+        "n": 482,
+        "guaranteed": true
+      },
+      "pipe_fryum": {
+        "value": 4.415327567701797,
+        "rank": 239,
+        "n": 240,
+        "guaranteed": true
+      }
+    },
+    "gate": {
+      "clean": {
+        "normal": {
+          "gated": 13,
+          "n": 1158,
+          "rate": 0.011226252158894647
+        },
+        "defect": {
+          "gated": 48,
+          "n": 240,
+          "rate": 0.2
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              3,
+              120
+            ],
+            "defect": [
+              2,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              0,
+              73
+            ],
+            "defect": [
+              2,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              0,
+              61
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              3,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              0,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              1,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              0,
+              121
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              4,
+              121
+            ],
+            "defect": [
+              14,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              1,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              0,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              2,
+              60
+            ],
+            "defect": [
+              15,
+              20
+            ]
+          }
+        }
+      },
+      "brightness-1": {
+        "normal": {
+          "gated": 996,
+          "n": 1158,
+          "rate": 0.8601036269430051
+        },
+        "defect": {
+          "gated": 199,
+          "n": 240,
+          "rate": 0.8291666666666667
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              69,
+              73
+            ],
+            "defect": [
+              19,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              4,
+              60
+            ],
+            "defect": [
+              3,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              61,
+              61
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              120,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              28,
+              121
+            ],
+            "defect": [
+              5,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              52,
+              60
+            ],
+            "defect": [
+              12,
+              20
+            ]
+          }
+        }
+      },
+      "brightness-2": {
+        "normal": {
+          "gated": 1156,
+          "n": 1158,
+          "rate": 0.998272884283247
+        },
+        "defect": {
+          "gated": 227,
+          "n": 240,
+          "rate": 0.9458333333333333
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              73,
+              73
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              58,
+              60
+            ],
+            "defect": [
+              7,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              61,
+              61
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      },
+      "brightness-3": {
+        "normal": {
+          "gated": 1158,
+          "n": 1158,
+          "rate": 1.0
+        },
+        "defect": {
+          "gated": 240,
+          "n": 240,
+          "rate": 1.0
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              73,
+              73
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              61,
+              61
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      },
+      "gamma-1": {
+        "normal": {
+          "gated": 673,
+          "n": 1158,
+          "rate": 0.581174438687392
+        },
+        "defect": {
+          "gated": 145,
+          "n": 240,
+          "rate": 0.6041666666666666
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              1,
+              73
+            ],
+            "defect": [
+              4,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              27,
+              60
+            ],
+            "defect": [
+              10,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              54,
+              61
+            ],
+            "defect": [
+              12,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              17,
+              60
+            ],
+            "defect": [
+              17,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              103,
+              120
+            ],
+            "defect": [
+              12,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              83,
+              120
+            ],
+            "defect": [
+              12,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              48,
+              121
+            ],
+            "defect": [
+              7,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              98,
+              121
+            ],
+            "defect": [
+              19,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              46,
+              121
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              16,
+              121
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      },
+      "gamma-2": {
+        "normal": {
+          "gated": 1092,
+          "n": 1158,
+          "rate": 0.9430051813471503
+        },
+        "defect": {
+          "gated": 238,
+          "n": 240,
+          "rate": 0.9916666666666667
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              48,
+              73
+            ],
+            "defect": [
+              18,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              61,
+              61
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              80,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      },
+      "gamma-3": {
+        "normal": {
+          "gated": 1158,
+          "n": 1158,
+          "rate": 1.0
+        },
+        "defect": {
+          "gated": 240,
+          "n": 240,
+          "rate": 1.0
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              73,
+              73
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              61,
+              61
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      },
+      "blur-1": {
+        "normal": {
+          "gated": 1157,
+          "n": 1158,
+          "rate": 0.9991364421416234
+        },
+        "defect": {
+          "gated": 240,
+          "n": 240,
+          "rate": 1.0
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              73,
+              73
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              61,
+              61
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              119,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      },
+      "blur-2": {
+        "normal": {
+          "gated": 1158,
+          "n": 1158,
+          "rate": 1.0
+        },
+        "defect": {
+          "gated": 240,
+          "n": 240,
+          "rate": 1.0
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              73,
+              73
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              61,
+              61
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      },
+      "blur-3": {
+        "normal": {
+          "gated": 1158,
+          "n": 1158,
+          "rate": 1.0
+        },
+        "defect": {
+          "gated": 240,
+          "n": 240,
+          "rate": 1.0
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              73,
+              73
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              61,
+              61
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              120,
+              120
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      },
+      "shift-1": {
+        "normal": {
+          "gated": 13,
+          "n": 1158,
+          "rate": 0.011226252158894647
+        },
+        "defect": {
+          "gated": 48,
+          "n": 240,
+          "rate": 0.2
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              3,
+              120
+            ],
+            "defect": [
+              2,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              0,
+              73
+            ],
+            "defect": [
+              2,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              0,
+              61
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              3,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              0,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              1,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              0,
+              121
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              4,
+              121
+            ],
+            "defect": [
+              14,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              1,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              0,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              2,
+              60
+            ],
+            "defect": [
+              15,
+              20
+            ]
+          }
+        }
+      },
+      "shift-2": {
+        "normal": {
+          "gated": 13,
+          "n": 1158,
+          "rate": 0.011226252158894647
+        },
+        "defect": {
+          "gated": 47,
+          "n": 240,
+          "rate": 0.19583333333333333
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              3,
+              120
+            ],
+            "defect": [
+              1,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              0,
+              73
+            ],
+            "defect": [
+              2,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              0,
+              61
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              3,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              0,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              1,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              0,
+              121
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              4,
+              121
+            ],
+            "defect": [
+              14,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              1,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              0,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              2,
+              60
+            ],
+            "defect": [
+              15,
+              20
+            ]
+          }
+        }
+      },
+      "shift-3": {
+        "normal": {
+          "gated": 14,
+          "n": 1158,
+          "rate": 0.012089810017271158
+        },
+        "defect": {
+          "gated": 46,
+          "n": 240,
+          "rate": 0.19166666666666668
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              4,
+              120
+            ],
+            "defect": [
+              1,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              0,
+              73
+            ],
+            "defect": [
+              1,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              0,
+              61
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              3,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              0,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              1,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              0,
+              121
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              4,
+              121
+            ],
+            "defect": [
+              14,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              1,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              0,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              2,
+              60
+            ],
+            "defect": [
+              15,
+              20
+            ]
+          }
+        }
+      },
+      "jpeg-1": {
+        "normal": {
+          "gated": 319,
+          "n": 1158,
+          "rate": 0.2754749568221071
+        },
+        "defect": {
+          "gated": 90,
+          "n": 240,
+          "rate": 0.375
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              4,
+              120
+            ],
+            "defect": [
+              5,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              0,
+              73
+            ],
+            "defect": [
+              2,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              1,
+              60
+            ],
+            "defect": [
+              6,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              0,
+              61
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              1,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              2,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              119,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              93,
+              121
+            ],
+            "defect": [
+              19,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              1,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              29,
+              121
+            ],
+            "defect": [
+              1,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              9,
+              60
+            ],
+            "defect": [
+              17,
+              20
+            ]
+          }
+        }
+      },
+      "jpeg-2": {
+        "normal": {
+          "gated": 446,
+          "n": 1158,
+          "rate": 0.385146804835924
+        },
+        "defect": {
+          "gated": 102,
+          "n": 240,
+          "rate": 0.425
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              24,
+              120
+            ],
+            "defect": [
+              13,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              1,
+              73
+            ],
+            "defect": [
+              1,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              4,
+              60
+            ],
+            "defect": [
+              8,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              0,
+              61
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              2,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              2,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              120,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              2,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              52,
+              121
+            ],
+            "defect": [
+              1,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              58,
+              60
+            ],
+            "defect": [
+              19,
+              20
+            ]
+          }
+        }
+      },
+      "jpeg-3": {
+        "normal": {
+          "gated": 601,
+          "n": 1158,
+          "rate": 0.5189982728842832
+        },
+        "defect": {
+          "gated": 121,
+          "n": 240,
+          "rate": 0.5041666666666667
+        },
+        "per_category": {
+          "candle": {
+            "normal": [
+              86,
+              120
+            ],
+            "defect": [
+              19,
+              20
+            ]
+          },
+          "capsules": {
+            "normal": [
+              16,
+              73
+            ],
+            "defect": [
+              1,
+              20
+            ]
+          },
+          "cashew": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "chewinggum": {
+            "normal": [
+              4,
+              61
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "macaroni1": {
+            "normal": [
+              2,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "macaroni2": {
+            "normal": [
+              4,
+              120
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb1": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb2": {
+            "normal": [
+              121,
+              121
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          },
+          "pcb3": {
+            "normal": [
+              2,
+              121
+            ],
+            "defect": [
+              0,
+              20
+            ]
+          },
+          "pcb4": {
+            "normal": [
+              65,
+              121
+            ],
+            "defect": [
+              1,
+              20
+            ]
+          },
+          "pipe_fryum": {
+            "normal": [
+              60,
+              60
+            ],
+            "defect": [
+              20,
+              20
+            ]
+          }
+        }
+      }
+    },
+    "with_serving_model": {
+      "check": {
+        "blur-2_normal_flagged": 0.285,
+        "record": 0.285,
+        "ok": true
+      },
+      "clean": {
+        "normal": {
+          "n": 1158,
+          "flagged_without_gate": 0.038860103626943004,
+          "gated": 0.011226252158894647,
+          "flagged_after_gate": 0.03626943005181347
+        },
+        "defect": {
+          "n": 240,
+          "flagged_without_gate": 0.8458333333333333,
+          "gated": 0.2,
+          "flagged_after_gate": 0.6666666666666666
+        }
+      },
+      "blur-2": {
+        "normal": {
+          "n": 1158,
+          "flagged_without_gate": 0.2849740932642487,
+          "gated": 1.0,
+          "flagged_after_gate": 0.0
+        },
+        "defect": {
+          "n": 240,
+          "flagged_without_gate": 0.8833333333333333,
+          "gated": 1.0,
+          "flagged_after_gate": 0.0
+        }
+      },
+      "shift-1": {
+        "normal": {
+          "n": 1158,
+          "flagged_without_gate": 0.05267702936096719,
+          "gated": 0.011226252158894647,
+          "flagged_after_gate": 0.05094991364421416
+        },
+        "defect": {
+          "n": 240,
+          "flagged_without_gate": 0.8416666666666667,
+          "gated": 0.2,
+          "flagged_after_gate": 0.6625
+        }
+      }
+    },
+    "false_alarms": {
+      "0.00": {
+        "mixed_defects": {
+          "candle": 0,
+          "capsules": 0,
+          "cashew": 0,
+          "chewinggum": 0,
+          "fryum": 0,
+          "macaroni1": 0,
+          "macaroni2": 0,
+          "pcb1": 0,
+          "pcb2": 0,
+          "pcb3": 0,
+          "pcb4": 0,
+          "pipe_fryum": 0
+        },
+        "capture": {
+          "streams": 12000,
+          "alarms": 50,
+          "rate": 0.004166666666666667
+        },
+        "p0_score": {
+          "streams": 12000,
+          "alarms": 7,
+          "rate": 0.0005833333333333334
+        }
+      },
+      "0.05": {
+        "mixed_defects": {
+          "candle": 6,
+          "capsules": 4,
+          "cashew": 3,
+          "chewinggum": 3,
+          "fryum": 3,
+          "macaroni1": 6,
+          "macaroni2": 6,
+          "pcb1": 6,
+          "pcb2": 6,
+          "pcb3": 6,
+          "pcb4": 6,
+          "pipe_fryum": 3
+        },
+        "capture": {
+          "streams": 12000,
+          "alarms": 737,
+          "rate": 0.06141666666666667
+        },
+        "p0_score": {
+          "streams": 12000,
+          "alarms": 381,
+          "rate": 0.03175
+        }
+      },
+      "0.10": {
+        "mixed_defects": {
+          "candle": 13,
+          "capsules": 8,
+          "cashew": 7,
+          "chewinggum": 7,
+          "fryum": 7,
+          "macaroni1": 13,
+          "macaroni2": 13,
+          "pcb1": 13,
+          "pcb2": 13,
+          "pcb3": 13,
+          "pcb4": 13,
+          "pipe_fryum": 7
+        },
+        "capture": {
+          "streams": 12000,
+          "alarms": 2302,
+          "rate": 0.19183333333333333
+        },
+        "p0_score": {
+          "streams": 12000,
+          "alarms": 2848,
+          "rate": 0.23733333333333334
+        }
+      }
+    },
+    "perturb_delay": {
+      "brightness-1": {
+        "streams": 2400,
+        "early_share": 0.005,
+        "alarmed_share": 1.0,
+        "median_delay": 4.0,
+        "p90_delay": 7.0
+      },
+      "brightness-2": {
+        "streams": 2400,
+        "early_share": 0.002916666666666667,
+        "alarmed_share": 1.0,
+        "median_delay": 3.0,
+        "p90_delay": 4.0
+      },
+      "brightness-3": {
+        "streams": 2400,
+        "early_share": 0.004583333333333333,
+        "alarmed_share": 1.0,
+        "median_delay": 3.0,
+        "p90_delay": 4.0
+      },
+      "gamma-1": {
+        "streams": 2400,
+        "early_share": 0.0025,
+        "alarmed_share": 0.9970760233918129,
+        "median_delay": 5.0,
+        "p90_delay": 20.0
+      },
+      "gamma-2": {
+        "streams": 2400,
+        "early_share": 0.005,
+        "alarmed_share": 1.0,
+        "median_delay": 3.0,
+        "p90_delay": 5.0
+      },
+      "gamma-3": {
+        "streams": 2400,
+        "early_share": 0.004166666666666667,
+        "alarmed_share": 1.0,
+        "median_delay": 3.0,
+        "p90_delay": 4.0
+      },
+      "blur-1": {
+        "streams": 2400,
+        "early_share": 0.0033333333333333335,
+        "alarmed_share": 1.0,
+        "median_delay": 3.0,
+        "p90_delay": 4.0
+      },
+      "blur-2": {
+        "streams": 2400,
+        "early_share": 0.005,
+        "alarmed_share": 1.0,
+        "median_delay": 3.0,
+        "p90_delay": 4.0
+      },
+      "blur-3": {
+        "streams": 2400,
+        "early_share": 0.004166666666666667,
+        "alarmed_share": 1.0,
+        "median_delay": 3.0,
+        "p90_delay": 4.0
+      },
+      "shift-1": {
+        "streams": 2400,
+        "early_share": 0.002916666666666667,
+        "alarmed_share": 0.0,
+        "median_delay": null,
+        "p90_delay": null
+      },
+      "shift-2": {
+        "streams": 2400,
+        "early_share": 0.004166666666666667,
+        "alarmed_share": 0.00041841004184100416,
+        "median_delay": null,
+        "p90_delay": null
+      },
+      "shift-3": {
+        "streams": 2400,
+        "early_share": 0.004583333333333333,
+        "alarmed_share": 0.0,
+        "median_delay": null,
+        "p90_delay": null
+      },
+      "jpeg-1": {
+        "streams": 2400,
+        "early_share": 0.0020833333333333333,
+        "alarmed_share": 0.41795407098121085,
+        "median_delay": null,
+        "p90_delay": null
+      },
+      "jpeg-2": {
+        "streams": 2400,
+        "early_share": 0.0025,
+        "alarmed_share": 0.7986633249791144,
+        "median_delay": 10.0,
+        "p90_delay": null
+      },
+      "jpeg-3": {
+        "streams": 2400,
+        "early_share": 0.004583333333333333,
+        "alarmed_share": 0.9162829635830891,
+        "median_delay": 5.0,
+        "p90_delay": 43.0
+      }
+    }
+  },
+  "m2ad": {
+    "gate_thresholds": {
+      "Motor_000": {
+        "value": 5.084859020894072,
+        "rank": 30,
+        "n": 30,
+        "guaranteed": false
+      },
+      "Motor_120": {
+        "value": 4.32940944811068,
+        "rank": 30,
+        "n": 30,
+        "guaranteed": false
+      },
+      "Motor_240": {
+        "value": 4.556526807926474,
+        "rank": 30,
+        "n": 30,
+        "guaranteed": false
+      },
+      "Bird_000": {
+        "value": 2.910496698887289,
+        "rank": 30,
+        "n": 30,
+        "guaranteed": false
+      },
+      "Bird_120": {
+        "value": 2.7756616498494147,
+        "rank": 30,
+        "n": 30,
+        "guaranteed": false
+      },
+      "Bird_240": {
+        "value": 3.367057199768029,
+        "rank": 30,
+        "n": 30,
+        "guaranteed": false
+      }
+    },
+    "gate": {
+      "01": {
+        "gated": 0,
+        "n": 180,
+        "rate": 0.0
+      },
+      "02": {
+        "gated": 180,
+        "n": 180,
+        "rate": 1.0
+      },
+      "03": {
+        "gated": 180,
+        "n": 180,
+        "rate": 1.0
+      },
+      "04": {
+        "gated": 180,
+        "n": 180,
+        "rate": 1.0
+      },
+      "05": {
+        "gated": 180,
+        "n": 180,
+        "rate": 1.0
+      },
+      "06": {
+        "gated": 176,
+        "n": 180,
+        "rate": 0.9777777777777777
+      },
+      "07": {
+        "gated": 180,
+        "n": 180,
+        "rate": 1.0
+      },
+      "08": {
+        "gated": 180,
+        "n": 180,
+        "rate": 1.0
+      },
+      "09": {
+        "gated": 180,
+        "n": 180,
+        "rate": 1.0
+      },
+      "10": {
+        "gated": 180,
+        "n": 180,
+        "rate": 1.0
+      }
+    },
+    "delay": {
+      "02": {
+        "streams": 6000,
+        "early_share": 0.0008333333333333334,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9991666666666666,
+        "early_alarms": 5
+      },
+      "03": {
+        "streams": 6000,
+        "early_share": 0.00016666666666666666,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9998333333333334,
+        "early_alarms": 1
+      },
+      "04": {
+        "streams": 6000,
+        "early_share": 0.0005,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9995,
+        "early_alarms": 3
+      },
+      "05": {
+        "streams": 6000,
+        "early_share": 0.0006666666666666666,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9993333333333333,
+        "early_alarms": 4
+      },
+      "06": {
+        "streams": 6000,
+        "early_share": 0.0005,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9995,
+        "early_alarms": 3
+      },
+      "07": {
+        "streams": 6000,
+        "early_share": 0.00016666666666666666,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9998333333333334,
+        "early_alarms": 1
+      },
+      "08": {
+        "streams": 6000,
+        "early_share": 0.0006666666666666666,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9993333333333333,
+        "early_alarms": 4
+      },
+      "09": {
+        "streams": 6000,
+        "early_share": 0.0006666666666666666,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9993333333333333,
+        "early_alarms": 4
+      },
+      "10": {
+        "streams": 6000,
+        "early_share": 0.00016666666666666666,
+        "alarmed_share": 1.0,
+        "median_delay": 7.0,
+        "p90_delay": 8.0,
+        "within_20_share": 0.9998333333333334,
+        "early_alarms": 1
+      }
+    }
+  },
+  "hypotheses": {
+    "H26": {
+      "blur_normal_gated": 1.0,
+      "clean_defect_gated": 0.2,
+      "min_blur": 0.9,
+      "max_defect": 0.02,
+      "verdict": "기각"
+    },
+    "H27": {
+      "false_alarm_at_10pct": 0.19183333333333333,
+      "max_false_alarm": 0.01,
+      "within_20_share": {
+        "02": 0.9991666666666666,
+        "03": 0.9998333333333334,
+        "04": 0.9995,
+        "05": 0.9993333333333333,
+        "06": 0.9995,
+        "07": 0.9998333333333334,
+        "08": 0.9993333333333333,
+        "09": 0.9993333333333333,
+        "10": 0.9998333333333334
+      },
+      "lights_passing": 9,
+      "min_lights": 7,
+      "verdict": "기각"
+    }
+  },
+  "seconds": 722.6
+}

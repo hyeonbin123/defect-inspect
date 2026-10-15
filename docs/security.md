@@ -74,3 +74,16 @@ ZAP_DIR=<폴더> ADMIN_TOKEN=$ADMIN_TOKEN zap/run_zap.sh <이름> [시드 HAR]
 - **통과 조건**: 대상마다 2026-10-04 ZAP 기록에 없던 High 또는 Medium 경보(규칙 이름 기준)가 없다. 새로 나온 것은 고치거나, 고치지 않는 사유를 이 문서에 적는다. Low와 Informational은 적기만 한다. 2026-10-04에 돌지 않은 active 규칙 세 개(DOM XSS, Log4Shell, 스크립트 규칙)는 이번에도 돌지 않을 것으로 보고, 돌았는지 다시 센다
 - 서비스가 스캔 중에 5xx를 낸 횟수를 적는다. active scan은 120분에서 끊는다
 - 요약은 `reports/dast/2026-10-15.json`(경보 이름, 규칙 번호, 위험도, 신뢰도, 건수, 경로 표본, 응답 코드 집계. 토큰과 요청 본문은 넣지 않는다)
+
+### 2026-10-15 결과 (OWASP ZAP 2.17.0, 서비스 코드 `b17ce35`)
+규칙 커밋(`b17ce35`, 위 절) 뒤에 (1) 오프라인 서비스 19:08~19:10, (2) dms-280-car 서비스 19:12~20:07 순서로 돌렸다. 대상마다 새 일회용 토큰, 둘 다 `127.0.0.1:8093`. 요약 `reports/dast/2026-10-15.json`. 그동안 다른 프로젝트 작업들이 CPU를 거의 100% 쓰고 있어 (2)의 active scan이 52분 58초 걸렸다(2026-10-04는 17분 30초, 120분 한도 안).
+
+| 대상 | High | Medium | Low | Informational | 스캔 중 요청 (처리 코드에 닿은 업로드) | 5xx |
+|---|---|---|---|---|---|---|
+| (1) 오프라인 | 0 | 0 | 0 | 3 (Modern Web Application, User Agent Fuzzer, **Information Disclosure - Suspicious Comments**) | 6,895 (`POST /inspect` 200 517회, `POST /calibrate` 200 1,320회) | 0 |
+| (2) dms-280-car | **1 (SQL Injection - SQLite (Time Based))** | 0 | 0 | 3 (같은 셋) | 6,890 (516회, 1,323회) | 0 |
+
+- active 규칙: 두 대상 모두 53개 시작, 50개 완료, 3개 건너뜀(DOM XSS, Log4Shell, 스크립트 규칙. 2026-10-04와 같은 사유), 완료 중 9개는 보낸 요청 0건, Parameter Tamper의 ZAP 내부 NullPointerException 16회. 2026-10-04와 같다
+- **새 High 1건: SQL Injection - SQLite (Time Based), `POST /calibrate`의 `images` 매개변수, 신뢰도 Medium. 오탐으로 판단해 고치지 않는다.** ZAP은 업로드 파일 이름(`normal-2.bmp`)을 `case randomblob(10000000) when not null then 1 else 1 end` 같은 SQLite 지연 구문으로 바꿨을 때 응답이 1,027 → 1,207 → 1,388ms로 길어졌다는 이유로 경보했다. 사유: (가) 서비스에는 데이터베이스도 SQL도 없고(`src/`에 sqlite·SQL 실행 코드 없음) 업로드 파일 이름을 읽지 않는다(파일 바이트만 디코딩한다). (나) 이 요청은 업로드마다 모델이 CPU에서 돌아 응답이 1초 안팎이고, 스캔 동안 CPU가 다른 작업으로 거의 100%라 수백 ms의 흔들림은 흔하다. 같은 규칙이 2026-10-04에는 40초 동안 270건을 보내 경보 0건이었고 이번에는 146초에 264건이었다. (다) 같은 서비스를 다시 띄워 그 `/calibrate` 요청을 원래 이름, randomblob(1e7), randomblob(1e8) 세 가지로 순서를 돌려 가며 15번씩 보낸 확인(`work/` 아래 로컬 스크립트, 결과는 요약 JSON의 `false_positive_check`)에서 응답 시간 중앙값이 948 / 970 / 976ms, 범위가 708~2,137ms로 겹쳤고 모두 200이었다. 구문 크기에 따라 체계적으로 늘지 않았다
+- 새 Informational 1건: Information Disclosure - Suspicious Comments(`/static/demo.js`). 2026-10-13~14에 데모 페이지 스크립트에 한국어 설명 주석을 넣은 뒤라 생긴 것이다. 주석은 화면 동작과 보안 처리(서버 문자열을 `textContent`로만 넣는 이유 등)를 설명하고 비밀값은 없다. 고치지 않는다
+- **판정**: 규칙의 통과 조건(2026-10-04 ZAP 기록에 없던 High·Medium 없음)을 글자 그대로 적용하면 (2)는 새 High 1건이 있어 통과가 아니다. 규칙대로 그 경보를 고치지 않는 사유를 위에 적었다(오탐). 그 밖에 새 High·Medium은 없고 5xx도 없다. 다음 재스캔은 CPU가 한가할 때 돌려, 이 시간 기반 규칙이 다시 경보하는지 본다

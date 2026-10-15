@@ -1,0 +1,276 @@
+{
+  "date": "2026-10-15",
+  "rules": "docs/security.md (2026-10-15 rescan rule)",
+  "note": "Local scans only (127.0.0.1:8093), each with a throwaway admin token sent on every request.",
+  "scans": [
+    {
+      "tool": "OWASP ZAP 2.17.0",
+      "target": "1",
+      "target_description": "offline app (synthetic PatchCore category demo), seed hawk/seed.har",
+      "service_commit": "b17ce35",
+      "config": "zap/automation.yaml",
+      "traffic": {
+        "requests": 6895,
+        "by_status": {
+          "200": 2197,
+          "307": 71,
+          "400": 658,
+          "404": 644,
+          "405": 709,
+          "422": 2616
+        },
+        "upload_routes": {
+          "POST /calibrate 200": 1320,
+          "POST /inspect 422": 1297,
+          "POST /calibrate 422": 1286,
+          "POST /calibrate 400": 526,
+          "POST /inspect 200": 517,
+          "GET /inspect 405": 439,
+          "GET /calibrate 405": 247,
+          "DELETE /calibrate 404": 183,
+          "POST /calibrate 404": 175,
+          "POST /inspect 404": 169,
+          "POST /inspect 400": 123,
+          "DELETE /calibrate 422": 33,
+          "DELETE /calibrate 200": 19
+        }
+      },
+      "alerts": [
+        {
+          "name": "Information Disclosure - Suspicious Comments",
+          "rule_id": 10027,
+          "risk": "Informational",
+          "confidence": "Low",
+          "count": 1,
+          "systemic": false,
+          "samples": [
+            "GET /static/demo.js"
+          ]
+        },
+        {
+          "name": "Modern Web Application",
+          "rule_id": 10109,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 2,
+          "systemic": true,
+          "samples": [
+            "GET /"
+          ]
+        },
+        {
+          "name": "User Agent Fuzzer",
+          "rule_id": 10104,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 3,
+          "systemic": true,
+          "samples": [
+            "DELETE /calibrate",
+            "POST /calibrate"
+          ]
+        }
+      ],
+      "rules": {
+        "started": 53,
+        "completed": 50,
+        "completed_with_zero_requests": [
+          "ExponentialEntityExpansionScanRule",
+          "GetForPostScanRule",
+          "HttpOnlySiteScanRule",
+          "HttpsAsHttpScanRule",
+          "PaddingOracleScanRule",
+          "PersistentXssScanRule",
+          "SOAPActionSpoofingActiveScanRule",
+          "SOAPXMLInjectionActiveScanRule",
+          "XxeScanRule"
+        ],
+        "skipped": [
+          {
+            "rule": "DomXssScanRule",
+            "reason": "failed to start or connect to the browser"
+          },
+          {
+            "rule": "Log4ShellScanRule",
+            "reason": "no Active Scan OAST service is selected"
+          },
+          {
+            "rule": "ScriptsActiveScanner",
+            "reason": "no scripts enabled"
+          }
+        ],
+        "null_pointer_exceptions_in_log": 16
+      },
+      "compared_with_2026_10_04": {
+        "previous_alerts": [
+          "Modern Web Application (Informational)",
+          "User Agent Fuzzer (Informational)"
+        ],
+        "new_high_or_medium": [],
+        "pass": true
+      }
+    },
+    {
+      "tool": "OWASP ZAP 2.17.0",
+      "target": "2",
+      "target_description": "create_app with artifacts/dms-280-car (12 categories, onnxruntime CPU FP32), seed hawk/seed-pcb1.har",
+      "service_commit": "b17ce35",
+      "config": "zap/automation.yaml",
+      "traffic": {
+        "requests": 6890,
+        "by_status": {
+          "200": 2197,
+          "307": 71,
+          "400": 658,
+          "404": 642,
+          "405": 709,
+          "422": 2613
+        },
+        "upload_routes": {
+          "POST /calibrate 200": 1323,
+          "POST /inspect 422": 1296,
+          "POST /calibrate 422": 1284,
+          "POST /calibrate 400": 526,
+          "POST /inspect 200": 516,
+          "GET /inspect 405": 439,
+          "GET /calibrate 405": 247,
+          "DELETE /calibrate 404": 181,
+          "POST /calibrate 404": 174,
+          "POST /inspect 404": 169,
+          "POST /inspect 400": 123,
+          "DELETE /calibrate 422": 33,
+          "DELETE /calibrate 200": 19
+        }
+      },
+      "alerts": [
+        {
+          "name": "SQL Injection - SQLite (Time Based)",
+          "rule_id": 40024,
+          "risk": "High",
+          "confidence": "Medium",
+          "count": 1,
+          "systemic": false,
+          "samples": [
+            "POST /calibrate"
+          ]
+        },
+        {
+          "name": "Information Disclosure - Suspicious Comments",
+          "rule_id": 10027,
+          "risk": "Informational",
+          "confidence": "Low",
+          "count": 1,
+          "systemic": false,
+          "samples": [
+            "GET /static/demo.js"
+          ]
+        },
+        {
+          "name": "Modern Web Application",
+          "rule_id": 10109,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 2,
+          "systemic": true,
+          "samples": [
+            "GET /"
+          ]
+        },
+        {
+          "name": "User Agent Fuzzer",
+          "rule_id": 10104,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 3,
+          "systemic": true,
+          "samples": [
+            "DELETE /calibrate"
+          ]
+        }
+      ],
+      "rules": {
+        "started": 53,
+        "completed": 50,
+        "completed_with_zero_requests": [
+          "ExponentialEntityExpansionScanRule",
+          "GetForPostScanRule",
+          "HttpOnlySiteScanRule",
+          "HttpsAsHttpScanRule",
+          "PaddingOracleScanRule",
+          "PersistentXssScanRule",
+          "SOAPActionSpoofingActiveScanRule",
+          "SOAPXMLInjectionActiveScanRule",
+          "XxeScanRule"
+        ],
+        "skipped": [
+          {
+            "rule": "DomXssScanRule",
+            "reason": "failed to start or connect to the browser"
+          },
+          {
+            "rule": "Log4ShellScanRule",
+            "reason": "no Active Scan OAST service is selected"
+          },
+          {
+            "rule": "ScriptsActiveScanner",
+            "reason": "no scripts enabled"
+          }
+        ],
+        "null_pointer_exceptions_in_log": 16
+      },
+      "compared_with_2026_10_04": {
+        "previous_alerts": [
+          "Modern Web Application (Informational)",
+          "User Agent Fuzzer (Informational)"
+        ],
+        "new_high_or_medium": [
+          {
+            "name": "SQL Injection - SQLite (Time Based)",
+            "rule_id": 40024,
+            "risk": "High",
+            "confidence": "Medium",
+            "count": 1,
+            "systemic": false,
+            "samples": [
+              "POST /calibrate"
+            ]
+          }
+        ],
+        "pass": false
+      },
+      "false_positive_check": {
+        "alert": "SQL Injection - SQLite (Time Based)",
+        "reason": "the service has no database and never reads the upload file name; the scan ran while other jobs kept the CPU at 100 %, and the same rule raised nothing on 2026-10-04 (40 s) but took 146 s here",
+        "replay": {
+          "requests_per_variant": 15,
+          "median_ms": {
+            "original": 948.4,
+            "randomblob_1e7": 969.8,
+            "randomblob_1e8": 976.2
+          },
+          "min_ms": {
+            "original": 816.6,
+            "randomblob_1e7": 788.3,
+            "randomblob_1e8": 707.9
+          },
+          "max_ms": {
+            "original": 1731.6,
+            "randomblob_1e7": 1752.0,
+            "randomblob_1e8": 2137.2
+          },
+          "statuses": {
+            "original": [
+              200
+            ],
+            "randomblob_1e7": [
+              200
+            ],
+            "randomblob_1e8": [
+              200
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
