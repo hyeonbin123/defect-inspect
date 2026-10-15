@@ -19,15 +19,15 @@ __pycache__/
 *.safetensors
 .DS_Store
 
-# Local-only coding-agent working files (collaboration rules and handoff notes)
+# 로컬 전용 작업 파일(협업 규칙과 인수인계 메모)
 AGENTS.md
 CLAUDE.md
 HANDOFF.md
 ROLES.md
 TASKS.md
 
-# Lock file of the sealed-test ledger (exists for milliseconds during an append)
+# 봉인 테스트 장부의 잠금 파일(한 줄을 덧붙이는 몇 밀리초 동안만 있다)
 *.jsonl.lock
 
-# Inspector artifact sets (ONNX models, banks, thresholds) built by defect_inspect.export
+# 검사기 아티팩트 세트(ONNX 모델, 뱅크, 임계값). defect_inspect.export와 dinomaly_serving export가 만든다
 artifacts/

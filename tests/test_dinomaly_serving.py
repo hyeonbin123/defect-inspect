@@ -25,6 +25,7 @@ from defect_inspect import dinomaly_serving, run_dinomaly  # noqa: E402
 from defect_inspect.calibrate import conformal_threshold  # noqa: E402
 from defect_inspect.conditions import apply_condition  # noqa: E402
 from defect_inspect.dinomaly_model import ServingGraph  # noqa: E402
+from defect_inspect.download import sha256_file  # noqa: E402
 from defect_inspect.inspector import ReconstructionInspector, preprocess  # noqa: E402
 from defect_inspect.splits import SEALED_ROLES, ManifestRow, write_manifest  # noqa: E402
 
@@ -96,6 +97,9 @@ def test_export_writes_an_artifact_set_that_matches_torch(exported):
     assert meta["kind"] == "reconstruction" and meta["map_size"] == 256 and meta["img_size"] == SIZE
     assert meta["threshold"] == 0.0 and meta["calibration"] == {"strategy": "none"}
     assert len(meta["source"]["onnx_sha256"]) == 64 and meta["source"]["untrained"] is True
+    # 두 모델 파일의 지문이 meta에 따로 적히고, 서비스가 시작할 때 대조하는 값과 실제 파일 해시가 같다.
+    assert meta["source"]["onnx_sha256"] == sha256_file(out / "model_fp32.onnx")
+    assert meta["source"]["onnx_int8_dynamic_sha256"] == sha256_file(out / "model_int8_dynamic.onnx")
 
     graph = ServingGraph(exported["model"]).eval()
     insp = ReconstructionInspector.load(out / "toy")

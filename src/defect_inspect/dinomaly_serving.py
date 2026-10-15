@@ -189,6 +189,11 @@ def build_artifacts(
         info["int8_dynamic"] = {"available": True, "op_types": ["MatMul"], "weight_type": "QInt8"}
     commit = git_commit()
     model_sha256 = sha256_file(fp32)
+    # 서비스(inspector.check_model_sha256)가 시작할 때 모델 파일을 이 지문과 대조한다. 동적 INT8 모델을
+    # 만들었으면 그 파일의 지문도 따로 적어, INT8로 띄울 때도 같은 대조가 되게 한다.
+    digests = {"onnx_sha256": model_sha256}
+    if int8_dynamic:
+        digests["onnx_int8_dynamic_sha256"] = sha256_file(int8_path)
     # 범주마다 meta.json을 쓴다. 모델 파일은 세트 루트에 하나뿐이고, 범주 폴더는 그 모델을 가리키는 설정과
     # 임계값만 가진다.
     for category in categories:
@@ -202,7 +207,7 @@ def build_artifacts(
             "threshold": 0.0,
             "calibration": {"strategy": "none"},
             "commit": commit,
-            "source": {**source, "onnx_sha256": model_sha256},
+            "source": {**source, **digests},
         }
         check_reconstruction_meta(meta)
         _write_json(out_dir / category / "meta.json", meta)

@@ -261,6 +261,59 @@ def test_a_reconstruction_set_needs_no_bank_and_a_patchcore_set_still_does(tmp_p
         service.load_inspectors(tmp_path)
 
 
+# 모델 지문 대조: meta의 source에 모델 파일 SHA-256이 적혀 있으면 서비스가 시작할 때 실제 파일과 대조한다. 왜:
+# 모델(ONNX)과 임계값(meta.json)은 다른 파일이라, 모델 파일만 다른 학습본으로 바뀌면 서비스가 조용히 다른
+# 모델의 점수를 이 임계값과 비교하게 된다. 확인: (1) 같으면 그대로 읽힌다, (2) 한 바이트라도 다르면 범주 폴더
+# 이름과 "does not match"를 담은 ValueError로 멈춘다(ReconstructionInspector.load도 같다), (3) 기록이 64자리
+# 16진수가 아니면 깨진 meta로 멈춘다, (4) INT8 지문이 없는 옛 아티팩트는 INT8로 띄울 때 대조를 건너뛰고,
+# 있으면 대조한다, (5) 12개 범주가 같이 쓰는 파일의 해시는 한 번만 계산한다.
+def test_load_inspectors_checks_the_model_digest_recorded_in_meta(tmp_path, monkeypatch):
+    import hashlib
+
+    from defect_inspect import download
+
+    _fake_ort(monkeypatch)
+    _write_set(tmp_path)
+    good = hashlib.sha256(b"shared").hexdigest()
+    for name in ("candle", "pcb1", "pcb2"):
+        meta = json.loads((tmp_path / name / "meta.json").read_text(encoding="utf-8"))
+        meta["source"] = {"onnx_sha256": good}
+        (tmp_path / name / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    hashed = []
+    real = download.sha256_file
+    monkeypatch.setattr(download, "sha256_file", lambda path: hashed.append(Path(path).name) or real(path))
+    assert sorted(service.load_inspectors(tmp_path)) == ["candle", "pcb1", "pcb2"]
+    assert hashed == ["model_fp32.onnx"]  # 세 범주가 같이 쓰는 파일이라 한 번만
+    assert ReconstructionInspector.load(tmp_path / "pcb1").threshold == 1.25
+
+    (tmp_path / "model_fp32.onnx").write_bytes(b"shared, retrained")
+    with pytest.raises(ValueError, match=r"candle.*model_fp32.onnx does not match the artifact meta"):
+        service.load_inspectors(tmp_path)
+    with pytest.raises(ValueError, match=r"pcb1.*does not match the artifact meta"):
+        ReconstructionInspector.load(tmp_path / "pcb1")
+
+    (tmp_path / "model_fp32.onnx").write_bytes(b"shared")
+    meta = json.loads((tmp_path / "pcb2" / "meta.json").read_text(encoding="utf-8"))
+    meta["source"] = {"onnx_sha256": good.upper()}
+    (tmp_path / "pcb2" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"pcb2.*not a SHA-256 hex digest"):
+        service.load_inspectors(tmp_path)
+    meta["source"] = {"onnx_sha256": good}
+    (tmp_path / "pcb2" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    # INT8: 지문이 없는 옛 아티팩트는 대조 없이 읽히고, 지문을 적으면 대조한다.
+    (tmp_path / "model_int8_dynamic.onnx").write_bytes(b"int8")
+    assert service.load_inspectors(tmp_path, precision="int8-dynamic")["pcb1"].precision == "int8-dynamic"
+    for name in ("candle", "pcb1", "pcb2"):
+        meta = json.loads((tmp_path / name / "meta.json").read_text(encoding="utf-8"))
+        meta["source"]["onnx_int8_dynamic_sha256"] = hashlib.sha256(b"int8, old").hexdigest()
+        (tmp_path / name / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(ValueError, match="model_int8_dynamic.onnx does not match the artifact meta"):
+        service.load_inspectors(tmp_path, precision="int8-dynamic")
+    # FP32는 INT8 지문과 상관없이 자기 지문으로만 대조한다.
+    assert sorted(service.load_inspectors(tmp_path)) == ["candle", "pcb1", "pcb2"]
+
+
 # 서빙 인터페이스(입력 image, 출력 score·map)를 가진 실제 ONNX 모델을 만들어 저장한다. onnx.checker로 형식을
 # 검사하고, onnx가 없으면 건너뛴다.
 def _toy_onnx(path: Path) -> None:

@@ -74,6 +74,7 @@ from .inspector import (
     Inspector,
     ReconstructionInspector,
     artifact_kind,
+    check_model_sha256,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,8 @@ def load_inspectors(
     검사기는 그 클래스의 `load`가 그 폴더로 만드는 것과 같다(테스트가 둘을 비교한다). 다만 같은 모델 파일을
     쓰는 범주들(아티팩트 묶음은 범주 폴더 옆에 모델 파일 하나를 둔다)은 ONNX Runtime 세션 하나를 같이 쓴다:
     `session.run`은 스레드 안전하고, 범주마다 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘기 때문이다.
-    아티팩트에 문제가 있으면 그 폴더 이름을 담은 `ValueError`를 낸다.
+    아티팩트에 문제가 있으면 그 폴더 이름을 담은 `ValueError`를 낸다. meta에 모델 파일의 SHA-256이 적혀 있으면
+    (`source.onnx_sha256` 등, `inspector.check_model_sha256`) 실제 파일과 대조하고, 다르면 같은 오류로 멈춘다.
     """
     import onnxruntime as ort
 
@@ -157,6 +159,9 @@ def load_inspectors(
     if threads is not None:
         options.intra_op_num_threads = int(threads)
     sessions: dict[Path, Any] = {}
+    # 모델 파일 지문 캐시(실제 경로 → SHA-256). 12개 범주가 한 파일을 같이 쓰므로 해시는 파일마다 한 번만
+    # 낸다.
+    digests: dict[Path, str] = {}
     found: dict[str, AnyInspector] = {}
     for meta_path in sorted(artifacts.glob("*/meta.json")):
         folder = meta_path.parent
@@ -182,6 +187,10 @@ def load_inspectors(
                 meta = json.load(f)
             # allow_pickle=False로 뱅크 파일을 읽어, 조작된 .npy가 피클로 임의 코드를 실행하지 못하게 한다.
             bank = None if kind == RECONSTRUCTION else np.load(folder / "bank.npy", allow_pickle=False)
+            # meta에 적힌 모델 지문(dinomaly_serving export가 적는 source.onnx_sha256 등)과 실제 파일을
+            # 대조한다. 다르면 이 임계값은 다른 모델의 점수로 정한 것이라 조용히 틀린 판정을 내므로 시작을
+            # 멈춘다.
+            check_model_sha256(model, meta, precision, digests)
             # 실제 경로로 키를 만들어 같은 파일이면 세션을 다시 만들지 않는다. CPU
             # 전용(CPUExecutionProvider)으로 연다.
             key = model.resolve()

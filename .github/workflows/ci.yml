@@ -1,3 +1,17 @@
+# CI: push(main)와 pull request마다 세 작업을 따로 돌린다.
+# - test: 기본 패키지 + dev·serve 그룹(torch와 데이터 없음)으로 ruff와 pytest. torch·데이터가 필요한 테스트는
+#   스스로 건너뛴다(pytest.importorskip, data 표식)
+# - audit: 서비스 이미지에 실제로 들어가는 의존성(기본 + serve, dev 제외)을 pip-audit으로 알려진 취약점(PyPI·OSV)과
+#   대조한다. 학습용 그룹(torch 등)은 이미지에 없고 로컬에서만 쓰므로 여기서 보지 않는다
+# - docker: Dockerfile로 서비스 이미지를 빌드하고, 작은 복원 방식 아티팩트 세트를 마운트해 기본 명령 그대로
+#   띄운 뒤 /healthz와 /inspect를 부른다. 이어서 meta의 모델 지문이 틀린 세트로는 시작을 거절하는지 본다
+#
+# 보안 설정 (GitHub 공식 권고 "Security hardening for GitHub Actions"):
+# - permissions: 모든 작업의 GITHUB_TOKEN을 저장소 읽기만으로 줄인다. 이 워크플로는 아무것도 쓰지 않는다
+# - 외부 액션은 태그가 아니라 커밋 SHA로 고정한다(태그는 옮겨질 수 있다). 뒤의 주석이 그 SHA의 릴리스 이름이다.
+#   갱신은 손으로 한다: 새 릴리스의 SHA를 `gh api repos/<소유자>/<저장소>/git/ref/tags/<태그>`로 확인해 바꾼다
+# - checkout의 persist-credentials: false: 토큰을 .git/config에 남기지 않아, 뒤 단계의 프로그램이 읽지 못하게 한다
+
 name: CI
 
 on:
@@ -5,20 +19,25 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     env:
       UV_PYTHON: "3.11"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # setup-uv publishes no floating major tag, so pin the exact release.
-      - uses: astral-sh/setup-uv@v10.1.0
+      # setup-uv는 움직이는 큰 버전 태그(v10 등)를 내지 않으므로 정확한 릴리스의 SHA로 고정한다.
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
-      # Base package, dev and serve groups: no torch, no dataset.
+      # 기본 패키지와 dev·serve 그룹만: torch도 데이터셋도 없다. --frozen은 uv.lock을 다시 풀지 않고 그대로 쓴다.
       - name: Install dependencies
         run: uv sync --frozen --group serve
 
@@ -29,3 +48,91 @@ jobs:
 
       - name: Test
         run: uv run pytest -q
+
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+
+      # Dockerfile과 같은 집합(기본 + serve, dev 없음)을 uv.lock에서 해시와 함께 뽑아, 설치 없이(--disable-pip)
+      # 그 고정 버전들을 그대로 대조한다. 알려진 취약점이 있으면 이 작업이 실패한다. pip-audit 버전은 고정한다.
+      - name: Audit the service dependencies
+        run: |
+          uv export --frozen --no-dev --group serve --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/serve.txt"
+          uvx pip-audit@2.10.1 -r "$RUNNER_TEMP/serve.txt" --disable-pip --require-hashes --progress-spinner off
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+
+      - name: Build the service image
+        run: docker build -t defect-inspect:ci .
+
+      # 작은 ONNX 모델과 범주 하나(toy)의 세트를 만든다(.github/ci/toy_artifact.py). onnx는 이 단계에서만 잠시
+      # 더한다. bad/는 meta의 모델 지문을 일부러 틀리게 적은 같은 세트다.
+      - name: Make toy artifact sets
+        run: |
+          uv run --no-project --with onnx==1.23.1 python .github/ci/toy_artifact.py "$RUNNER_TEMP/good"
+          uv run --no-project --with onnx==1.23.1 python .github/ci/toy_artifact.py "$RUNNER_TEMP/bad" --wrong-digest
+
+      # compose.yaml과 같은 조건(읽기 전용 루트, /tmp tmpfs, 아티팩트 읽기 전용 마운트)으로 기본 명령을 띄운다.
+      # 회색 사진은 양품, 흰 칸이 있는 사진은 불량이어야 하고, 판정은 늘 "점수 > 임계값"이어야 한다.
+      # 검사용 PNG는 이미지 안의 Python과 Pillow로 만든다(러너에는 Pillow가 없다).
+      - name: Smoke test the image
+        run: |
+          docker run -d --name inspect --read-only --tmpfs /tmp:size=64m -p 127.0.0.1:8000:8000 \
+            -v "$RUNNER_TEMP/good:/artifacts:ro" defect-inspect:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/healthz > "$RUNNER_TEMP/health.json" && break
+            sleep 1
+          done
+          python3 -c 'import json,sys; b=json.load(open(sys.argv[1])); assert b == {"status": "ok", "categories": ["toy"]}, b' "$RUNNER_TEMP/health.json"
+          for kind in gray defect; do
+            docker run --rm --entrypoint /app/.venv/bin/python defect-inspect:ci -c '
+          import io, sys
+          from PIL import Image
+          image = Image.new("RGB", (64, 64), (128, 128, 128))
+          if sys.argv[1] == "defect":
+              image.paste((255, 255, 255), (16, 16, 32, 32))
+          buffer = io.BytesIO()
+          image.save(buffer, "PNG")
+          sys.stdout.buffer.write(buffer.getvalue())
+          ' "$kind" > "$RUNNER_TEMP/$kind.png"
+            curl -fsS -F "image=@$RUNNER_TEMP/$kind.png;type=image/png" -F category=toy \
+              http://127.0.0.1:8000/inspect > "$RUNNER_TEMP/$kind.json"
+            python3 - "$RUNNER_TEMP/$kind.json" "$kind" <<'EOF'
+          import json, sys
+          body = json.load(open(sys.argv[1]))
+          assert body["is_defect"] is (body["score"] > body["threshold"]), body
+          assert body["is_defect"] is (sys.argv[2] == "defect"), body
+          print(sys.argv[2], body["score"], body["threshold"], body["is_defect"])
+          EOF
+          done
+
+      # 모델 지문이 meta와 다르면 서비스가 아예 뜨지 않아야 한다(조용히 다른 모델로 판정하지 않게).
+      - name: A mismatched model digest stops the service
+        run: |
+          docker run -d --name bad --read-only --tmpfs /tmp:size=64m \
+            -v "$RUNNER_TEMP/bad:/artifacts:ro" defect-inspect:ci
+          status=$(timeout 60 docker wait bad)
+          docker logs bad > "$RUNNER_TEMP/bad.log" 2>&1
+          test "$status" -ne 0
+          grep -q "does not match the artifact meta" "$RUNNER_TEMP/bad.log"
+          echo "exit status $status"
+
+      - name: Container logs
+        if: always()
+        run: |
+          docker logs inspect || true
+          docker logs bad || true

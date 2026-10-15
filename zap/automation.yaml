@@ -1,16 +1,15 @@
-# OWASP ZAP automation plan: the same scan as stackhawk.yml (the OpenAPI description, the multipart requests of
-# a HAR seed, spider, passive scan, active scan with the default policy), every request carrying the admin
-# token. Written for the cross-platform ZAP 2.17.0 release (Java 17 or later). No secrets in this file: the
-# variables come from the environment, and zap/run_zap.sh sets them and starts ZAP.
+# OWASP ZAP 자동화 계획: stackhawk.yml과 같은 스캔(OpenAPI 설명, HAR 시드의 multipart 요청, spider, passive scan,
+# 기본 정책 active scan)을 하고, 모든 요청에 관리자 토큰을 붙인다. ZAP 2.17.0 크로스플랫폼 릴리스(Java 17 이상)용이다.
+# 이 파일에는 비밀값이 없다: 변수는 환경에서 오고, zap/run_zap.sh가 그것을 설정하고 ZAP을 띄운다.
 #
-#   TARGET       the service, e.g. http://127.0.0.1:8093 (only ever a local service)
-#   SEED_HAR     absolute path of a HAR seed made by hawk/make_seed_har.py for a category the service has
-#   REPORT_DIR   absolute path of the folder the reports go to; REPORT_NAME their file name without extension
+#   TARGET       서비스 주소, 예: http://127.0.0.1:8093 (로컬 서비스만)
+#   SEED_HAR     서비스에 있는 범주로 hawk/make_seed_har.py가 만든 HAR 시드의 절대 경로
+#   REPORT_DIR   보고서를 쓸 폴더의 절대 경로. REPORT_NAME은 확장자 없는 보고서 파일 이름
 #
-# The admin token is not a plan variable: ZAP itself adds the header to every request it sends to the target
-# host (the counterpart of HawkScan's TOKEN authentication) when ZAP_AUTH_HEADER=X-Admin-Token,
-# ZAP_AUTH_HEADER_VALUE=<token> and ZAP_AUTH_HEADER_SITE=<host> are set. So the scan also reaches POST and
-# DELETE /calibrate. (A replacer job does not expand ${...} in its replacement string.)
+# 관리자 토큰은 계획 변수가 아니다: ZAP_AUTH_HEADER=X-Admin-Token, ZAP_AUTH_HEADER_VALUE=<토큰>,
+# ZAP_AUTH_HEADER_SITE=<호스트>를 설정하면 ZAP 자체가 대상 호스트로 보내는 모든 요청에 그 헤더를 붙인다(HawkScan의
+# TOKEN 인증에 해당). 그래서 스캔이 POST와 DELETE /calibrate까지 닿는다. (replacer 작업은 바꿀 문자열 안의 ${...}를
+# 풀지 않는다.)
 env:
   contexts:
     - name: defect-inspect
@@ -29,8 +28,8 @@ jobs:
       apiUrl: ${TARGET}/openapi.json
       context: defect-inspect
 
-  # The OpenAPI importer cannot render an image upload (every POST would stop at form validation, 422), so
-  # real multipart requests come from the HAR seed, as in stackhawk.yml.
+  # OpenAPI 가져오기는 이미지 업로드를 만들 수 없으므로(모든 POST가 폼 검증 422에서 멈춘다), stackhawk.yml처럼
+  # 실제 multipart 요청을 HAR 시드에서 가져온다.
   - type: import
     parameters:
       type: har
@@ -45,8 +44,8 @@ jobs:
     parameters:
       maxDuration: 5
 
-  # Default policy. Four threads keep the service's own queue (2 workers + 16 waiting) from answering 503 to
-  # the scanner when every request runs the model on the CPU.
+  # 기본 정책. 요청마다 모델이 CPU에서 돌 때 서비스 자체의 대기열(작업 2 + 대기 16)이 스캐너에 503으로 답하지
+  # 않도록 스레드를 4개로 둔다.
   - type: activeScan
     parameters:
       context: defect-inspect

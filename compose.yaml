@@ -1,28 +1,32 @@
+# 검사 서비스를 Docker로 띄우는 설정(`docker compose up --build`, README 검사 서비스 절).
 services:
   inspect:
     build: .
+    # 이 PC(127.0.0.1)에서만 열리게 묶는다. 다른 기계에서 접속하게 하려면 주소와 아래 허용 Host를 함께 바꾼다.
     ports:
       - "127.0.0.1:8093:8000"
     environment:
       DEFECT_INSPECT_ARTIFACTS: /artifacts
+      # 모델 정밀도: fp32(서빙 기본) 또는 int8-dynamic. 아티팩트의 임계값은 FP32 점수로 정한 것이다(README).
       DEFECT_INSPECT_PRECISION: ${DEFECT_INSPECT_PRECISION:-fp32}
-      # Host names the service answers to (comma separated). Add the machine's name or address before
-      # publishing the port beyond 127.0.0.1.
+      # 서비스가 응답할 Host 이름(쉼표로 구분). 포트를 127.0.0.1 밖으로 열기 전에 이 기계의 이름이나 주소를 더한다.
       DEFECT_INSPECT_ALLOWED_HOSTS: ${DEFECT_INSPECT_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      # POST /calibrate (replacing a threshold) stays disabled until a token is set here; callers send it
-      # as the X-Admin-Token header.
+      # POST /calibrate(임계값 바꾸기)는 여기에 토큰을 설정하기 전까지 꺼져 있다. 호출하는 쪽은 그 값을
+      # X-Admin-Token 헤더로 보낸다.
       DEFECT_INSPECT_ADMIN_TOKEN: ${DEFECT_INSPECT_ADMIN_TOKEN:-}
     volumes:
-      # An artifact set: the served Dinomaly ViT-S model of stage 6 (`dinomaly_serving export` + `calibrate`:
-      # one ONNX model, a threshold per category) or a PatchCore set of `defect_inspect.export`.
+      # 아티팩트 세트: 6단계의 서빙 Dinomaly ViT-S 모델(`dinomaly_serving export` + `calibrate`: ONNX 모델 하나,
+      # 범주마다 임계값) 또는 `defect_inspect.export`의 PatchCore 세트. 읽기 전용으로 마운트한다.
       - ${DEFECT_INSPECT_ARTIFACT_DIR:-./artifacts/dms-280-car}:/artifacts:ro
+    # 컨테이너 루트 파일 시스템을 읽기 전용으로 둔다(쓸 곳은 아래 /tmp뿐).
     read_only: true
-    # Uploads larger than 1 MB are spooled here while a request is parsed. The tmpfs counts towards the
-    # memory limit, so it is sized for one full calibration call (256 MB) plus inspection uploads.
+    # 1MB가 넘는 업로드는 요청을 해석하는 동안 여기에 임시로 쓰인다. tmpfs는 메모리 한도에 포함되므로, 재보정
+    # 호출 한 번(256MB)과 검사 업로드가 들어갈 크기로 잡았다.
     tmpfs:
       - /tmp:size=512m
     mem_limit: 2g
     restart: unless-stopped
+    # 상태 점검: 이미지 안의 Python으로 /healthz를 부른다(curl이 이미지에 없다).
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 30s

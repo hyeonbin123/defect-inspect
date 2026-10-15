@@ -361,6 +361,11 @@ class Inspector:
             check_meta(meta)  # 모델을 열기 전에 불러 메시지가 잘못된 값을 가리키게 한다
         except ValueError as err:
             raise ValueError(f"{artifact_dir / 'meta.json'}: {err}") from err
+        # meta에 모델 지문이 적혀 있으면 대조한다. 4단계 PatchCore 아티팩트는 적지 않았으므로 보통 건너뛴다.
+        try:
+            check_model_sha256(model, meta, precision)
+        except ValueError as err:
+            raise ValueError(f"{artifact_dir} ({model.name}): {err}") from err
         try:
             bank = np.load(artifact_dir / "bank.npy", allow_pickle=False)
         except (OSError, ValueError, EOFError) as err:
@@ -473,6 +478,52 @@ RECONSTRUCTION = "reconstruction"
 # FP32다.
 RECONSTRUCTION_PRECISIONS = {"fp32": "model_fp32.onnx", "int8-dynamic": "model_int8_dynamic.onnx"}
 RECONSTRUCTION_META_KEYS = ("version", "kind", "name", "category", "img_size", "map_size", "threshold")
+# 정밀도 → meta.json `source`에서 그 정밀도 모델 파일의 SHA-256을 적는 키. `dinomaly_serving export`가 FP32
+# 모델의 해시를 `onnx_sha256`에, 동적 INT8을 만들면 그 해시를 `onnx_int8_dynamic_sha256`에 적는다. 4단계
+# PatchCore 아티팩트(`defect_inspect.export`)는 해시를 적지 않았으므로 이 표의 키가 meta에 없고, 그때는 대조를
+# 건너뛴다(옛 아티팩트도 그대로 읽히게).
+MODEL_SHA256_KEYS = {"fp32": "onnx_sha256", "int8-dynamic": "onnx_int8_dynamic_sha256"}
+
+
+# 모델 파일이 meta.json에 적힌 지문과 같은지 확인한다. 왜: 서비스는 모델(ONNX)과 임계값(meta.json)을 서로 다른
+# 파일에서 읽는다. 누가 모델 파일만 다른 학습본으로 바꾸거나 파일이 깨지면, 서비스는 아무 오류 없이 다른
+# 모델의 점수를 이 임계값과 비교해 조용히 틀린 판정을 낸다(임계값은 그 모델의 점수 분포로 정한 값이다). 서비스
+# 교체 점검(docs/experiments.md)에서는 이 대조를 손으로 했고, 이제 시작할 때마다 코드가 한다. 입력: 모델 파일
+# 경로, 그 범주의 meta, 정밀도. digests는 같은 파일을 여러 범주가 같이 쓸 때 해시를 한 번만 계산하려는
+# 캐시(실제 경로 → 16진수 해시)이고, 이 함수가 채운다. 134MB FP32 모델의 해시는 HDD에서 처음 약 2초, 그 뒤 OS
+# 캐시로 1초 안쪽이다. 출력: 대조했으면 그 해시, meta에 기록이 없어 건너뛰었으면 None. 다르면 두 해시의 앞
+# 12자리를 담은 ValueError로 서비스 시작을 멈춘다(서비스는 이 오류를 범주 폴더 이름과 함께 다시 낸다). 주의:
+# 기록이 문자열이 아니거나 64자리 16진수가 아니면 깨진 meta로 보고 멈춘다(빈 값으로 대조를 피하지 못하게).
+def check_model_sha256(
+    model: Path, meta: dict, precision: str, digests: dict[Path, str] | None = None
+) -> str | None:
+    """`meta["source"]`에 이 정밀도 모델의 SHA-256이 적혀 있으면 `model` 파일과 대조한다.
+
+    같으면 그 해시를, 기록이 없으면 None을 돌려준다. 다르거나 기록이 해시 형식이 아니면 ValueError를 낸다.
+    """
+    from .download import sha256_file
+
+    key = MODEL_SHA256_KEYS.get(precision)
+    source = meta.get("source") if isinstance(meta, dict) else None
+    if key is None or not isinstance(source, dict) or key not in source:
+        return None
+    expected = source[key]
+    hex_digits = "0123456789abcdef"
+    if not isinstance(expected, str) or len(expected) != 64 or any(c not in hex_digits for c in expected):
+        raise ValueError(f"artifact meta: source.{key} is not a SHA-256 hex digest: {expected!r}")
+    path = Path(model).resolve()
+    if digests is not None and path in digests:
+        actual = digests[path]
+    else:
+        actual = sha256_file(path)
+        if digests is not None:
+            digests[path] = actual
+    if actual != expected:
+        raise ValueError(
+            f"{Path(model).name} does not match the artifact meta: sha256 {actual[:12]}... on disk, "
+            f"{expected[:12]}... in source.{key} (the thresholds were set for another model file)"
+        )
+    return actual
 
 
 # 점검 항목: 키, kind, 버전, 양의 정수 img_size·map_size, 유한한 threshold.
@@ -578,6 +629,11 @@ class ReconstructionInspector:
             check_reconstruction_meta(meta)
         except (OSError, ValueError) as err:
             raise ValueError(f"{artifact_dir / 'meta.json'}: {err}") from err
+        # 모델 파일이 meta에 적힌 지문과 다르면 세션을 만들기 전에 멈춘다(check_model_sha256 주석).
+        try:
+            check_model_sha256(model, meta, precision)
+        except ValueError as err:
+            raise ValueError(f"{artifact_dir} ({model.name}): {err}") from err
         options = ort.SessionOptions()
         if threads is not None:
             options.intra_op_num_threads = int(threads)

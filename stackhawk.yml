@@ -1,13 +1,13 @@
-# HawkScan (StackHawk) configuration. No secrets in this file. The scan target is the service with the synthetic
-# `demo` category (no model file), which serves its OpenAPI description. Calibration is switched on with a
-# throwaway admin token so that the scan also reaches POST/DELETE /calibrate:
+# HawkScan(StackHawk) 설정. 이 파일에는 비밀값이 없다. 스캔 대상은 모델 파일 없이 합성 범주 `demo`로 도는
+# 서비스이고, 그 서비스가 OpenAPI 설명을 내준다. 일회용 관리자 토큰으로 재보정을 켜서, 스캔이 POST/DELETE
+# /calibrate까지 닿게 한다:
 #
 #   ADMIN_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
 #   DEFECT_INSPECT_ADMIN_TOKEN=$ADMIN_TOKEN uv run uvicorn defect_inspect.service:create_offline_app --factory --port 8093
 #   APP_ID=<application id> ADMIN_TOKEN=$ADMIN_TOKEN COMMIT_SHA=$(git rev-parse HEAD) hawk scan
 #
-# A service started on an artifact set (create_app) has no `demo` category: point SEED_HAR at a seed made for
-# one of its categories, e.g. SEED_HAR=hawk/seed-pcb1.har. zap/automation.yaml is the same scan for OWASP ZAP.
+# 아티팩트 세트로 띄운 서비스(create_app)에는 `demo` 범주가 없다: 그 세트의 범주 하나로 만든 시드를 SEED_HAR로
+# 준다(예: SEED_HAR=hawk/seed-pcb1.har). zap/automation.yaml은 같은 스캔을 OWASP ZAP으로 하는 설정이다.
 app:
   applicationId: ${APP_ID}
   env: ${APP_ENV:Development}
@@ -15,10 +15,9 @@ app:
   openApiConf:
     path: /openapi.json
   authentication:
-    # The admin token is supplied from outside and never expires: the indicators are inert on purpose and
-    # testPath is the real check. testPath cannot send DELETE, so it posts an empty calibration: without the
-    # header the guard answers 403 before the body is read, with it the request gets as far as body
-    # validation (422).
+    # 관리자 토큰은 밖에서 주고 만료되지 않는다. 그래서 로그인 표시자(indicator)는 일부러 아무것도 거르지 않게
+    # 두고, 실제 확인은 testPath가 한다. testPath는 DELETE를 보낼 수 없어 빈 재보정을 POST한다: 헤더가 없으면
+    # 본문을 읽기 전에 보호 장치가 403으로 답하고, 있으면 요청이 본문 검증(422)까지 간다.
     loggedInIndicator: ".*"
     loggedOutIndicator: "$^"
     external:
@@ -33,8 +32,8 @@ app:
       fail: ".*403.*"
 hawk:
   spider:
-    # Real multipart requests (made by hawk/make_seed_har.py). The OpenAPI builder cannot render an image
-    # upload, so without them every POST /inspect and POST /calibrate stops at form validation (422).
+    # 실제 multipart 요청(hawk/make_seed_har.py가 만든다). OpenAPI로는 이미지 업로드를 만들 수 없어, 이것이
+    # 없으면 모든 POST /inspect와 POST /calibrate가 폼 검증(422)에서 멈춘다.
     har:
       file:
         paths:

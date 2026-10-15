@@ -183,12 +183,15 @@ VisA: Zou et al., "SPot-the-Difference Self-Supervised Pre-training for Anomaly 
 uv sync                                   # 지표·분할·임계값 보정 코드 (numpy, scipy, pillow)
 uv sync --group serve                     # 검사 서비스까지 (onnxruntime, FastAPI; torch 없음)
 uv sync --group train --group dinomaly --group serve   # 특징 추출·학습·내보내기까지 (torch CUDA 12.8 빌드)
-uv sync --group figures                   # README 그림을 다시 그릴 때 (matplotlib)
+uv sync --inexact --group figures         # README 그림을 다시 그릴 때 (matplotlib)
 uv sync --inexact --group openvino        # CPU 런타임 대조의 OpenVINO 팔 (서비스에는 필요 없다)
+# 이미 만든 환경에 그룹을 더할 때는 --inexact를 붙인다. 그냥 uv sync는 명령에 적지 않은 그룹의 패키지(torch 등)를 지운다
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+GitHub Actions(`.github/workflows/ci.yml`)는 push마다 세 작업을 돌린다: torch 없이 ruff와 pytest, 서비스 이미지에 들어가는 의존성(기본 + serve)의 알려진 취약점 대조(pip-audit), Docker 이미지 빌드 뒤 작은 ONNX 아티팩트로 기본 명령을 띄워 `/healthz`·`/inspect`를 부르고 모델 지문이 틀린 세트로는 뜨지 않는지 보는 스모크 검사. 워크플로 토큰은 읽기 전용이고 외부 액션은 커밋 SHA로 고정했다.
 
 ## 재현 명령
 ```bash
@@ -295,6 +298,7 @@ docker compose up --build
 
 - 받는 형식은 PNG, JPEG, BMP, TIFF, WebP(채널당 8비트, 투명도 없음)이고 업로드는 파일당 20MB까지다. 16비트 이미지는 조용히 잘리지 않게 거절한다
 - 재보정한 임계값은 메모리에만 있다. 다시 띄우면 아티팩트의 값으로 돌아간다
+- 시작할 때 범주 meta.json에 적힌 모델 파일 지문(SHA-256, `dinomaly_serving export`가 적는다)을 실제 모델 파일과 대조하고, 다르면 뜨지 않는다. 모델과 임계값이 다른 파일이라, 모델 파일만 바뀌면 다른 모델의 점수를 이 임계값과 비교하는 조용한 오판이 되기 때문이다. 지문이 없는 4단계 PatchCore 아티팩트는 대조 없이 읽는다
 - 촬영 조건이 그대로일 때만 임계값이 목표를 지킨다. 임계값은 학습에 쓰지 않은 정상(겹 0)으로 정했고, dev에서 흐림 σ 1.0을 주면 정상의 28.5%가 불량으로 나왔다. 위치 어긋남은 3단계와 같은 절차로 재지 않았으므로 지그와 위치 맞춤을 전제로 둔다. 조건이 바뀌면 그 조건의 정상 사진으로 `/calibrate`를 부른다(조명이 바뀐 경우의 한계는 3·7단계)
 - CPU 런타임: 같은 ONNX 파일을 OpenVINO 2026.4.1로 돌리면 dev 1,398장의 점수가 최대 상대 차이 2.1e-5로 같고(AUROC, 그리고 각 런타임의 점수로 다시 잡은 임계값의 판정이 완전히 같다) 모델 경로가 같은 세션의 onnxruntime 141.1ms에서 91.8ms로 35% 짧았다. 이 세션은 부하 조건이다(측정 중에 다른 작업이 시작돼 첫 실행 뒤 모든 실행과 겹쳤다). 이득은 세 블록 모두 33~36%였다. 규칙대로 서빙은 onnxruntime을 그대로 쓰고, OpenVINO는 더 큰 입력을 열 때의 후보로 둔다. 바꾸면 임계값을 OpenVINO 점수로 다시 잡아야 한다([기록](docs/experiments.md#cpu-런타임-대조-openvino-대-onnxruntime-규칙-2026-10-04-측정-전))
 - `DEFECT_INSPECT_PRECISION=int8-dynamic`으로 동적 INT8 모델(모델 경로 지연 123ms)도 띄울 수 있지만, 아티팩트의 임계값은 FP32 점수로 정한 것이라 INT8 점수에 그대로 쓸 때의 오검출률은 재지 않았고, dev AUROC도 1.4%p 낮다. 서빙은 FP32다
