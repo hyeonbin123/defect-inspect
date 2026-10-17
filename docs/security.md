@@ -87,3 +87,9 @@ ZAP_DIR=<폴더> ADMIN_TOKEN=$ADMIN_TOKEN zap/run_zap.sh <이름> [시드 HAR]
 - **새 High 1건: SQL Injection - SQLite (Time Based), `POST /calibrate`의 `images` 매개변수, 신뢰도 Medium. 오탐으로 판단해 고치지 않는다.** ZAP은 업로드 파일 이름(`normal-2.bmp`)을 `case randomblob(10000000) when not null then 1 else 1 end` 같은 SQLite 지연 구문으로 바꿨을 때 응답이 1,027 → 1,207 → 1,388ms로 길어졌다는 이유로 경보했다. 사유: (가) 서비스에는 데이터베이스도 SQL도 없고(`src/`에 sqlite·SQL 실행 코드 없음) 업로드 파일 이름을 읽지 않는다(파일 바이트만 디코딩한다). (나) 이 요청은 업로드마다 모델이 CPU에서 돌아 응답이 1초 안팎이고, 스캔 동안 CPU가 다른 작업으로 거의 100%라 수백 ms의 흔들림은 흔하다. 같은 규칙이 2026-10-04에는 40초 동안 270건을 보내 경보 0건이었고 이번에는 146초에 264건이었다. (다) 같은 서비스를 다시 띄워 그 `/calibrate` 요청을 원래 이름, randomblob(1e7), randomblob(1e8) 세 가지로 순서를 돌려 가며 15번씩 보낸 확인(`work/` 아래 로컬 스크립트, 결과는 요약 JSON의 `false_positive_check`)에서 응답 시간 중앙값이 948 / 970 / 976ms, 범위가 708~2,137ms로 겹쳤고 모두 200이었다. 구문 크기에 따라 체계적으로 늘지 않았다
 - 새 Informational 1건: Information Disclosure - Suspicious Comments(`/static/demo.js`). 2026-10-13~14에 데모 페이지 스크립트에 한국어 설명 주석을 넣은 뒤라 생긴 것이다. 주석은 화면 동작과 보안 처리(서버 문자열을 `textContent`로만 넣는 이유 등)를 설명하고 비밀값은 없다. 고치지 않는다
 - **판정**: 규칙의 통과 조건(2026-10-04 ZAP 기록에 없던 High·Medium 없음)을 글자 그대로 적용하면 (2)는 새 High 1건이 있어 통과가 아니다. 규칙대로 그 경보를 고치지 않는 사유를 위에 적었다(오탐). 그 밖에 새 High·Medium은 없고 5xx도 없다. 다음 재스캔은 CPU가 한가할 때 돌려, 이 시간 기반 규칙이 다시 경보하는지 본다
+
+### 2026-10-18 dms-280-car 재스캔 (CPU가 한가할 때, 2026-10-15 규칙 그대로)
+2026-10-15 결과 절에 적은 대로, SQLite 시간 기반 경보가 CPU 부하에서 나온 것인지 보려고 CPU가 한가할 때(시작 직전 2~4%) 대상 (2)만 같은 설정으로 다시 스캔했다. 서비스 코드는 `b17ce35`와 같다(그 뒤 커밋은 문서·리포트·실험 코드뿐). 요약 `reports/dast/2026-10-18.json`.
+- 경보: High 0, Medium 0, Low 0, Informational 3(Information Disclosure - Suspicious Comments, Modern Web Application, User Agent Fuzzer). **SQLite 시간 기반 규칙은 30초 동안 257건을 보내 경보 0건**이었다(2026-10-15 부하 상태에서는 146초, 경보 1건). 2026-10-15의 High를 오탐으로 본 판단과 맞는다
+- active 규칙 53개 시작, 50개 완료, 3개 건너뜀(DOM XSS, Log4Shell, 스크립트 규칙, 같은 사유). active scan 10분 26초. 요청 6,885건, 5xx 0
+- **판정: 통과.** 2026-10-04 ZAP 기록에 없던 High·Medium이 없다

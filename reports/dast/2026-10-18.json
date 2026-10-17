@@ -1,0 +1,109 @@
+{
+  "date": "2026-10-18",
+  "rules": "docs/security.md (2026-10-15 rescan rule; repeated with an idle CPU)",
+  "note": "Local scan only (127.0.0.1:8093), throwaway admin token on every request.",
+  "scans": [
+    {
+      "tool": "OWASP ZAP 2.17.0",
+      "target": "2",
+      "target_description": "create_app with artifacts/dms-280-car (12 categories, onnxruntime CPU FP32), seed hawk/seed-pcb1.har",
+      "service_commit": "e0b14eb (service code as in b17ce35)",
+      "config": "zap/automation.yaml",
+      "traffic": {
+        "requests": 6885,
+        "by_status": {
+          "200": 2198,
+          "307": 71,
+          "400": 658,
+          "404": 645,
+          "405": 707,
+          "422": 2606
+        },
+        "upload_routes": {
+          "POST /calibrate 200": 1322,
+          "POST /inspect 422": 1292,
+          "POST /calibrate 422": 1281,
+          "POST /calibrate 400": 527,
+          "POST /inspect 200": 516,
+          "GET /inspect 405": 438,
+          "GET /calibrate 405": 246,
+          "DELETE /calibrate 404": 182,
+          "POST /calibrate 404": 176,
+          "POST /inspect 404": 168,
+          "POST /inspect 400": 122,
+          "DELETE /calibrate 422": 33,
+          "DELETE /calibrate 200": 19
+        }
+      },
+      "alerts": [
+        {
+          "name": "Information Disclosure - Suspicious Comments",
+          "rule_id": 10027,
+          "risk": "Informational",
+          "confidence": "Low",
+          "count": 1,
+          "systemic": false,
+          "samples": [
+            "GET /static/demo.js"
+          ]
+        },
+        {
+          "name": "Modern Web Application",
+          "rule_id": 10109,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 2,
+          "systemic": true,
+          "samples": [
+            "GET /"
+          ]
+        },
+        {
+          "name": "User Agent Fuzzer",
+          "rule_id": 10104,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 3,
+          "systemic": true,
+          "samples": [
+            "DELETE /calibrate"
+          ]
+        }
+      ],
+      "rules": {
+        "started": 53,
+        "completed": 50,
+        "completed_with_zero_requests": [
+          "ExponentialEntityExpansionScanRule",
+          "GetForPostScanRule",
+          "HttpOnlySiteScanRule",
+          "HttpsAsHttpScanRule",
+          "PaddingOracleScanRule",
+          "PersistentXssScanRule",
+          "SOAPActionSpoofingActiveScanRule",
+          "SOAPXMLInjectionActiveScanRule",
+          "XxeScanRule"
+        ],
+        "skipped": [
+          {
+            "rule": "DomXssScanRule",
+            "reason": "failed to start or connect to the browser"
+          },
+          {
+            "rule": "Log4ShellScanRule",
+            "reason": "no Active Scan OAST service is selected"
+          },
+          {
+            "rule": "ScriptsActiveScanner",
+            "reason": "no scripts enabled"
+          }
+        ],
+        "null_pointer_exceptions_in_log": 16
+      },
+      "compared_with_2026_10_04": {
+        "new_high_or_medium": []
+      },
+      "active_scan_time": "00:10:26"
+    }
+  ]
+}
