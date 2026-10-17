@@ -1,0 +1,1130 @@
+{
+  "n_boot": 2000,
+  "seed": 0,
+  "gates": {
+    "stage7_trim": {
+      "max_rel_diff": 0.0,
+      "thresholds_equal": true
+    },
+    "stage3b_recal30": {
+      "max_rel_diff": 0.0,
+      "thresholds_equal": true
+    },
+    "tolerance": 1e-06,
+    "ok": true
+  },
+  "commit": "471e9de",
+  "arms": {
+    "20:0:none:mixed": {
+      "false_positives": 46,
+      "n_normal": 1080,
+      "detected": 1341,
+      "n_defect": 2263,
+      "fpr": 0.04259259259259259,
+      "tpr": 0.5925762262483429,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          49,
+          50
+        ]
+      ],
+      "fpr_ci": [
+        0.014814814814814815,
+        0.08425925925925926
+      ],
+      "tpr_ci": [
+        0.5214118678941677,
+        0.6555481643068721
+      ]
+    },
+    "20:0:none:cond": {
+      "false_positives": 39,
+      "n_normal": 1080,
+      "detected": 1201,
+      "n_defect": 2263,
+      "fpr": 0.03611111111111111,
+      "tpr": 0.5307114449845338,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          20,
+          20
+        ]
+      ],
+      "fpr_ci": [
+        0.010162037037037079,
+        0.07407407407407407
+      ],
+      "tpr_ci": [
+        0.4610850378257215,
+        0.5943654225963269
+      ]
+    },
+    "20:2:none:mixed": {
+      "false_positives": 31,
+      "n_normal": 1080,
+      "detected": 739,
+      "n_defect": 2155,
+      "fpr": 0.028703703703703703,
+      "tpr": 0.34292343387470997,
+      "defects_in_batch": 108,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          49,
+          50
+        ]
+      ],
+      "fpr_ci": [
+        0.009236111111111152,
+        0.058333333333333334
+      ],
+      "tpr_ci": [
+        0.2865026770953325,
+        0.39953953052995395
+      ]
+    },
+    "20:2:none:cond": {
+      "false_positives": 23,
+      "n_normal": 1080,
+      "detected": 487,
+      "n_defect": 2155,
+      "fpr": 0.021296296296296296,
+      "tpr": 0.2259860788863109,
+      "defects_in_batch": 108,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          20,
+          20
+        ]
+      ],
+      "fpr_ci": [
+        0.003703703703703704,
+        0.04814814814814815
+      ],
+      "tpr_ci": [
+        0.1834602649333542,
+        0.27036441049377047
+      ]
+    },
+    "20:1:label:mixed": {
+      "false_positives": 47,
+      "n_normal": 1080,
+      "detected": 1287,
+      "n_defect": 2209,
+      "fpr": 0.04351851851851852,
+      "tpr": 0.5826165685830693,
+      "defects_in_batch": 54,
+      "dropped_defects": 27,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          48,
+          49
+        ],
+        [
+          49,
+          50
+        ]
+      ],
+      "fpr_ci": [
+        0.013888888888888888,
+        0.08703703703703704
+      ],
+      "tpr_ci": [
+        0.5099999254992126,
+        0.6481594399277325
+      ]
+    },
+    "20:1:label:cond": {
+      "false_positives": 42,
+      "n_normal": 1080,
+      "detected": 1186,
+      "n_defect": 2209,
+      "fpr": 0.03888888888888889,
+      "tpr": 0.5368945224083296,
+      "defects_in_batch": 54,
+      "dropped_defects": 27,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          19,
+          19
+        ],
+        [
+          20,
+          20
+        ]
+      ],
+      "fpr_ci": [
+        0.011111111111111112,
+        0.07872685185185173
+      ],
+      "tpr_ci": [
+        0.46453210745255574,
+        0.6062012080974974
+      ]
+    },
+    "20:2:label:mixed": {
+      "false_positives": 53,
+      "n_normal": 1080,
+      "detected": 1200,
+      "n_defect": 2155,
+      "fpr": 0.049074074074074076,
+      "tpr": 0.5568445475638051,
+      "defects_in_batch": 108,
+      "dropped_defects": 64,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          47,
+          48
+        ],
+        [
+          48,
+          49
+        ],
+        [
+          49,
+          50
+        ]
+      ],
+      "fpr_ci": [
+        0.019444444444444445,
+        0.09166666666666666
+      ],
+      "tpr_ci": [
+        0.482932529009025,
+        0.6237737027728083
+      ]
+    },
+    "20:2:label:cond": {
+      "false_positives": 43,
+      "n_normal": 1080,
+      "detected": 1088,
+      "n_defect": 2155,
+      "fpr": 0.03981481481481482,
+      "tpr": 0.5048723897911833,
+      "defects_in_batch": 108,
+      "dropped_defects": 64,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 35,
+      "rank_n": [
+        [
+          18,
+          18
+        ],
+        [
+          19,
+          19
+        ],
+        [
+          20,
+          20
+        ]
+      ],
+      "fpr_ci": [
+        0.01201388888888893,
+        0.08055555555555556
+      ],
+      "tpr_ci": [
+        0.4333347384369865,
+        0.5727705180082688
+      ]
+    },
+    "20:0:trim:mixed": {
+      "false_positives": 101,
+      "n_normal": 1080,
+      "detected": 1527,
+      "n_defect": 2263,
+      "fpr": 0.09351851851851851,
+      "tpr": 0.6747680070702607,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 216,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          45,
+          46
+        ]
+      ],
+      "fpr_ci": [
+        0.05462962962962963,
+        0.1453935185185184
+      ],
+      "tpr_ci": [
+        0.6036636155369997,
+        0.7373256582557275
+      ]
+    },
+    "20:0:trim:cond": {
+      "false_positives": 115,
+      "n_normal": 1080,
+      "detected": 1553,
+      "n_defect": 2263,
+      "fpr": 0.10648148148148148,
+      "tpr": 0.6862571807335396,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 216,
+      "human_labels": 0,
+      "guaranteed_cells": 0,
+      "rank_n": [
+        [
+          16,
+          16
+        ]
+      ],
+      "fpr_ci": [
+        0.06666666666666667,
+        0.15835648148148135
+      ],
+      "tpr_ci": [
+        0.6160538253485391,
+        0.7501090322380287
+      ]
+    },
+    "30:0:none:mixed": {
+      "false_positives": 47,
+      "n_normal": 1080,
+      "detected": 1412,
+      "n_defect": 2263,
+      "fpr": 0.04351851851851852,
+      "tpr": 0.623950508174989,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          58,
+          60
+        ]
+      ],
+      "fpr_ci": [
+        0.012962962962962963,
+        0.08796296296296297
+      ],
+      "tpr_ci": [
+        0.5545558899663078,
+        0.6880906728486968
+      ]
+    },
+    "30:0:none:cond": {
+      "false_positives": 35,
+      "n_normal": 1080,
+      "detected": 1200,
+      "n_defect": 2263,
+      "fpr": 0.032407407407407406,
+      "tpr": 0.5302695536897923,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.007407407407407408,
+        0.06944444444444445
+      ],
+      "tpr_ci": [
+        0.46059603832951945,
+        0.5956383037767583
+      ]
+    },
+    "30:2:none:mixed": {
+      "false_positives": 38,
+      "n_normal": 1080,
+      "detected": 849,
+      "n_defect": 2155,
+      "fpr": 0.03518518518518519,
+      "tpr": 0.39396751740139213,
+      "defects_in_batch": 108,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          58,
+          60
+        ]
+      ],
+      "fpr_ci": [
+        0.0073842592592593004,
+        0.07777777777777778
+      ],
+      "tpr_ci": [
+        0.33026211241449027,
+        0.4578994985172505
+      ]
+    },
+    "30:2:none:cond": {
+      "false_positives": 17,
+      "n_normal": 1080,
+      "detected": 458,
+      "n_defect": 2155,
+      "fpr": 0.01574074074074074,
+      "tpr": 0.21252900232018562,
+      "defects_in_batch": 108,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.0,
+        0.03981481481481482
+      ],
+      "tpr_ci": [
+        0.17146161277006816,
+        0.25558677448155864
+      ]
+    },
+    "30:1:label:mixed": {
+      "false_positives": 45,
+      "n_normal": 1080,
+      "detected": 1368,
+      "n_defect": 2209,
+      "fpr": 0.041666666666666664,
+      "tpr": 0.6192847442281575,
+      "defects_in_batch": 54,
+      "dropped_defects": 30,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          57,
+          59
+        ],
+        [
+          58,
+          60
+        ]
+      ],
+      "fpr_ci": [
+        0.013888888888888888,
+        0.08148148148148149
+      ],
+      "tpr_ci": [
+        0.5452543956050534,
+        0.6835354587010115
+      ]
+    },
+    "30:1:label:cond": {
+      "false_positives": 36,
+      "n_normal": 1080,
+      "detected": 1106,
+      "n_defect": 2209,
+      "fpr": 0.03333333333333333,
+      "tpr": 0.5006790402897239,
+      "defects_in_batch": 54,
+      "dropped_defects": 30,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.007407407407407408,
+        0.06944444444444445
+      ],
+      "tpr_ci": [
+        0.4281794462058223,
+        0.5682926860301191
+      ]
+    },
+    "30:2:label:mixed": {
+      "false_positives": 39,
+      "n_normal": 1080,
+      "detected": 1176,
+      "n_defect": 2155,
+      "fpr": 0.03611111111111111,
+      "tpr": 0.545707656612529,
+      "defects_in_batch": 108,
+      "dropped_defects": 69,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          57,
+          58
+        ],
+        [
+          57,
+          59
+        ],
+        [
+          58,
+          60
+        ]
+      ],
+      "fpr_ci": [
+        0.008333333333333333,
+        0.07685185185185185
+      ],
+      "tpr_ci": [
+        0.4729958689383938,
+        0.6138217618696764
+      ]
+    },
+    "30:2:label:cond": {
+      "false_positives": 33,
+      "n_normal": 1080,
+      "detected": 1005,
+      "n_defect": 2155,
+      "fpr": 0.030555555555555555,
+      "tpr": 0.46635730858468677,
+      "defects_in_batch": 108,
+      "dropped_defects": 69,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.005555555555555556,
+        0.06761574074074062
+      ],
+      "tpr_ci": [
+        0.3950392600584165,
+        0.5352261063925277
+      ]
+    },
+    "30:3:label:mixed": {
+      "false_positives": 41,
+      "n_normal": 1080,
+      "detected": 952,
+      "n_defect": 2101,
+      "fpr": 0.03796296296296296,
+      "tpr": 0.45311756306520706,
+      "defects_in_batch": 162,
+      "dropped_defects": 60,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          57,
+          58
+        ],
+        [
+          57,
+          59
+        ],
+        [
+          58,
+          60
+        ]
+      ],
+      "fpr_ci": [
+        0.010185185185185186,
+        0.0787037037037037
+      ],
+      "tpr_ci": [
+        0.3821775716239909,
+        0.5181216971164782
+      ]
+    },
+    "30:3:label:cond": {
+      "false_positives": 31,
+      "n_normal": 1080,
+      "detected": 744,
+      "n_defect": 2101,
+      "fpr": 0.028703703703703703,
+      "tpr": 0.3541170871013803,
+      "defects_in_batch": 162,
+      "dropped_defects": 60,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.005555555555555556,
+        0.06296296296296296
+      ],
+      "tpr_ci": [
+        0.2884949222381762,
+        0.41581080310901597
+      ]
+    }
+  },
+  "named": {
+    "R": {
+      "false_positives": 101,
+      "n_normal": 1080,
+      "detected": 1527,
+      "n_defect": 2263,
+      "fpr": 0.09351851851851851,
+      "tpr": 0.6747680070702607,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 216,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          45,
+          46
+        ]
+      ],
+      "fpr_ci": [
+        0.05462962962962963,
+        0.1453935185185184
+      ],
+      "tpr_ci": [
+        0.6036636155369997,
+        0.7373256582557275
+      ]
+    },
+    "C0(20)": {
+      "false_positives": 46,
+      "n_normal": 1080,
+      "detected": 1341,
+      "n_defect": 2263,
+      "fpr": 0.04259259259259259,
+      "tpr": 0.5925762262483429,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          49,
+          50
+        ]
+      ],
+      "fpr_ci": [
+        0.014814814814814815,
+        0.08425925925925926
+      ],
+      "tpr_ci": [
+        0.5214118678941677,
+        0.6555481643068721
+      ]
+    },
+    "C0(30)": {
+      "false_positives": 47,
+      "n_normal": 1080,
+      "detected": 1412,
+      "n_defect": 2263,
+      "fpr": 0.04351851851851852,
+      "tpr": 0.623950508174989,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          58,
+          60
+        ]
+      ],
+      "fpr_ci": [
+        0.012962962962962963,
+        0.08796296296296297
+      ],
+      "tpr_ci": [
+        0.5545558899663078,
+        0.6880906728486968
+      ]
+    },
+    "C1(20,0)": {
+      "false_positives": 39,
+      "n_normal": 1080,
+      "detected": 1201,
+      "n_defect": 2263,
+      "fpr": 0.03611111111111111,
+      "tpr": 0.5307114449845338,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          20,
+          20
+        ]
+      ],
+      "fpr_ci": [
+        0.010162037037037079,
+        0.07407407407407407
+      ],
+      "tpr_ci": [
+        0.4610850378257215,
+        0.5943654225963269
+      ]
+    },
+    "C1(20,2)": {
+      "false_positives": 23,
+      "n_normal": 1080,
+      "detected": 487,
+      "n_defect": 2155,
+      "fpr": 0.021296296296296296,
+      "tpr": 0.2259860788863109,
+      "defects_in_batch": 108,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          20,
+          20
+        ]
+      ],
+      "fpr_ci": [
+        0.003703703703703704,
+        0.04814814814814815
+      ],
+      "tpr_ci": [
+        0.1834602649333542,
+        0.27036441049377047
+      ]
+    },
+    "C1(30,0)": {
+      "false_positives": 35,
+      "n_normal": 1080,
+      "detected": 1200,
+      "n_defect": 2263,
+      "fpr": 0.032407407407407406,
+      "tpr": 0.5302695536897923,
+      "defects_in_batch": 0,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.007407407407407408,
+        0.06944444444444445
+      ],
+      "tpr_ci": [
+        0.46059603832951945,
+        0.5956383037767583
+      ]
+    },
+    "C1(30,2)": {
+      "false_positives": 17,
+      "n_normal": 1080,
+      "detected": 458,
+      "n_defect": 2155,
+      "fpr": 0.01574074074074074,
+      "tpr": 0.21252900232018562,
+      "defects_in_batch": 108,
+      "dropped_defects": 0,
+      "dropped_normals": 0,
+      "human_labels": 0,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.0,
+        0.03981481481481482
+      ],
+      "tpr_ci": [
+        0.17146161277006816,
+        0.25558677448155864
+      ]
+    },
+    "C2(20,1)": {
+      "false_positives": 42,
+      "n_normal": 1080,
+      "detected": 1186,
+      "n_defect": 2209,
+      "fpr": 0.03888888888888889,
+      "tpr": 0.5368945224083296,
+      "defects_in_batch": 54,
+      "dropped_defects": 27,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          19,
+          19
+        ],
+        [
+          20,
+          20
+        ]
+      ],
+      "fpr_ci": [
+        0.011111111111111112,
+        0.07872685185185173
+      ],
+      "tpr_ci": [
+        0.46453210745255574,
+        0.6062012080974974
+      ]
+    },
+    "C2(20,2)": {
+      "false_positives": 43,
+      "n_normal": 1080,
+      "detected": 1088,
+      "n_defect": 2155,
+      "fpr": 0.03981481481481482,
+      "tpr": 0.5048723897911833,
+      "defects_in_batch": 108,
+      "dropped_defects": 64,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 35,
+      "rank_n": [
+        [
+          18,
+          18
+        ],
+        [
+          19,
+          19
+        ],
+        [
+          20,
+          20
+        ]
+      ],
+      "fpr_ci": [
+        0.01201388888888893,
+        0.08055555555555556
+      ],
+      "tpr_ci": [
+        0.4333347384369865,
+        0.5727705180082688
+      ]
+    },
+    "C2(30,1)": {
+      "false_positives": 36,
+      "n_normal": 1080,
+      "detected": 1106,
+      "n_defect": 2209,
+      "fpr": 0.03333333333333333,
+      "tpr": 0.5006790402897239,
+      "defects_in_batch": 54,
+      "dropped_defects": 30,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.007407407407407408,
+        0.06944444444444445
+      ],
+      "tpr_ci": [
+        0.4281794462058223,
+        0.5682926860301191
+      ]
+    },
+    "C2(30,2)": {
+      "false_positives": 33,
+      "n_normal": 1080,
+      "detected": 1005,
+      "n_defect": 2155,
+      "fpr": 0.030555555555555555,
+      "tpr": 0.46635730858468677,
+      "defects_in_batch": 108,
+      "dropped_defects": 69,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.005555555555555556,
+        0.06761574074074062
+      ],
+      "tpr_ci": [
+        0.3950392600584165,
+        0.5352261063925277
+      ]
+    },
+    "C2(30,3)": {
+      "false_positives": 31,
+      "n_normal": 1080,
+      "detected": 744,
+      "n_defect": 2101,
+      "fpr": 0.028703703703703703,
+      "tpr": 0.3541170871013803,
+      "defects_in_batch": 162,
+      "dropped_defects": 60,
+      "dropped_normals": 0,
+      "human_labels": 216,
+      "guaranteed_cells": 54,
+      "rank_n": [
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ]
+      ],
+      "fpr_ci": [
+        0.005555555555555556,
+        0.06296296296296296
+      ],
+      "tpr_ci": [
+        0.2884949222381762,
+        0.41581080310901597
+      ]
+    }
+  },
+  "reference": {
+    "human_recal_8": {
+      "false_positives": 38,
+      "n_normal": 1080,
+      "detected": 956,
+      "n_defect": 2263,
+      "fpr": 0.03518518518518519,
+      "tpr": 0.42244807777286786,
+      "fpr_ci": [
+        0.012037037037037037,
+        0.06388888888888888
+      ],
+      "tpr_ci": [
+        0.3576963947872844,
+        0.48577970158333733
+      ]
+    },
+    "human_recal_30": {
+      "false_positives": 47,
+      "n_normal": 1080,
+      "detected": 1412,
+      "n_defect": 2263,
+      "fpr": 0.04351851851851852,
+      "tpr": 0.623950508174989,
+      "fpr_ci": [
+        0.012962962962962963,
+        0.08796296296296297
+      ],
+      "tpr_ci": [
+        0.5545558899663078,
+        0.6880906728486968
+      ]
+    }
+  },
+  "differences": {
+    "C0(20)-R": {
+      "fpr": {
+        "diff": -0.05092592592592592,
+        "ci": [
+          -0.0712962962962963,
+          -0.033310185185185304
+        ]
+      },
+      "tpr": {
+        "diff": -0.0821917808219178,
+        "ci": [
+          -0.09882300978319869,
+          -0.06501980451700515
+        ]
+      }
+    },
+    "C1(20,0)-C0(20)": {
+      "fpr": {
+        "diff": -0.006481481481481484,
+        "ci": [
+          -0.012962962962962964,
+          -0.0009259259259259273
+        ]
+      },
+      "tpr": {
+        "diff": -0.06186478126380912,
+        "ci": [
+          -0.07525104518018383,
+          -0.04896315241605502
+        ]
+      }
+    },
+    "C1(30,0)-C0(30)": {
+      "fpr": {
+        "diff": -0.011111111111111113,
+        "ci": [
+          -0.0212962962962963,
+          -0.003703703703703702
+        ]
+      },
+      "tpr": {
+        "diff": -0.09368095448519664,
+        "ci": [
+          -0.10883844811605602,
+          -0.07811741384812629
+        ]
+      }
+    },
+    "C2(20,2)-C1(20,2)": {
+      "fpr": {
+        "diff": 0.01851851851851852,
+        "ci": [
+          0.005555555555555553,
+          0.03518518518518519
+        ]
+      },
+      "tpr": {
+        "diff": 0.2788863109048724,
+        "ci": [
+          0.2347631166092441,
+          0.32419199442717817
+        ]
+      }
+    },
+    "C2(30,2)-C1(30,2)": {
+      "fpr": {
+        "diff": 0.014814814814814815,
+        "ci": [
+          0.0027777777777777775,
+          0.031481481481481485
+        ]
+      },
+      "tpr": {
+        "diff": 0.25382830626450115,
+        "ci": [
+          0.21099260430954664,
+          0.2981643963066069
+        ]
+      }
+    },
+    "C2(30,2)-human30": {
+      "fpr": {
+        "diff": -0.012962962962962964,
+        "ci": [
+          -0.025949074074074034,
+          -0.0027777777777777783
+        ]
+      },
+      "tpr": {
+        "diff": -0.1575931995903022,
+        "ci": [
+          -0.18629277021149904,
+          -0.12877561573844262
+        ]
+      }
+    }
+  },
+  "h25": {
+    "fpr": 0.030555555555555555,
+    "fpr_ci": [
+      0.005555555555555556,
+      0.06761574074074062
+    ],
+    "tpr": 0.46635730858468677,
+    "tpr_ci": [
+      0.3950392600584165,
+      0.5352261063925277
+    ],
+    "limit": 0.1,
+    "verdict": "지지"
+  },
+  "hypotheses": {
+    "H25": "지지"
+  }
+}

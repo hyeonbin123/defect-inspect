@@ -26,3 +26,4 @@
 {"time": "2026-10-04T04:00:29+00:00", "commit": "943edf9", "stage": "7-m2ad", "config": "m2ad-enrol-p0", "note": "stage 7 candidates ['e0', 'e2'], closed loop on e0"}
 {"time": "2026-10-04T04:38:27+00:00", "commit": "943edf9+dirty", "stage": "7-m2ad", "config": "m2ad-enrol-d-s", "note": "stage 7 candidates ['e0', 'e3']"}
 {"time": "2026-10-15T10:17:31+00:00", "commit": "732c88a+dirty", "stage": "cache", "config": "m2ad-cache-280", "note": "M2AD resize cache build: pixels copied into arrays, no scores or metrics"}
+{"time": "2026-10-17T19:10:21+00:00", "commit": "471e9de", "stage": "8-m2ad-loop", "config": "m2ad-loop-p0", "note": "stage 8-B closed-loop arms 10 per light, human check m=4"}
