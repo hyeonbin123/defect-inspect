@@ -1,0 +1,490 @@
+{
+  "arms": {
+    "e0": {
+      "models": {
+        "fold0": {
+          "train_images": 144,
+          "final_loss": 0.006614411249756813,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 264.49
+        },
+        "fold1": {
+          "train_images": 144,
+          "final_loss": 0.0065835509449243546,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 264.128
+        },
+        "fold2": {
+          "train_images": 144,
+          "final_loss": 0.006592666730284691,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 264.641
+        },
+        "fold3": {
+          "train_images": 144,
+          "final_loss": 0.006571201607584953,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 264.269
+        },
+        "fold4": {
+          "train_images": 144,
+          "final_loss": 0.006554294377565384,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 264.754
+        },
+        "full": {
+          "train_images": 180,
+          "final_loss": 0.00678233802318573,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1613.7,
+          "train_s": 266.94
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "value": 0.03358947113156319,
+          "rank": 30,
+          "n": 30,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Motor_120",
+          "value": 0.01826058328151703,
+          "rank": 30,
+          "n": 30,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Motor_240",
+          "value": 0.026630498468875885,
+          "rank": 30,
+          "n": 30,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_000",
+          "value": 0.028316589072346687,
+          "rank": 30,
+          "n": 30,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_120",
+          "value": 0.026716474443674088,
+          "rank": 30,
+          "n": 30,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_240",
+          "value": 0.03126206621527672,
+          "rank": 30,
+          "n": 30,
+          "guaranteed": true
+        }
+      ],
+      "enrolled_fpr": 0.0,
+      "enrolled_counts": [
+        0,
+        180
+      ],
+      "unseen_fpr": 0.9444444444444444,
+      "unseen_counts": [
+        1530,
+        1620
+      ],
+      "per_light": {
+        "01": {
+          "false_positives": 0,
+          "n": 180,
+          "fpr": 0.0,
+          "enrolled": true
+        },
+        "02": {
+          "false_positives": 136,
+          "n": 180,
+          "fpr": 0.7555555555555555,
+          "enrolled": false
+        },
+        "03": {
+          "false_positives": 180,
+          "n": 180,
+          "fpr": 1.0,
+          "enrolled": false
+        },
+        "04": {
+          "false_positives": 180,
+          "n": 180,
+          "fpr": 1.0,
+          "enrolled": false
+        },
+        "05": {
+          "false_positives": 180,
+          "n": 180,
+          "fpr": 1.0,
+          "enrolled": false
+        },
+        "06": {
+          "false_positives": 180,
+          "n": 180,
+          "fpr": 1.0,
+          "enrolled": false
+        },
+        "07": {
+          "false_positives": 180,
+          "n": 180,
+          "fpr": 1.0,
+          "enrolled": false
+        },
+        "08": {
+          "false_positives": 134,
+          "n": 180,
+          "fpr": 0.7444444444444445,
+          "enrolled": false
+        },
+        "09": {
+          "false_positives": 180,
+          "n": 180,
+          "fpr": 1.0,
+          "enrolled": false
+        },
+        "10": {
+          "false_positives": 180,
+          "n": 180,
+          "fpr": 1.0,
+          "enrolled": false
+        }
+      }
+    },
+    "e2-a": {
+      "models": {
+        "fold0": {
+          "train_images": 720,
+          "final_loss": 0.009048040956258774,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 264.24
+        },
+        "fold1": {
+          "train_images": 720,
+          "final_loss": 0.008965900167822838,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 263.008
+        },
+        "fold2": {
+          "train_images": 720,
+          "final_loss": 0.009038064628839493,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 263.837
+        },
+        "fold3": {
+          "train_images": 720,
+          "final_loss": 0.008945150300860405,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 263.573
+        },
+        "fold4": {
+          "train_images": 720,
+          "final_loss": 0.00897575169801712,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 263.21
+        },
+        "full": {
+          "train_images": 900,
+          "final_loss": 0.00906728021800518,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1613.7,
+          "train_s": 264.251
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "value": 0.02237364836037159,
+          "rank": 144,
+          "n": 150,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Motor_120",
+          "value": 0.01714089699089527,
+          "rank": 144,
+          "n": 150,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Motor_240",
+          "value": 0.018743358552455902,
+          "rank": 144,
+          "n": 150,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_000",
+          "value": 0.024273840710520744,
+          "rank": 144,
+          "n": 150,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_120",
+          "value": 0.026932833716273308,
+          "rank": 144,
+          "n": 150,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_240",
+          "value": 0.02557564340531826,
+          "rank": 144,
+          "n": 150,
+          "guaranteed": true
+        }
+      ],
+      "enrolled_fpr": 0.04,
+      "enrolled_counts": [
+        36,
+        900
+      ],
+      "unseen_fpr": 0.36777777777777776,
+      "unseen_counts": [
+        331,
+        900
+      ],
+      "per_light": {
+        "01": {
+          "false_positives": 3,
+          "n": 180,
+          "fpr": 0.016666666666666666,
+          "enrolled": true
+        },
+        "02": {
+          "false_positives": 13,
+          "n": 180,
+          "fpr": 0.07222222222222222,
+          "enrolled": false
+        },
+        "03": {
+          "false_positives": 8,
+          "n": 180,
+          "fpr": 0.044444444444444446,
+          "enrolled": true
+        },
+        "04": {
+          "false_positives": 59,
+          "n": 180,
+          "fpr": 0.3277777777777778,
+          "enrolled": false
+        },
+        "05": {
+          "false_positives": 160,
+          "n": 180,
+          "fpr": 0.8888888888888888,
+          "enrolled": false
+        },
+        "06": {
+          "false_positives": 76,
+          "n": 180,
+          "fpr": 0.4222222222222222,
+          "enrolled": false
+        },
+        "07": {
+          "false_positives": 9,
+          "n": 180,
+          "fpr": 0.05,
+          "enrolled": true
+        },
+        "08": {
+          "false_positives": 6,
+          "n": 180,
+          "fpr": 0.03333333333333333,
+          "enrolled": true
+        },
+        "09": {
+          "false_positives": 10,
+          "n": 180,
+          "fpr": 0.05555555555555555,
+          "enrolled": true
+        },
+        "10": {
+          "false_positives": 23,
+          "n": 180,
+          "fpr": 0.12777777777777777,
+          "enrolled": false
+        }
+      }
+    },
+    "e2-b": {
+      "models": {
+        "fold0": {
+          "train_images": 864,
+          "final_loss": 0.009077277034521103,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 262.827
+        },
+        "fold1": {
+          "train_images": 864,
+          "final_loss": 0.009100968018174171,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 262.982
+        },
+        "fold2": {
+          "train_images": 864,
+          "final_loss": 0.00907958298921585,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 262.519
+        },
+        "fold3": {
+          "train_images": 864,
+          "final_loss": 0.009154153987765312,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 263.184
+        },
+        "fold4": {
+          "train_images": 864,
+          "final_loss": 0.009047545492649078,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1615.8,
+          "train_s": 262.512
+        },
+        "full": {
+          "train_images": 1080,
+          "final_loss": 0.00896347314119339,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1613.7,
+          "train_s": 263.869
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "value": 0.01978355646133423,
+          "rank": 172,
+          "n": 180,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Motor_120",
+          "value": 0.016970807686448097,
+          "rank": 172,
+          "n": 180,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Motor_240",
+          "value": 0.018073417246341705,
+          "rank": 172,
+          "n": 180,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_000",
+          "value": 0.024030139669775963,
+          "rank": 172,
+          "n": 180,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_120",
+          "value": 0.025809111073613167,
+          "rank": 172,
+          "n": 180,
+          "guaranteed": true
+        },
+        {
+          "inspector": "Bird_240",
+          "value": 0.02552688866853714,
+          "rank": 172,
+          "n": 180,
+          "guaranteed": true
+        }
+      ],
+      "enrolled_fpr": 0.044444444444444446,
+      "enrolled_counts": [
+        48,
+        1080
+      ],
+      "unseen_fpr": 0.40694444444444444,
+      "unseen_counts": [
+        293,
+        720
+      ],
+      "per_light": {
+        "01": {
+          "false_positives": 5,
+          "n": 180,
+          "fpr": 0.027777777777777776,
+          "enrolled": true
+        },
+        "02": {
+          "false_positives": 8,
+          "n": 180,
+          "fpr": 0.044444444444444446,
+          "enrolled": true
+        },
+        "03": {
+          "false_positives": 94,
+          "n": 180,
+          "fpr": 0.5222222222222223,
+          "enrolled": false
+        },
+        "04": {
+          "false_positives": 6,
+          "n": 180,
+          "fpr": 0.03333333333333333,
+          "enrolled": true
+        },
+        "05": {
+          "false_positives": 9,
+          "n": 180,
+          "fpr": 0.05,
+          "enrolled": true
+        },
+        "06": {
+          "false_positives": 6,
+          "n": 180,
+          "fpr": 0.03333333333333333,
+          "enrolled": true
+        },
+        "07": {
+          "false_positives": 153,
+          "n": 180,
+          "fpr": 0.85,
+          "enrolled": false
+        },
+        "08": {
+          "false_positives": 34,
+          "n": 180,
+          "fpr": 0.18888888888888888,
+          "enrolled": false
+        },
+        "09": {
+          "false_positives": 12,
+          "n": 180,
+          "fpr": 0.06666666666666667,
+          "enrolled": false
+        },
+        "10": {
+          "false_positives": 14,
+          "n": 180,
+          "fpr": 0.07777777777777778,
+          "enrolled": true
+        }
+      }
+    }
+  }
+}
