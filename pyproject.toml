@@ -52,6 +52,12 @@ openvino = [
     "openvino==2026.4.1",
 ]
 
+# torch·torchvision의 CUDA 12.8 빌드를 받는 PyTorch 인덱스. explicit이라 아래 [tool.uv.sources]에 적은 두
+# 패키지만 여기서 받는다. 2026-10-24에 확인한 이 인덱스의 마지막 판은 torch 2.11.0·torchvision 0.26.0이고,
+# 그보다 새 판(예: CVE-2025-3000이 고쳐진 torch 2.13.0)은 cu130·cu132 같은 새 CUDA 인덱스에만 있다. 올릴 때는
+# 인덱스를 바꾸고, 새 빌드가 이 GPU(RTX 2080 Ti)를 지원하는지 확인한 뒤, 학습·채점 결과가 바뀔 수 있으므로
+# 새 등록 항목(docs/experiments.md)으로 GPU 측정을 다시 한다. 이 두 패키지는 PyPI에 없는 판이라 pip-audit이
+# 건너뛰므로 OSV에 직접 조회한다(docs/security.md의 로컬 감사 절차).
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"

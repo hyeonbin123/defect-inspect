@@ -112,10 +112,16 @@ uvx pip-audit@2.10.1 -r "$out" --disable-pip --require-hashes -s osv
 #     affects의 패키지 이름은 표기를 구분하므로 두 표기를 모두 본다. <버전>은 uv.lock의 pillow 버전이다.
 gh api -X GET advisories -f ecosystem=pip -f affects=pillow@<버전> --jq '.[].ghsa_id'
 gh api -X GET advisories -f ecosystem=pip -f affects=Pillow@<버전> --jq '.[].ghsa_id'
+# (4) 학습용 그룹의 torch·torchvision은 pytorch-cu128 인덱스의 CUDA 빌드(2.11.0+cu128 등)라 PyPI에 없는 판이어서
+#     pip-audit이 건너뛴다. OSV API에 이름과 버전(+cu128을 뗀 것)으로 직접 묻는다. 결과의 vulns가 권고 목록이다
+#     (권고가 없으면 {}).
+curl -s -X POST https://api.osv.dev/v1/query -d '{"package":{"name":"torch","ecosystem":"PyPI"},"version":"<버전>"}'
+curl -s -X POST https://api.osv.dev/v1/query -d '{"package":{"name":"torchvision","ecosystem":"PyPI"},"version":"<버전>"}'
 ```
 - (2)와 (3)을 두는 이유: 2026-10-24에 Pillow 12.3.0을 대조했을 때 (1)은 35건을 냈지만 OSV와 GitHub Advisory Database에는 39건이 있었다. (1)에 없던 4건 가운데 하나가 critical인 GHSA-8g5g-8vmr-9782다. 데이터베이스마다 실린 권고가 달라서, CI가 녹색이어도 다른 데이터베이스에만 실린 권고가 있을 수 있다
 - (3)의 affects 조회는 이름 표기에 따라 결과가 갈렸다(같은 날 `pillow@12.3.0` 11건, `Pillow@12.3.0` 28건, 겹치는 것 없음)
 - (2)는 `--require-hashes`를 주어도 해시가 있는지만 보고 값이 맞는지는 확인하지 않는다는 경고를 낸다. 해시 검증은 (1)이 한다
+- (4)를 두는 이유: 학습용 그룹(`train`·`dinomaly`)은 서비스 이미지에 들어가지 않아 CI가 대조하지 않는다. 이 그룹을 손으로 대조할 때 (1)·(2)의 `--group serve`를 `--group train --group dinomaly`로 바꾸면 torch·torchvision은 "Dependency not found on PyPI"로 빠지므로, 이 둘은 (4)로 채운다
 
 ### 2026-10-24 Pillow 12.3.0 → 13.0.0, opentelemetry-api 1.45.0 → 1.45.1
 - **계기**: 위 절차 (1)을 다시 돌리니 `Found 36 known vulnerabilities in 2 packages`가 나왔다. pillow 12.3.0에 35건(수정 판은 모두 13.0.0), fastapi가 끌어오는 opentelemetry-api 1.45.0에 1건(CVE-2026-114603 / GHSA-xcq7-p3pf-p88h, tracestate를 제한 없이 해석함, 수정 판 1.45.1)이다. 권고들은 2026-10-20~22에 올라왔고 마지막 push(2026-10-18)보다 뒤라 CI는 녹색으로 남아 있었지만, 다음 push부터 audit 작업이 실패할 상태였다. (2)와 (3)에서는 pillow가 39건이었다(GHSA-8g5g-8vmr-9782, GHSA-xvh5-g6gv-559v, GHSA-rfgq-q3w2-pmv2, GHSA-4558-3h8r-v8xp가 더 있음)
@@ -136,3 +142,4 @@ gh api -X GET advisories -f ecosystem=pip -f affects=Pillow@<버전> --jq '.[].g
 
 - **회귀 테스트** (`tests/test_service.py`): `test_a_tiny_rle_bmp_does_not_blow_up_into_a_huge_allocation`은 위 BMP를 `_decode`에 넣고 디코딩 동안 늘어난 파이썬 메모리 최고치가 20MB보다 작은지 본다(12.3.0에서 97.8MB로 실패, 13.0.0에서 통과). `test_the_installed_pillow_has_the_decoder_security_fixes`는 Pillow 주 버전이 13 이상인지와 위 APNG가 400인지를 본다. APNG의 바탕 그림은 Pillow의 C 코드가 잡는 메모리라 tracemalloc으로 잴 수 없어서, 잠금이 낮은 버전으로 돌아가는 것을 버전 단언으로 막는다
 - **측정 기록에 미치는 영향**: 없다. 봉인 test가 아닌 VisA 학습 풀 6,493장을 리사이즈 캐시와 같은 호출로 280·256px로 줄인 결과가 Pillow 12.3.0으로 만든 기존 캐시와 모두 바이트 단위로 같았다. 자세한 내용은 [experiments.md](experiments.md) 공통 규칙의 '전처리' 절에 적었다
+- **학습용 torch (같은 날, 절차 (4))**: OSV에 물으니 torch 2.11.0에 GHSA-rrmf-rvhw-rf47(CVE-2025-3000, `torch.jit.script`의 메모리 손상, 심각도 low, 수정 판 2.13.0) 1건이 있고 torchvision 0.26.0에는 없었다. 판단: 그대로 둔다. torch는 학습·내보내기 그룹에만 있고 서비스 이미지에는 없다. 이 저장소의 코드는 `torch.jit.script`를 부르지 않는다. anomalib이 끌어오는 kornia가 가져올 때 자기 함수를 스크립팅하고, ONNX 내보내기(`dynamo=False`)가 TorchScript 기반 추적을 쓰지만, 다루는 것은 설치한 라이브러리와 이 저장소의 코드뿐이고 외부에서 받은 TorchScript를 불러오지 않는다. 수정 판은 `pytorch-cu128` 인덱스에 없다(이 인덱스의 마지막 판은 torch 2.11.0·torchvision 0.26.0이고, torch 2.13.0 이상은 cu130·cu132 인덱스에 있다). 올릴 때의 절차는 `pyproject.toml`의 인덱스 주석에 적었다
