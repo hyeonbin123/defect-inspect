@@ -5,7 +5,9 @@ description = "Anomaly detection for visual inspection, measured with pre-regist
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.0",
-    "pillow>=11.0",
+    # 13.0 이상: 12.3.0까지의 판에 걸린 공개 보안 권고(서비스가 받는 TIFF·PNG·BMP 디코딩 경로 포함)가
+    # 13.0.0에서 고쳐졌다. 도달 분석과 회귀 테스트는 docs/security.md의 의존성 취약점 대조 절에 있다.
+    "pillow>=13.0",
     "scipy>=1.14",
 ]
 

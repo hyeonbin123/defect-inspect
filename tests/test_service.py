@@ -6,8 +6,9 @@
 # 제한, 보안 헤더), 동시성(범주별 잠금, 작업자 수 제한과 503)이 모두 맞아야 한다. docs/security.md의 DAST
 # 판정(예: Anti-CSRF 지적을 오탐으로 본 근거)도 이 파일의 테스트에 기대고 있다.
 # [주요 구성] 요청 도우미와 ASGI 직접 호출 → 판정·히트맵·입력 형식 → 잘못된 요청과 크기 제한 →
-# 손상·16비트·투명도·미리보기 → 재보정과 되돌리기 → 관리자 토큰·다른 출처 거절 → 잠금과 동시 요청·대기열 →
-# Host 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors) → 데모 페이지 JS(node가 있을 때).
+# 손상 파일과 디코더 보안 권고 회귀(작은 BMP·APNG) → 16비트·투명도·미리보기 → 재보정과 되돌리기 →
+# 관리자 토큰·다른 출처 거절 → 잠금과 동시 요청·대기열 → Host 검사·보안 헤더·정적 파일 →
+# 아티팩트 읽기(load_inspectors) → 데모 페이지 JS(node가 있을 때).
 
 import asyncio
 import base64
@@ -16,11 +17,15 @@ import io
 import itertools
 import json
 import shutil
+import struct
 import subprocess
 import threading
+import tracemalloc
+import zlib
 from pathlib import Path
 
 import numpy as np
+import PIL
 import pytest
 from PIL import Image, ImageOps
 
@@ -29,7 +34,9 @@ from PIL import Image, ImageOps
 pytest.importorskip("fastapi")
 pytest.importorskip("multipart")
 
-# TestClient는 실제 서버를 띄우지 않고 앱을 같은 프로세스에서 HTTP처럼 부른다.
+# TestClient는 실제 서버를 띄우지 않고 앱을 같은 프로세스에서 HTTP처럼 부른다. HTTPException은 서비스의
+# 디코딩 함수(_decode)를 서버 없이 직접 부를 때 400 거절을 받아 보는 데 쓴다.
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from defect_inspect import service  # noqa: E402
@@ -334,6 +341,91 @@ def test_damaged_and_unsupported_files_are_a_400_not_a_500(client, monkeypatch):
 
     monkeypatch.setattr(service.Image, "open", boom)
     assert _inspect(client, _png(_normal())).status_code == 400
+
+
+# 8비트 팔레트 BMP(BI_RLE8 압축) 파일 바이트를 만든다. 파일 머리 14바이트 + 정보 머리 40바이트
+# + 256색 회색 팔레트 1,024바이트 + RLE 자료 6바이트 = 1,084바이트이고, 그림은 폭 `width`·높이 1이다.
+# RLE 자료는 "델타(오른쪽 0칸, 위로 `up`줄 건너뛰기: 00 02 00 up)"와 "비트맵 끝(00 01)" 두 명령뿐이라
+# 실제 화소 자료는 없다.
+def _bmp_rle8(width: int, up: int) -> bytes:
+    palette = b"".join(struct.pack("<BBBB", i, i, i, 0) for i in range(256))
+    rle = bytes([0, 2, 0, up, 0, 1])
+    offset = 14 + 40 + len(palette)
+    # 정보 머리(BITMAPINFOHEADER): 크기 40, 폭, 높이 1, 면 1, 화소당 8비트, 압축 1(BI_RLE8), 자료 크기,
+    # 해상도 2835 화소/m(72dpi) 두 개, 쓰는 색 256, 중요한 색 0(전부).
+    info = struct.pack("<IiiHHIIiiII", 40, width, 1, 1, 8, 1, len(rle), 2835, 2835, 256, 0)
+    return b"BM" + struct.pack("<IHHI", offset + len(rle), 0, 0, offset) + info + palette + rle
+
+
+# PNG 청크 하나(길이 4바이트 + 종류 4바이트 + 자료 + CRC-32)를 만든다.
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+
+# 127바이트 APNG를 만든다. 머리(IHDR)에는 side×side 8비트 RGB라고 적고, 애니메이션 프레임은 (0, 0)의
+# 1×1 하나뿐이며 그 프레임의 처분 방식이 "배경으로 지움(dispose_op=1)"이다. 실제 화소 자료(IDAT)는
+# 1×1 한 줄(필터 바이트 + 3바이트)뿐이다.
+def _apng_background_dispose(side: int) -> bytes:
+    header = struct.pack(">IIBBBBB", side, side, 8, 2, 0, 0, 0)
+    animation = struct.pack(">II", 1, 0)  # 프레임 1개, 무한 반복
+    # fcTL: 순번 0, 폭 1, 높이 1, 위치 (0, 0), 지연 1/1초, dispose_op 1(배경), blend_op 0(덮어쓰기).
+    frame = struct.pack(">IIIIIHHBB", 0, 1, 1, 0, 0, 1, 1, 1, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", header)
+        + _png_chunk(b"acTL", animation)
+        + _png_chunk(b"fcTL", frame)
+        + _png_chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00"))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+# 작은 BMP가 디코딩 중 거대한 메모리로 부풀지 않는지 본다(Pillow 공개 보안 권고
+# GHSA-24rc-8hj2-v98c, BMP RLE 디코더의 메모리 증폭, Pillow 13.0.0에서 수정). 1,084바이트 파일이
+# 폭 200,000·높이 1의 그림이라 화소 수 검사(MAX_IMAGE_PIXELS 2,500만)를 통과한다. Pillow 12.3.0의
+# 파이썬 RLE 디코더는 델타가 그림 밖(높이가 1인데 255줄 위)을 가리켜도 건너뛴 칸만큼의 0바이트
+# (255 × 200,000 ≈ 51MB)를 파이썬 bytes로 만들어 붙여서, 디코딩 동안 파이썬 메모리 최고치가 약 98MB였다
+# (파일 크기의 약 9만 배). 같은 구조로 폭을 화소 수 한도까지 키우면 수 GB가 되어, 메모리 한도가 있는
+# 컨테이너(compose의 mem_limit)가 죽을 수 있다.
+# 결과는 400(읽을 수 없는 그림)이든 정상 디코딩이든 상관없고, 디코딩 동안 늘어난 파이썬 메모리
+# 최고치가 20MB보다 작은지만 본다. 주의: tracemalloc은 파이썬 할당(bytes·bytearray 등)만 센다. 이
+# 증폭은 파이썬 디코더가 만드는 bytes라 잡히지만, Pillow가 C에서 잡는 화소 버퍼는 잡히지 않는다(그래서
+# APNG 경우는 아래 버전 검사로 지킨다). 다른 곳에서 이미 tracemalloc을 켰다면(예: python -X
+# tracemalloc) 끄지 않고, 최고치를 초기화한 뒤 그때의 사용량을 빼서 이 디코딩이 늘린 몫만 본다.
+def test_a_tiny_rle_bmp_does_not_blow_up_into_a_huge_allocation():
+    data = _bmp_rle8(200_000, up=255)
+    assert len(data) == 1084
+    started = not tracemalloc.is_tracing()
+    if started:
+        tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        before = tracemalloc.get_traced_memory()[0]
+        try:
+            service._decode(data, 64)
+        except HTTPException as error:
+            assert error.status_code == 400
+        peak = tracemalloc.get_traced_memory()[1] - before
+    finally:
+        if started:
+            tracemalloc.stop()
+    assert peak < 20 * 2**20, f"decoding a 1,084-byte BMP peaked at {peak / 2**20:.1f} MB"
+
+
+# 설치된 Pillow가 13 이상인지 본다. 서비스가 받는 형식(TIFF·PNG·BMP)의 디코딩 경로에 걸리는 공개
+# 보안 권고들이 13.0.0에서 고쳐졌기 때문이다(docs/security.md의 의존성 취약점 대조). 그중 APNG 권고
+# (GHSA-5xm2-6676-qcp9)는 처분 방식이 "배경으로 지움"인 프레임이 있으면 Image.open이 머리에 적힌
+# 크기 그대로의 바탕 그림을 화소 수 검사보다 먼저 잡는 것이다(12.3.0에서 아래 127바이트 파일로 약
+# 137MB). 이 할당은 Pillow의 C 코드가 하므로 tracemalloc에 잡히지 않아, 위 BMP처럼 메모리 최고치로
+# 시험할 수 없다. 그래서 잠금 파일이 다시 낮은 버전으로 내려가는 일을 이 버전 단언으로 막는다. 같은
+# 파일은 어느 버전에서든 화소 수(6,000 × 6,000 = 3,600만)가 한도를 넘으므로 400이어야 한다.
+def test_the_installed_pillow_has_the_decoder_security_fixes():
+    assert int(PIL.__version__.split(".")[0]) >= 13, PIL.__version__
+    data = _apng_background_dispose(6000)
+    assert len(data) == 127
+    with pytest.raises(HTTPException) as refused:
+        service._decode(data, 64)
+    assert refused.value.status_code == 400
 
 
 # 모델이 예상 밖 오류를 내면 응답은 내용 없는 JSON 500이고 보안 헤더가 붙으며, 오류 메시지는 응답에 나가지
