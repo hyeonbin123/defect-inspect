@@ -566,8 +566,8 @@ class ReconstructionInspector:
     """스스로 점수를 내는 모델(Dinomaly)의 범주 하나 CPU 검사기: 메모리 뱅크가 없다.
 
     ONNX 모델은 `image` [1, 3, S, S](ImageNet 정규화)를 받아 `score` [1](이미지 점수: 흐린 맵의 상위 1%
-    평균)과 `map` [1, M, M](이상 맵)을 돌려준다. 모델은 모든 범주가 함께 쓰고 임계값만 범주별이다. 점수가
-    유한하지 않으면 판정하지 않고 `FloatingPointError`를 낸다.
+    평균)과 `map` [1, M, M](이상 맵)을 돌려준다. 모델은 모든 범주가 함께 쓰고 임계값만 범주별이다. 점수나
+    맵이 유한하지 않으면 판정하지 않고 `FloatingPointError`를 낸다.
     """
 
     kind = RECONSTRUCTION
@@ -651,9 +651,15 @@ class ReconstructionInspector:
         inspector.threads = None if threads is None else int(threads)
         return inspector
 
-    # 출력 모양이 meta와 다르거나 점수가 유한하지 않으면 판정 전에 멈춘다.
+    # 출력 모양이 meta와 다르거나 점수·맵이 유한하지 않으면 판정 전에 멈춘다. 맵도 검사하는 이유: 맵은 그대로
+    # 서비스 히트맵이 되는데, NaN은 0~1로 자르고 uint8로 바꾸는 동안 0(검정)이 되어 '점수 0'처럼 조용히
+    # 그려지고, 맵이 깨진 실행은 점수도 믿을 수 없다. 연구 경로 run_dinomaly.predict가 점수와 맵을 함께
+    # 검사하는 것과 같은 규칙이다.
     def run(self, image: Image.Image | np.ndarray) -> tuple[float, np.ndarray]:
-        """모델을 한 번 돌려 이미지 한 장의 (이미지 점수, float32 맵 [M, M])을 얻는다."""
+        """모델을 한 번 돌려 이미지 한 장의 (이미지 점수, float32 맵 [M, M])을 얻는다.
+
+        점수나 맵이 유한하지 않으면 `FloatingPointError`를 낸다.
+        """
         score, amap = self.session.run(["score", "map"], {"image": preprocess(image, self.size)})
         score = np.asarray(score, dtype=np.float32).reshape(-1)
         amap = np.asarray(amap, dtype=np.float32)
@@ -664,6 +670,8 @@ class ReconstructionInspector:
             )
         if not np.isfinite(score).all():
             raise FloatingPointError("the anomaly score is not finite")
+        if not np.isfinite(amap).all():
+            raise FloatingPointError("the anomaly map is not finite")
         return float(score[0]), amap[0]
 
     # Inspector.inspect와 같은 결과 형식. 맵은 모델이 이미 계산했으므로 heatmap=False여도 계산량은 같고

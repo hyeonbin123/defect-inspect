@@ -5,10 +5,11 @@
 # 입력 검증(형식·크기·16비트·투명도), 보호 장치(Host 검사, 다른 출처의 쓰기 요청 거절, 관리자 토큰, 본문 크기
 # 제한, 보안 헤더), 동시성(범주별 잠금, 작업자 수 제한과 503)이 모두 맞아야 한다. docs/security.md의 DAST
 # 판정(예: Anti-CSRF 지적을 오탐으로 본 근거)도 이 파일의 테스트에 기대고 있다.
-# [주요 구성] 요청 도우미와 ASGI 직접 호출 → 판정·히트맵·입력 형식 → 잘못된 요청과 크기 제한 →
-# 손상 파일과 디코더 보안 권고 회귀(작은 BMP·APNG) → 16비트·투명도·미리보기 → 재보정과 되돌리기 →
-# 관리자 토큰·다른 출처 거절 → 잠금과 동시 요청·대기열 → 본문을 받기 전의 입장 제한(503)과 스풀 공간 부족 →
-# Host 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors) → 데모 페이지 JS(node가 있을 때).
+# [주요 구성] 요청 도우미와 ASGI 직접 호출 → 판정·히트맵·입력 형식(RGB 그림은 복사 없이 디코딩) → 잘못된
+# 요청과 크기 제한 → 손상 파일과 디코더 보안 권고 회귀(작은 BMP·APNG) → 16비트·투명도·미리보기 → 재보정과
+# 되돌리기 → 관리자 토큰·다른 출처 거절 → 잠금과 동시 요청·대기열 → 본문을 받기 전의 입장 제한(503)과 스풀
+# 공간 부족 → Host 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors)와 시작 예열 → 히트맵 PNG 눈금과
+# 비유한 맵 거부 → 데모 페이지 JS(node가 있을 때).
 
 import asyncio
 import base64
@@ -233,6 +234,53 @@ def test_any_image_size_and_8_bit_mode_is_scored_like_the_inspector_itself(clien
     assert decoded.mode == "RGB" and decoded.size == (64, 64)
     expected = Image.fromarray(big).convert("RGB").resize((64, 64), Image.Resampling.BICUBIC)
     assert np.array_equal(np.asarray(decoded), np.asarray(expected))
+
+
+# 디코딩이 이미 RGB인 그림을 복사하지 않는지와, 어느 8비트 모드에서든 결과 화소가 예전 경로(convert("RGB") 뒤
+# resize)와 똑같은지 본다. Pillow의 convert는 같은 모드를 요구하면 self.copy()를 돌려주므로, 예전에는 RGB
+# 업로드도 원본 크기 사본을 한 번 더 만들어 원본과 나란히 들고 있었다(Pillow는 RGB도 화소당 4바이트라 2,400만
+# 화소면 약 96MB가 더 든다).
+# 그래서 RGB로 열리는 PNG·JPEG·BMP·TIFF·WebP에서는 convert가 한 번도 불리지 않아야 하고, 다른 모드(L·P·
+# 불투명 RGBA·CMYK)는 convert를 거치되 화소는 예전과 같아야 한다. Image.Image.convert를 세는 감싸개로 바꿔
+# 호출을 기록하고, 비교 대상(예전 경로의 결과)은 세기 전에 만든다.
+def test_decoding_keeps_an_rgb_picture_without_a_copy_and_every_mode_pixel_identical(monkeypatch):
+    rgb = _normal()
+    opaque = np.dstack([rgb, np.full((64, 64), 255, np.uint8)])
+    wide = np.random.default_rng(0).integers(0, 256, (300, 480, 3), dtype=np.uint8)
+    uploads = {
+        "rgb-png": _png(rgb),
+        "rgb-jpeg": _encode(rgb, "JPEG", quality=95),
+        "rgb-bmp": _encode(rgb, "BMP"),
+        "rgb-tiff": _encode(rgb, "TIFF"),
+        "rgb-webp": _encode(rgb, "WEBP", lossless=True),
+        "rgb-wide-png": _png(wide),  # 정사각형이 아니고 입력 크기보다 크다: 리사이즈가 실제로 일어난다
+        "grey-png": _png(rgb[..., 0]),
+        "palette-png": _encode(Image.fromarray(rgb).quantize(32)),
+        "opaque-rgba-png": _png(opaque),
+        "cmyk-jpeg": _encode(Image.fromarray(rgb).convert("CMYK"), "JPEG", quality=95),
+    }
+    expected = {
+        name: Image.open(io.BytesIO(data)).convert("RGB").resize((64, 64), Image.Resampling.BICUBIC)
+        for name, data in uploads.items()
+    }
+
+    converted = []
+    real_convert = Image.Image.convert
+
+    def counting_convert(self, mode=None, *args, **kwargs):
+        converted.append((self.mode, mode))
+        return real_convert(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "convert", counting_convert)
+    for name, data in uploads.items():
+        converted.clear()
+        decoded = service._decode(data, 64)
+        assert decoded.mode == "RGB" and decoded.size == (64, 64), name
+        assert np.array_equal(np.asarray(decoded), np.asarray(expected[name])), name
+        if name.startswith("rgb-"):
+            assert converted == [], name  # 이미 RGB: 원본 크기 사본을 만들지 않는다
+        else:
+            assert converted and converted[-1][1] == "RGB", name
 
 
 # 잘못된 요청의 상태 코드: 모르는 범주 404, 이미지가 아닌 바이트·빈 업로드 400, 필드 누락 422, 64자를 넘는
@@ -1094,6 +1142,102 @@ def test_create_app_needs_artifacts(tmp_path, monkeypatch):
         service.create_app(tmp_path)
 
 
+# 가짜 세션 감싸개: 모델 호출마다 받은 입력 텐서를 inputs에 남기고 실제 세션에 넘긴다. 시작 예열이 세션마다
+# 몇 번, 어떤 입력으로 모델을 돌렸는지 세는 데 쓴다(위 _Counting은 ASGI 본문 조각을 세는 감싸개라 이름을
+# 달리 한다).
+class _RecordingSession:
+    """모델 호출의 입력을 기록하는 세션 감싸개."""
+
+    def __init__(self, real):
+        self.real = real
+        self.inputs: list[np.ndarray] = []
+
+    def run(self, names, feeds):
+        self.inputs.append(np.array(feeds["image"], copy=True))
+        return self.real.run(names, feeds)
+
+
+# 아티팩트에서 검사기를 읽는 경로(create_app에 경로를 줌)에서는 시작할 때 서로 다른 모델 세션마다
+# 회색(128) 입력 크기 이미지로 검사 한 번을 돌려 둔다: 깨진 모델을 첫 요청 전에 잡고, onnxruntime이
+# 첫 실행에서만 하는 일이 있으면 그 비용을 시작 단계에서 치른다(service.warm_up 주석).
+# load_inspectors를 바꿔 끼워 세션 하나를 같이 쓰는 검사기 둘(a·b)과 자기 세션을 가진 검사기(c)를
+# 돌려주면 공유 세션 1회·따로 1회여야 하고, 입력은 inspector.preprocess로 만든 회색 이미지와 같아야
+# 한다. 예열은 임계값·보정 기록을 바꾸지 않고 예열 뒤 서비스는 그대로 답한다. 검사기를 직접
+# 넘기면(테스트·오프라인 앱) 기본으로 예열하지 않고 warmup=True로 요구할 수 있으며, 아티팩트 경로라도
+# warmup=False면 예열하지 않는다. warm_up 자체는 예열한 범주 이름을 이름 순으로 돌려준다(같은 세션의
+# 두 번째 범주는 건너뜀).
+def test_loading_artifacts_warms_up_each_model_session_once(tmp_path, monkeypatch):
+    from defect_inspect.inspector import preprocess
+
+    monkeypatch.delenv("DEFECT_INSPECT_PRECISION", raising=False)
+    monkeypatch.delenv("DEFECT_INSPECT_THREADS", raising=False)
+    shared, twin = service.offline_inspector(), service.offline_inspector()
+    own = service.offline_inspector(seed=1)
+    shared.session = twin.session = _RecordingSession(shared.session)
+    own.session = _RecordingSession(own.session)
+    asked = []
+
+    def fake_load(artifacts, *, precision, threads):
+        asked.append((Path(artifacts), precision, threads))
+        return {"b": twin, "a": shared, "c": own}
+
+    monkeypatch.setattr(service, "load_inspectors", fake_load)
+    before = {name: (i.threshold, dict(i.meta)) for name, i in (("a", shared), ("c", own))}
+    app = service.create_app(tmp_path, admin_token=TOKEN)
+    assert asked == [(tmp_path, "fp32", None)]
+    grey = preprocess(np.full((64, 64, 3), 128, np.uint8), 64)
+    assert len(shared.session.inputs) == 1 and np.array_equal(shared.session.inputs[0], grey)
+    assert len(own.session.inputs) == 1 and np.array_equal(own.session.inputs[0], grey)
+    assert {name: (i.threshold, dict(i.meta)) for name, i in (("a", shared), ("c", own))} == before
+    client = TestClient(app, base_url=HOST)
+    assert client.get("/healthz").json() == {"status": "ok", "categories": ["a", "b", "c"]}
+    assert _inspect(client, _png(_normal()), category="a").status_code == 200
+    assert len(shared.session.inputs) == 2
+
+    # 검사기를 직접 넘기면 기본으로 예열하지 않고, warmup으로 양쪽 모두 요구할 수 있다.
+    direct = service.offline_inspector()
+    direct.session = _RecordingSession(direct.session)
+    service.create_app(inspectors={"demo": direct}, admin_token=TOKEN)
+    assert direct.session.inputs == []
+    service.create_app(inspectors={"demo": direct}, admin_token=TOKEN, warmup=True)
+    assert len(direct.session.inputs) == 1
+    shared.session.inputs.clear()
+    own.session.inputs.clear()
+    service.create_app(tmp_path, admin_token=TOKEN, warmup=False)
+    assert shared.session.inputs == [] and own.session.inputs == []
+    assert service.warm_up({"b": twin, "a": shared, "c": own}) == ["a", "c"]
+    assert len(shared.session.inputs) == 1 and len(own.session.inputs) == 1
+
+
+# 예열에서 모델이 실패하면(예상 밖 오류, 유한하지 않은 특징) 서비스는 뜨지 않고 그 범주 이름과 원인을 담은
+# ValueError로 멈춘다. 깨진 모델을 첫 요청이 아니라 시작 단계에서 알리려는 의도된 동작이다
+# (load_inspectors가 깨진 아티팩트를 알리는 방식과 같다).
+def test_a_model_that_fails_the_warm_up_stops_the_service_from_starting(tmp_path, monkeypatch):
+    monkeypatch.delenv("DEFECT_INSPECT_PRECISION", raising=False)
+    monkeypatch.delenv("DEFECT_INSPECT_THREADS", raising=False)
+
+    class Broken:
+        def run(self, names, feeds):
+            raise RuntimeError("the model fell over")
+
+    class NotFinite:
+        def run(self, names, feeds):
+            out = service._GridMeanSession().run(names, feeds)[0]
+            out[0, 0, 0, 0] = np.nan
+            return [out]
+
+    for session, message in ((Broken(), "fell over"), (NotFinite(), "non-finite features")):
+        inspector = service.offline_inspector()
+        inspector.session = session
+
+        def fake_load(*args, found=inspector, **kwargs):
+            return {"demo": found}
+
+        monkeypatch.setattr(service, "load_inspectors", fake_load)
+        with pytest.raises(ValueError, match=f"demo.*warm-up.*{message}"):
+            service.create_app(tmp_path)
+
+
 # load_inspectors가 같은 모델 파일을 쓰는 범주끼리 ONNX Runtime 세션 하나를 나눠 쓰는지 확인한다(범주마다
 # 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘어난다는 소스 docstring의 이유). InferenceSession을 가짜로
 # 바꿔, 상위 폴더의 공용 모델은 한 번, 자기 모델을 가진 pcb2는 따로 한 번 만들어지는지와 스레드 수·CPU 공급자
@@ -1193,6 +1337,18 @@ def test_heatmap_png_scale():
     heat = np.array([[0.0, 0.75], [1.5, 3.0]], dtype=np.float32)
     grey = np.asarray(Image.open(io.BytesIO(base64.b64decode(service.heatmap_png(heat, 1.0)))))
     assert grey.tolist() == [[0, 128], [255, 255]]
+
+
+# 유한하지 않은 값이 든 맵은 PNG로 그리지 않고 FloatingPointError를 낸다. NaN은 0~1로 자르고 uint8로 바꾸는
+# 과정에서 0이 되어 '점수 0'(검정)처럼 조용히 그려지기 때문이다. 재구성 검사기는 run에서 먼저 막지만,
+# PatchCore 경로의 맵은 여기가 마지막 방어선이다. 임계값이 0 이하여서 맵 최댓값으로 나누는 길(합성 범주)도
+# 같다.
+def test_heatmap_png_refuses_a_map_that_is_not_finite():
+    for bad in (np.nan, np.inf, -np.inf):
+        heat = np.array([[0.0, bad], [1.5, 3.0]], dtype=np.float32)
+        for threshold in (1.0, 0.0):
+            with pytest.raises(FloatingPointError):
+                service.heatmap_png(heat, threshold)
 
 
 # _DEMO_HARNESS: node에서 demo.js를 vm 샌드박스로 돌리는 JavaScript 하네스(demo.js용 브라우저 대역). 폼을

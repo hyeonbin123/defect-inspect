@@ -4,9 +4,10 @@
 # dms-280-car로 서비스를 바꾼 뒤(2026-10-04, docs/experiments.md 서비스 모델 교체 점검) 새로 생긴 경로라서
 # test_service.py(오프라인 PatchCore 흉내)와 따로 둔다.
 # [무엇을 확인하나] /categories가 모델 종류(reconstruction)와 이름을 알리는지, /inspect가 모델 자신의 점수와
-# 맵을 쓰는지, /calibrate가 임계값만 바꾸고 되돌릴 수 있는지, load_inspectors가 범주 폴더(meta.json만, 뱅크
-# 없음)와 상위 폴더의 공용 ONNX 하나를 읽어 세션을 나눠 쓰는지, 정밀도별 모델 파일과 잘못된 meta를 어떻게
-# 거절하는지, 실제 작은 ONNX 모델로 끝에서 끝까지 도는지.
+# 맵을 쓰는지, 모델이 유한하지 않은 맵을 내면 검정 히트맵 대신 500으로 멈추는지, /calibrate가 임계값만 바꾸고
+# 되돌릴 수 있는지, load_inspectors가 범주 폴더(meta.json만, 뱅크 없음)와 상위 폴더의 공용 ONNX 하나를 읽어
+# 세션을 나눠 쓰는지, 정밀도별 모델 파일과 잘못된 meta를 어떻게 거절하는지, 실제 작은 ONNX 모델로 끝에서
+# 끝까지 도는지(이 길은 시작 예열도 실제 세션으로 거친다).
 # [설계 메모] 대부분은 ONNX 대신 ReconSession(밝기를 256으로 키운 맵, 그 최댓값이 점수)으로 돌아 onnxruntime
 # 없이도 의미가 있다. 마지막 테스트만 onnx·onnxruntime이 있을 때 실제 모델을 만든다.
 
@@ -132,6 +133,35 @@ def test_inspect_uses_the_models_own_score_and_map():
     preview = _inspect(client, _defect(50), preview="true").json()
     seen = np.asarray(Image.open(io.BytesIO(base64.b64decode(preview["input_png"]))))
     assert seen.shape == (SIZE, SIZE, 3)
+
+
+# 모델이 유한하지 않은 맵을 내면(점수는 유한해도) 서비스는 판정을 내지 않는다: 응답은 내부 정보 없는 JSON
+# 500이고 보안 헤더가 붙으며 원인은 로그에만 남는다(test_service.py의 처리되지 않은 오류 테스트와 같은
+# 형식). 고치기 전에는 검사기가 점수만 검사해 NaN 맵이 히트맵 PNG에 점수 0(검정)으로 조용히 그려진 채
+# 200으로 나갔다. heatmap=false여도 같다: 맵이 깨진 실행의 점수는 믿지 않는다(연구 경로
+# run_dinomaly.predict와 같은 규칙).
+def test_a_map_that_is_not_finite_is_a_500_not_a_black_heatmap(caplog):
+    inspector = _inspector()
+    real = inspector.session
+
+    class PoisonedMap:
+        def run(self, names, feeds):
+            score, amap = real.run(names, feeds)
+            amap = amap.copy()
+            amap[0, 100, 100] = np.nan
+            return [score, amap]
+
+    inspector.session = PoisonedMap()
+    with pytest.raises(FloatingPointError, match="map"):
+        inspector.inspect(_normal(50))
+    client = _client(inspector)
+    for params in ({}, {"heatmap": "false"}):
+        response = _inspect(client, _normal(50), **params)
+        assert response.status_code == 500 and response.json() == {"detail": "internal server error"}
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-frame-options"] == "DENY"
+        assert "not finite" not in response.text
+    assert "the anomaly map is not finite" in caplog.text
 
 
 # 복원 모델의 재보정은 뱅크가 없으므로 임계값만 바꾼다. 밝은 조건의 정상 25장으로 보정하면 임계값이 그

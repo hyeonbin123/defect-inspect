@@ -3,7 +3,7 @@
 # CLI의 reconstruction 경로를 검증한다.
 # [왜 필요한가] Dinomaly는 메모리 뱅크 없이 ONNX 모델 하나가 이미지 점수와 이상 맵을 직접 내고, 12개 범주가
 # 모델 하나를 같이 쓰며 범주 폴더에는 임계값만 있다(README 검사 서비스 절). 그래서 PatchCore Inspector와
-# 검증할 것이 다르다: meta의 kind, 모델 입출력 이름(score, map), 비유한 점수 차단, 같은 보정 규칙, 그리고
+# 검증할 것이 다르다: meta의 kind, 모델 입출력 이름(score, map), 비유한 점수·맵 차단, 같은 보정 규칙, 그리고
 # bench가 이 아티팩트를 PatchCore와 다른 방식으로 재는지다.
 # [주요 구성] 앞부분은 가짜 세션으로 검사기 자체를, '# ---- bench' 아래는 가짜 시계·가짜 검사기로 지연 측정
 # 코드를 시험한다. 실제 모델·데이터·GPU는 쓰지 않는다.
@@ -26,13 +26,15 @@ MAP = 16
 
 # 내보낸 Dinomaly 그래프를 흉내 내는 가짜 세션. 입력이 [1, 3, S, S] float32인지 단언하고, 채널 평균 밝기를
 # 맵으로, 그 최댓값을 이미지 점수로 돌려준다. score_value를 주면 점수를 그 값으로 고정해 NaN 같은 깨진 출력을
-# 시험할 수 있다.
+# 시험할 수 있고, map_poison을 주면 점수는 깨지기 전 맵에서 그대로 구한 채 맵의 한 칸만 그 값(NaN·inf)으로
+# 바꿔 맵만 깨진 출력을 시험할 수 있다.
 class FakeSession:
     """내보낸 Dinomaly 그래프 대신 쓰는 가짜 세션: 맵은 평균 밝기, 점수는 그 최댓값이다."""
 
-    def __init__(self, score_value=None):
+    def __init__(self, score_value=None, map_poison=None):
         self.calls = 0
         self.score_value = score_value
+        self.map_poison = map_poison
 
     def run(self, names, feeds):
         assert names == ["score", "map"]
@@ -47,6 +49,9 @@ class FakeSession:
             np.pad(amap, ((0, 0), (0, MAP - amap.shape[1]), (0, MAP - amap.shape[2])))
         )
         score = amap.reshape(1, -1).max(axis=1) if self.score_value is None else np.array([self.score_value])
+        if self.map_poison is not None:
+            amap = amap.copy()
+            amap[0, 0, 0] = self.map_poison  # 점수는 위에서 깨지기 전 맵으로 이미 구했다
         return [score.astype(np.float32), amap.astype(np.float32)]
 
 
@@ -110,6 +115,25 @@ def test_a_non_finite_score_never_gives_a_verdict():
     insp = ReconstructionInspector(FakeSession(score_value=float("nan")), _meta())
     with pytest.raises(FloatingPointError):
         insp.inspect(_images(1)[0])
+
+
+# 모델이 유한하지 않은 맵을 내면(점수는 유한해도) 판정하지 않고 FloatingPointError를 낸다. 연구 경로
+# (run_dinomaly.predict)가 점수와 맵을 함께 검사하는 것과 같은 규칙이다. 막지 않으면 NaN 맵이 그대로
+# 나가 서비스 히트맵에 점수 0(검정)으로 조용히 그려지고, 맵이 깨진 실행의 점수를 믿게 된다.
+# run·inspect(heatmap=False 포함)·scores·calibrate 어느 길로도 값이 나오지 않아야 하고, 실패한 보정은
+# 임계값을 건드리지 않아야 한다.
+@pytest.mark.parametrize("poison", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_map_never_gives_a_verdict(poison):
+    insp = ReconstructionInspector(FakeSession(map_poison=poison), _meta())
+    with pytest.raises(FloatingPointError, match="map"):
+        insp.run(_images(1)[0])
+    with pytest.raises(FloatingPointError):
+        insp.inspect(_images(1)[0], heatmap=False)
+    with pytest.raises(FloatingPointError):
+        insp.scores(_images(2))
+    with pytest.raises(FloatingPointError):
+        insp.calibrate(list(_images(3)))
+    assert insp.threshold == 0.5 and insp.meta["threshold"] == 0.5
 
 
 # 잘못된 meta(PatchCore kind, 다른 버전, 0 크기, 소수 map_size, inf·None 임계값)를 생성자가 거절하는지, 키가

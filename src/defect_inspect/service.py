@@ -25,7 +25,9 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 # Dinomaly ViT-S(dms-280-car)이고 ONNX 하나를 12개 범주가 같이 쓴다. 범주 폴더 meta.json의 kind로 복원
 # 방식(ReconstructionInspector)과 4단계 PatchCore(Inspector)를 골라 둘 다 읽는다. 임계값이 "촬영 조건이
 # 그대로일 때만" 목표를 지킨다는 실험 결과(3·7단계) 때문에, 조건이 바뀌면 모델은 그대로 두고 임계값만 다시
-# 잡는 /calibrate를 둔다.
+# 잡는 /calibrate를 둔다. 아티팩트에서 검사기를 읽어 띄울 때는 모델 세션마다 회색 이미지로 한 번 추론해
+# (warm_up) 그 추론조차 실패하는 깨진 모델은 첫 요청 전에 시작을 멈추고, onnxruntime이 첫 실행에서만 치르는
+# 비용이 있으면 시작 단계로 옮긴다.
 # [보안 구성] 본문을 읽기 전에 Host 허용 목록, 다른 출처의 쓰기 요청 거절, 관리자 토큰, 진행 중인 업로드 요청
 # 수(작업자 + 대기열을 넘으면 503 + Retry-After)를 검사하고(_Guard), 본문 크기를 스트리밍 중에도 제한하며,
 # 모든 응답에 보안 헤더(CSP 등)를 붙인다. 이미지 디코딩은 형식·픽셀 수·비트 깊이·투명도를 제한하고, 동시에
@@ -230,16 +232,60 @@ def load_inspectors(
     return found
 
 
+# 시작 예열에 쓰는 입력 화소값. 모든 채널이 128인 회색은 ImageNet 정규화((x/255 - mean)/std) 뒤 채널마다 약
+# 0.07·0.21·0.43으로 0 근처에 놓여, 어떤 범주의 모델에도 극단적인 입력이 되지 않는다(검정 0은 -1.8~-2.1).
+WARMUP_GREY = 128
+
+
+# 아티팩트에서 읽은 검사기들의 모델 세션마다 검사 한 번을 미리 돌린다.
+# [왜 필요한가] 두 가지다. (1) 시작 점검: 평범한 회색 입력에도 유한한 점수·맵을 내지 못하는 모델(깨진 파일,
+# 다른 입출력)은 첫 요청에서 500을 내는 대신 시작 때 알린다. (2) 일회성 비용 옮기기: onnxruntime이 첫
+# run에서만 하는 일(메모리 아레나 할당 등)이 있으면 재시작 직후 첫 요청이 아니라 여기서 치른다. 다만 서빙
+# 모델(dms-280-car)을 onnxruntime CPU로 조용한 개발 PC에서 확인했을 때 새 세션의 첫 추론(약 230~250 ms)은
+# 그 뒤 추론과 잡음 안에서 같았으므로 큰 지연 이득을 기대하는 장치는 아니다(bench는 관례로 예열 5회를 뺀다).
+# 비용은 시작 때 세션당 추론 한 번(dms-280-car 약 0.3초)이다.
+# [방식] 같은 세션을 쓰는 범주(아티팩트 묶음의 12개 범주는 모델 하나·세션 하나)는 한 번만 돌린다. 입력은 그
+# 검사기 입력 크기의 회색(WARMUP_GREY) uint8 이미지이고, inspect(heatmap=False)로 실제 요청과 같은 경로(전처리
+# → 모델 → 유한성 검사 → 판정)를 거친다. 결과는 버리고 임계값·보정 기록은 건드리지 않는다.
+# [실패] 모델 오류나 유한하지 않은 점수·맵(FloatingPointError)이면 그 범주 이름과 원인을 담은 ValueError를
+# 내서 서비스 시작을 멈춘다. 평범한 회색 입력도 처리하지 못하는 모델은 깨진 것이므로, 첫 요청에서 500을 내는
+# 대신 시작 때 알리는 것이 의도된 동작이다(load_inspectors가 지문 불일치를 알리는 방식과 같다).
+# 호출 위치: create_app(아티팩트에서 읽은 경로, 또는 warmup=True), tests/test_service.py.
+def warm_up(inspectors: dict[str, AnyInspector]) -> list[str]:
+    """모델 세션마다 회색 이미지로 검사 한 번을 돌려 둔다. 예열한 범주 이름(이름 순)을 돌려준다.
+
+    같은 세션을 함께 쓰는 범주는 한 번만 돌린다. 검사가 실패하면 그 범주 이름을 담은 ValueError를 낸다.
+    """
+    warmed: list[str] = []
+    seen: set[int] = set()
+    for name in sorted(inspectors):
+        inspector = inspectors[name]
+        if id(inspector.session) in seen:
+            continue
+        seen.add(id(inspector.session))
+        grey = np.full((inspector.size, inspector.size, 3), WARMUP_GREY, dtype=np.uint8)
+        started = time.perf_counter()
+        try:
+            inspector.inspect(grey, heatmap=False)
+        except Exception as err:  # 모델 오류, 유한하지 않은 점수·맵, 출력 모양 불일치
+            raise ValueError(f"{name}: the warm-up inspection of a grey image failed: {err}") from err
+        logger.info(
+            "warmed up the model session of %s in %.0f ms", name, (time.perf_counter() - started) * 1e3
+        )
+        warmed.append(name)
+    return warmed
+
+
 # 업로드 바이트를 8비트 RGB 그림으로 바꾸고, 이미지가 아니거나 받지 않는 형식이면 400을 낸다. size를 주면 바로
 # 모델 입력 크기로 줄여, 큰 원본을 메모리에 오래 두지 않는다. 리사이즈는 inspector.preprocess와 같은
-# 호출(BICUBIC)이라 점수가 달라지지 않는다.
+# 호출(BICUBIC)이라 점수가 달라지지 않는다. 이미 RGB인 그림은 convert("RGB")를 거치지 않는다(아래 주석).
 # EXIF 회전은 적용하지 않는다. 모델과 뱅크를 만든 리사이즈 캐시도 저장된 화소 그대로였기 때문이다(모듈
 # docstring).
 def _decode(data: bytes, size: int | None = None) -> Image.Image:
     """업로드 바이트 -> 8비트 RGB 그림. 적절한 이미지가 아니면 400을 낸다.
 
     `size`를 주면 `inspector.preprocess`와 같은 호출로 바로 모델 입력 크기로 줄인다. 그래서 점수는 그대로이고
-    원본 크기로 디코딩한 그림을 계속 들고 있지 않는다.
+    원본 크기로 디코딩한 그림을 계속 들고 있지 않는다. 이미 RGB인 그림은 원본 크기 사본을 만들지 않는다.
     """
     try:
         image = Image.open(io.BytesIO(data), formats=IMAGE_FORMATS)
@@ -257,9 +303,17 @@ def _decode(data: bytes, size: int | None = None) -> Image.Image:
             image = image.convert("RGBA")
             if image.getchannel("A").getextrema()[0] < 255:
                 raise HTTPException(status_code=400, detail="images with transparency are not supported")
-        picture = image.convert("RGB")
+        # 이미 RGB면 그대로 쓴다. Pillow의 convert는 같은 모드를 요구받으면 그림 전체의 사본(self.copy())을
+        # 돌려주므로, 늘 convert("RGB")를 부르면 RGB 업로드(JPEG·PNG 대부분)는 원본 크기 사본이 하나 더 생겨
+        # 디코딩한 원본과 나란히 메모리에 있게 된다(Pillow는 RGB도 화소당 4바이트라 2,400만 화소면 약 96MB).
+        # 화소 값은 두 길이 같아 점수는 바뀌지 않는다(tests/test_service.py가 모드별로 예전 경로와 비교한다).
+        picture = image if image.mode == "RGB" else image.convert("RGB")
         if size is not None:
             picture = picture.resize((size, size), Image.Resampling.BICUBIC)
+        else:
+            # 리사이즈가 없으면 여기서 화소 디코딩을 끝내, 손상된 파일의 디코더 예외가 이 try 밖(부른 쪽)에서
+            # 나지 않게 한다(Image.open은 머리만 읽고 화소는 처음 쓸 때 디코딩한다).
+            picture.load()
         return picture
     # 의도한 HTTP 오류와 메모리 부족은 그대로 올리고, 그 밖의 디코더 예외(SyntaxError, RuntimeError 등 OSError
     # 아닌 것도 있음)는 내부 정보를 감춘 400 하나로 바꾼다(from None으로 원래 예외 연쇄도 숨김).
@@ -291,9 +345,17 @@ def _png_base64(image: Image.Image, **options) -> str:
 
 # 점수 맵을 회색조 PNG로 바꾼다. 0은 검정, 임계값의 1.5배 이상은 흰색으로 고정해 범주마다 같은 기준으로
 # "임계값에 얼마나 가까운가"를 보이게 한다. 임계값이 0 이하이면(합성 범주 등) 맵 최댓값으로 나눈다. +0.5는
-# 반올림이다.
+# 반올림이다. 유한하지 않은 값이 있으면 그리지 않고 FloatingPointError를 낸다: NaN은 아래 clip·uint8 변환에서
+# 0(검정)이 되어 '점수 0'처럼 조용히 그려지기 때문이다. 재구성 검사기는 run에서 먼저 막고, 여기는 PatchCore
+# 경로의 맵까지 덮는 마지막 방어선이다.
 def heatmap_png(heatmap: np.ndarray, threshold: float) -> str:
-    """base64 PNG(8비트 회색조, 256x256): 점수 0은 검정, 임계값의 1.5배 이상은 흰색."""
+    """base64 PNG(8비트 회색조, 256x256): 점수 0은 검정, 임계값의 1.5배 이상은 흰색.
+
+    맵에 유한하지 않은 값이 있으면 `FloatingPointError`를 낸다.
+    """
+    heatmap = np.asarray(heatmap)
+    if not np.isfinite(heatmap).all():
+        raise FloatingPointError("the heatmap is not finite")
     scale = 1.5 * threshold if threshold > 0 else float(heatmap.max()) or 1.0
     grey = np.clip(heatmap / scale, 0.0, 1.0)
     return _png_base64(Image.fromarray((grey * 255.0 + 0.5).astype(np.uint8)))
@@ -581,9 +643,15 @@ def create_app(
     allowed_hosts: Sequence[str] | None = None,
     workers: int | None = None,
     queue: int | None = None,
+    warmup: bool | None = None,
 ) -> FastAPI:
-    """서비스 앱. 주지 않은 인자는 `DEFECT_INSPECT_*` 환경 변수에서 가져온다."""
-    if inspectors is None:
+    """서비스 앱. 주지 않은 인자는 `DEFECT_INSPECT_*` 환경 변수에서 가져온다.
+
+    `warmup`이 None이면 아티팩트에서 검사기를 읽었을 때만 시작 예열(`warm_up`)을 하고, 직접 넘긴 `inspectors`
+    (테스트·오프라인 앱)는 예열하지 않는다. True/False를 주면 어느 경로든 그대로 따른다.
+    """
+    loaded = inspectors is None
+    if loaded:
         artifacts = artifacts or os.environ.get("DEFECT_INSPECT_ARTIFACTS")
         if not artifacts:
             raise RuntimeError("set DEFECT_INSPECT_ARTIFACTS to an artifact set directory")
@@ -591,6 +659,12 @@ def create_app(
         env_threads = os.environ.get("DEFECT_INSPECT_THREADS")
         threads = threads if threads is not None else (int(env_threads) if env_threads else None)
         inspectors = load_inspectors(Path(artifacts), precision=precision, threads=threads)
+    # 시작 예열: 아티팩트에서 읽은 실제 모델은 첫 요청 전에 세션마다 한 번 돌려 둔다(warm_up 주석). 직접 넘긴
+    # 검사기는 보통 테스트의 가짜 세션이라 기본으로 건너뛴다. 실패하면 ValueError로 여기서 시작이 멈춘다.
+    if warmup is None:
+        warmup = loaded
+    if warmup:
+        warm_up(inspectors)
     if admin_token is None:
         admin_token = os.environ.get("DEFECT_INSPECT_ADMIN_TOKEN") or None
     if allowed_hosts is None:
