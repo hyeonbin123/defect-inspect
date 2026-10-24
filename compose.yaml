@@ -41,9 +41,12 @@ services:
       - /tmp:size=768m
     mem_limit: 2g
     restart: unless-stopped
-    # 상태 점검: 이미지 안의 Python으로 /healthz를 부른다(curl이 이미지에 없다).
+    # 상태 점검: 이미지 안의 Python으로 /healthz를 부른다(curl이 이미지에 없다). start_period: 서비스는 시작할 때 모델
+    # 지문 대조(134MB 파일의 SHA-256), 세션 생성, 세션마다 회색 이미지 예열 추론을 마친 뒤에야 응답하므로, 그동안의
+    # 점검 실패는 재시도 횟수(retries)에 세지 않는다. 그 안에 한 번 성공하면 그때부터 보통 점검이다.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 30s
