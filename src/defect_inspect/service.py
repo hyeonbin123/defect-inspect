@@ -14,7 +14,8 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 - `DEFECT_INSPECT_ADMIN_TOKEN`: `/calibrate`를 켠다. 호출하는 쪽은 이 값을 `X-Admin-Token` 헤더로 보낸다.
   없으면 HTTP로 아티팩트 묶음의 임계값을 바꿀 수 없다.
 - `DEFECT_INSPECT_WORKERS` / `DEFECT_INSPECT_QUEUE`: 동시에 디코딩·채점하는 이미지 수(기본 2)와 작업자를
-  기다릴 수 있는 요청 수(기본 16). 그보다 많으면 `Retry-After`를 붙인 503으로 답한다.
+  기다릴 수 있는 요청 수(기본 16). 둘의 합보다 많은 업로드 요청(`/inspect`·`/calibrate`)이 진행 중이면 새
+  요청은 본문을 받기 전에 `Retry-After`를 붙인 503으로 돌려보낸다. `/calibrate`는 한 번에 하나만 받는다.
 """
 
 # [파일 역할] FastAPI 검사 서비스. 사진 한 장과 범주를 받아 이상 점수·임계값·양품/불량 판정·히트맵을
@@ -25,16 +26,18 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 # 방식(ReconstructionInspector)과 4단계 PatchCore(Inspector)를 골라 둘 다 읽는다. 임계값이 "촬영 조건이
 # 그대로일 때만" 목표를 지킨다는 실험 결과(3·7단계) 때문에, 조건이 바뀌면 모델은 그대로 두고 임계값만 다시
 # 잡는 /calibrate를 둔다.
-# [보안 구성] 본문을 읽기 전에 Host 허용 목록, 다른 출처의 쓰기 요청 거절, 관리자 토큰을 검사하고(_Guard),
-# 본문 크기를 스트리밍 중에도 제한하며, 모든 응답에 보안 헤더(CSP 등)를 붙인다. 이미지 디코딩은 형식·픽셀
-# 수·비트 깊이·투명도를 제한하고, 동시에 계산하는 작업 수를 묶어 둔다(_Gate). DAST(HawkScan, ZAP) 기록은
-# docs/security.md에 있다.
+# [보안 구성] 본문을 읽기 전에 Host 허용 목록, 다른 출처의 쓰기 요청 거절, 관리자 토큰, 진행 중인 업로드 요청
+# 수(작업자 + 대기열을 넘으면 503 + Retry-After)를 검사하고(_Guard), 본문 크기를 스트리밍 중에도 제한하며,
+# 모든 응답에 보안 헤더(CSP 등)를 붙인다. 이미지 디코딩은 형식·픽셀 수·비트 깊이·투명도를 제한하고, 동시에
+# 계산하는 작업 수를 묶어 둔다(_Gate, 같은 상한의 두 번째 장치). 업로드를 임시 저장소에 쓰다 공간이 모자라면
+# 400이 아니라 503으로 답해 재시도하게 한다. DAST(HawkScan, ZAP) 기록은 docs/security.md에 있다.
 # [연결] inspector.py(전처리·추론·임계값 상태), calibrate.py(conformal 임계값). 실행은 uvicorn
 # defect_inspect.service:create_app --factory(Dockerfile, compose.yaml) 또는 모델 파일 없는
 # create_offline_app(테스트와 보안 스캔용).
 
 import asyncio
 import base64
+import errno
 import hmac
 import io
 import json
@@ -51,16 +54,21 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlsplit
 
-# fastapi: 경로·폼·파일 업로드 검증과 응답. PIL: 업로드 디코딩과 PNG 인코딩. starlette의
-# Headers·MutableHeaders: ASGI 수준(_Guard)에서 요청 헤더를 읽고 응답 헤더를 붙이는 데 쓴다. onnxruntime은
-# load_inspectors 안에서 늦게 가져온다.
+# fastapi: 경로·폼·파일 업로드 검증과 응답. http_exception_handler는 FastAPI의 기본 HTTPException 처리기로,
+# create_app이 등록하는 처리기가 임시 저장소 부족(503)이 아닌 모든 경우를 그대로 넘긴다. PIL: 업로드 디코딩과
+# PNG 인코딩. starlette의 Headers·MutableHeaders: ASGI 수준(_Guard)에서 요청 헤더를 읽고 응답 헤더를 붙이는 데
+# 쓴다. starlette의 HTTPException은 FastAPI HTTPException의 부모 클래스라, 처리기를 이것으로 등록하면
+# Starlette가 폼 해석 중에 직접 내는 400까지 한 처리기가 덮는다. onnxruntime은 load_inspectors 안에서 늦게
+# 가져온다.
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from starlette.datastructures import Headers, MutableHeaders
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # calibrate: /calibrate가 연구 코드와 같은 conformal 규칙(l = ceil((n+1)(1-α))번째 점수)으로 임계값을 정하게
 # 한다. inspector: 두 종류의 검사기와 아티팩트 형식 상수.
@@ -103,11 +111,21 @@ DEFAULT_ALLOWED_HOSTS = ("localhost", "127.0.0.1", "[::1]")
 DEFAULT_WORKERS = 2
 DEFAULT_QUEUE = 16
 # 관리자 토큰 헤더와 보호 경로. 다른 출처의 페이지는 이 사용자 정의 헤더를 붙일 수 없다(CORS를 열지 않으므로).
-# SAFE_METHODS는 상태를 바꾸지 않는 메서드로, 다른 출처 검사에서 뺀다.
+# SAFE_METHODS는 상태를 바꾸지 않는 메서드로, 다른 출처 검사에서 뺀다. INSPECT_PATH와 ADMIN_PATH는 업로드
+# 본문을 받는 두 경로로, _Guard가 진행 중인 요청 수를 세는 대상이다.
 ADMIN_HEADER = "X-Admin-Token"
 ADMIN_PATH = "/calibrate"
+INSPECT_PATH = "/inspect"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 STATIC_DIR = Path(__file__).parent / "static"
+# 503 거절의 문구와 헤더. BUSY_DETAIL: 작업자와 대기열이 모두 찼을 때(_Guard가 본문 전에, _Gate가 두 번째
+# 장치로 같은 문구를 쓴다). CALIBRATING_DETAIL: 재보정이 이미 하나 진행 중일 때. SPOOL_FULL_DETAIL: 업로드를
+# 임시 저장소에 쓰다 공간이 모자랐을 때. RETRY_AFTER: 세 경우 모두 1초 뒤 재시도를 권한다(한 검사가 수백 ms라
+# 자리가 곧 난다).
+BUSY_DETAIL = "busy: try again shortly"
+CALIBRATING_DETAIL = "busy: another calibration is running, try again shortly"
+SPOOL_FULL_DETAIL = "busy: temporary storage is full, try again shortly"
+RETRY_AFTER = {"Retry-After": "1"}
 # 모든 응답에 붙이는 보안 헤더. MIME 추측 금지, 프레임 삽입 금지(클릭재킹), 리퍼러 안 보냄, 다른 출처의 리소스
 # 읽기 금지, 자기 출처의 스크립트·스타일만 허용하고 인라인 스크립트를 막는 CSP(데모 페이지가 static/의 파일만
 # 쓰는 이유), 캐시 금지, 카메라·마이크·위치 권한 끔. img-src의 data:는 데모 페이지(demo.js)가 응답의 base64
@@ -339,30 +357,66 @@ def _body_limit(path: str) -> int:
     return MAX_UPLOAD_BYTES + MULTIPART_SLACK_BYTES
 
 
-# 거절 응답(JSON {"detail": ...}). FastAPI의 HTTPException 응답과 같은 모양으로 맞춘다.
-def _refusal(status: int, detail: str) -> JSONResponse:
-    return JSONResponse({"detail": detail}, status_code=status)
+# 거절 응답(JSON {"detail": ...}). FastAPI의 HTTPException 응답과 같은 모양으로 맞춘다. headers는 503의
+# Retry-After처럼 거절에 덧붙일 헤더다.
+def _refusal(status: int, detail: str, headers: dict[str, str] | None = None) -> JSONResponse:
+    return JSONResponse({"detail": detail}, status_code=status, headers=headers)
+
+
+# FastAPI가 400으로 바꾼 본문 해석 오류의 원인이 '임시 저장소 공간 부족'(ENOSPC)인지 본다. 1MB가 넘는 업로드
+# 파트는 Starlette가 /tmp의 SpooledTemporaryFile에 쓰는데(compose에서는 메모리 한도에 포함되는 tmpfs), 거기가
+# 차면 쓰기가 OSError(errno 28)를 내고 FastAPI는 이것을 다른 해석 오류와 똑같이 400 "There was an error
+# parsing the body"로 바꾼다(원래 예외는 __cause__에 남는다). 400은 클라이언트 잘못으로 읽혀 재시도되지
+# 않으므로 이 경우만 503 + Retry-After로 돌려 서버 쪽의 일시적 상태임을 알린다. 원인 연쇄(__cause__, 없으면
+# __context__)를 몇 단계 따라가 OSError를 찾는다. 입력: 처리기에 들어온 예외. 출력: ENOSPC가 원인이면 True.
+def _spool_full(exc: BaseException) -> bool:
+    cause = exc.__cause__ or exc.__context__
+    for _ in range(8):
+        if cause is None:
+            return False
+        if isinstance(cause, OSError) and cause.errno == errno.ENOSPC:
+            return True
+        cause = cause.__cause__ or cause.__context__
+    return False
 
 
 # 앱 전체를 감싸는 순수 ASGI 미들웨어. FastAPI 라우트보다 먼저 돌아서, 본문을 하나도 읽기 전에 Host·다른
-# 출처·관리자 토큰·Content-Length를 검사한다(거절된 요청의 큰 업로드를 파싱하지 않음). 본문이 들어오는
-# 동안에도 바이트 수를 세어 chunked 요청까지 한계를 지킨다. 나가는 모든 응답(이 클래스가 쓰는 500 포함)에 보안
-# 헤더를 붙인다.
+# 출처·관리자 토큰·Content-Length·진행 중인 업로드 요청 수를 검사한다(거절된 요청의 큰 업로드를 파싱하지
+# 않음). 본문이 들어오는 동안에도 바이트 수를 세어 chunked 요청까지 한계를 지킨다. 나가는 모든 응답(이
+# 클래스가 쓰는 500 포함)에 보안 헤더를 붙인다.
+# [왜 여기서 동시 수를 세는가] FastAPI는 엔드포인트 함수가 돌기 전에 multipart 본문을 모두 받아 해석하고,
+# Starlette는 1MB가 넘는 파일 파트를 /tmp의 SpooledTemporaryFile로 내린다(spool_max_size). 그래서 엔드포인트
+# 안의 _Gate만으로는 거절될 요청도 20MB(재보정은 256MB) 본문을 전부 받아 디스크에 쓴 뒤에야 503을 받고, 본문을
+# 천천히 보내는 연결 여러 개가 /tmp(compose의 tmpfs, 메모리 한도에 포함)를 채울 수 있다. 이 층에서 요청이
+# 도착한 순간 세면 상한을 넘는 업로드는 본문을 한 조각도 받기 전에 돌려보내고, 동시에 디스크에 있을 수 있는
+# 업로드의 합이 (작업자 + 대기열) × 본문 한계로 묶인다(compose.yaml의 tmpfs 크기 계산).
 class _Guard:
     """앱 전체를 감싸는 순수 ASGI 감싸개.
 
-    본문을 하나라도 읽기 전에: Host 검사, 다른 출처 검사, 관리자 토큰. 본문이 들어오는 동안: chunked
+    본문을 하나라도 읽기 전에: Host 검사, 다른 출처 검사, 관리자 토큰, 선언된 본문 크기, 진행 중인 업로드 요청
+    수(`capacity`를 넘으면 503 + Retry-After, `/calibrate`는 한 번에 하나). 본문이 들어오는 동안: chunked
     요청에도 지켜지는 바이트 한계. 나가는 길에: 모든 응답에 보안 헤더(처리되지 않은 오류에 이 클래스가 쓰는
     JSON 500 포함).
     """
 
-    def __init__(self, app, *, allowed_hosts: Sequence[str], admin_token: str | None):
+    def __init__(self, app, *, allowed_hosts: Sequence[str], admin_token: str | None, capacity: int):
         self.app = app
         self.allowed_hosts = tuple(allowed_hosts)
         self.admin_token = admin_token
+        # capacity: 동시에 진행할 수 있는 업로드 요청(POST /inspect와 /calibrate를 합친 수)의 상한.
+        # create_app이 _Gate의 작업자 + 대기열과 같은 값을 넘기므로, 여기를 지난 요청은 _Gate에서 다시
+        # 거절되지 않는다(_Gate는 같은 상한의 두 번째 장치로 남는다). _uploads는 요청이 도착할 때 +1, 응답이
+        # 끝나거나 실패하면 -1이고, _calibrations는 그중 /calibrate의 수다(한 번에 하나만 받는다).
+        # 서버(uvicorn)는 프로세스마다 이벤트 루프 하나에서 이 코드를 부르고 작업자 스레드는 이 수를 건드리지
+        # 않으므로 잠금 없이 세어도 어긋나지 않는다.
+        self.capacity = capacity
+        self._uploads = 0
+        self._calibrations = 0
 
     # 검사 순서: Host 허용 목록(400) → 상태를 바꾸는 메서드의 다른 출처 요청(403) → /calibrate 경로의 관리자
-    # 토큰(403, 하위 경로 포함) → 선언된 본문 크기(413). 하나라도 걸리면 그 응답을 돌려준다.
+    # 토큰(403, 하위 경로 포함) → 선언된 본문 크기(413). 하나라도 걸리면 그 응답을 돌려준다. 진행 중인 요청
+    # 수의 검사(503)는 자리를 차지하는 부작용이 있어 __call__에서 이 검사들을 모두 지난 뒤에 한다(_admit):
+    # 거절 사유가 앞쪽 검사부터 보이고, 어차피 거절될 요청이 자리를 차지하지 않는다.
     def _refuse(self, scope, headers: Headers) -> JSONResponse | None:
         path = scope["path"]
         # 거절한 요청의 본문은 앱에 닿지 않는다: 서버가 소켓에서 읽어 버리므로 클라이언트는 그래도 응답을
@@ -379,6 +433,32 @@ class _Guard:
         if length.isdigit() and int(length) > _body_limit(path):
             return _refusal(413, "request body too large")
         return None
+
+    # 입장 제한 대상인지: 업로드 본문을 받는 두 경로(POST /inspect, POST /calibrate)만 센다. 다른 요청(GET과
+    # HEAD, DELETE /calibrate, 모르는 경로의 POST)은 본문이 없거나 라우터가 본문을 읽지 않고 답하므로 세지
+    # 않는다.
+    @staticmethod
+    def _upload(scope) -> bool:
+        return scope["method"] == "POST" and scope["path"] in (INSPECT_PATH, ADMIN_PATH)
+
+    # 자리 검사. 본문을 받기 전에 부른다: 진행 중인 업로드 요청이 capacity개면 503 + Retry-After(_Gate와 같은
+    # 문구), 재보정이 이미 하나 진행 중인데 또 /calibrate면 503(다른 문구). 자리가 있으면 차지하고 None을
+    # 돌려준다. 차지한 자리는 _leave가 돌려준다.
+    def _admit(self, scope) -> JSONResponse | None:
+        if self._uploads >= self.capacity:
+            return _refusal(503, BUSY_DETAIL, headers=RETRY_AFTER)
+        if scope["path"] == ADMIN_PATH:
+            if self._calibrations >= 1:
+                return _refusal(503, CALIBRATING_DETAIL, headers=RETRY_AFTER)
+            self._calibrations += 1
+        self._uploads += 1
+        return None
+
+    # _admit이 차지한 자리를 돌려준다(응답이 끝났거나 처리 중에 실패했거나 클라이언트가 끊었을 때 모두).
+    def _leave(self, scope) -> None:
+        self._uploads -= 1
+        if scope["path"] == ADMIN_PATH:
+            self._calibrations -= 1
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -419,8 +499,17 @@ class _Guard:
         if refusal is not None:
             await refusal(scope, receive, send_with_headers)
             return
+        # 업로드 요청은 여기서 자리를 얻어야 앱에 닿는다. 자리가 없으면 본문을 한 조각도 받지 않고 503을
+        # 보낸다(거절한 요청의 본문은 위 거절들과 마찬가지로 서버가 소켓에서 읽어 버린다).
+        upload = self._upload(scope)
+        if upload:
+            refusal = self._admit(scope)
+            if refusal is not None:
+                await refusal(scope, receive, send_with_headers)
+                return
         # 처리되지 않은 예외는 응답이 아직 시작되지 않았다면 로그만 남기고 내부 정보 없는 JSON 500으로
-        # 바꾼다(스택 추적을 응답에 노출하지 않음). 이미 응답이 나가기 시작했다면 서버에 맡긴다.
+        # 바꾼다(스택 추적을 응답에 노출하지 않음). 이미 응답이 나가기 시작했다면 서버에 맡긴다. 어느 길로
+        # 끝나든 finally가 자리를 돌려주므로 실패한 요청이 자리를 영영 차지하는 일은 없다.
         try:
             await self.app(scope, limited_receive, send_with_headers)
         except Exception:
@@ -428,18 +517,22 @@ class _Guard:
                 raise
             logger.exception("unhandled error in %s %s", scope["method"], scope["path"])
             await _refusal(500, "internal server error")(scope, receive, send_with_headers)
+        finally:
+            if upload:
+                self._leave(scope)
 
 
 # 동시에 계산하는 작업을 workers개, 기다리는 요청을 queue개로 묶고 나머지는 Retry-After와 함께 503으로
 # 돌려보낸다. 전용 스레드 풀에서 돌리므로 기다리는 요청이 공용 스레드 풀(정적 파일 응답 등이 씀)을 붙잡지
-# 않고, 디코딩한 큰 이미지가 메모리에 쌓이지 않는다(docstring). DAST 결과에서 모델이 실제로 도는 서비스도
-# 대기열이 넘친 503을 내지 않았다(docs/security.md).
+# 않고, 디코딩한 큰 이미지가 메모리에 쌓이지 않는다(docstring). 같은 상한(capacity)을 _Guard가 본문을 받기
+# 전에 먼저 적용하므로 보통은 여기까지 넘치는 요청이 오지 않고, 이 503은 두 번째 장치다. DAST 결과에서 모델이
+# 실제로 도는 서비스도 대기열이 넘친 503을 내지 않았다(docs/security.md).
 class _Gate:
     """동시에 계산하는 작업은 최대 `workers`개, 더 기다리는 요청은 최대 `queue`개. 나머지는 503을 받는다.
 
     작업은 전용 스레드에서 돈다. 이 한도 덕에 디코딩한 이미지가 메모리에 쌓이지 않고, 기다리는 요청이 공용
     스레드 풀(정적 파일 응답에 필요)의 스레드를 붙잡지 않으며, 큰 이미지 버퍼가 마흔 개 스레드에 흩어지지 않고
-    이 몇 개 스레드의 메모리 아레나에 머문다.
+    이 몇 개 스레드의 메모리 아레나에 머문다. 같은 수(`capacity`)를 `_Guard`가 본문을 받기 전에 먼저 적용한다.
     """
 
     def __init__(self, workers: int, queue: int):
@@ -456,9 +549,7 @@ class _Gate:
     def admitted(self) -> Iterator[None]:
         with self._lock:
             if self._admitted >= self.capacity:
-                raise HTTPException(
-                    status_code=503, detail="busy: try again shortly", headers={"Retry-After": "1"}
-                )
+                raise HTTPException(status_code=503, detail=BUSY_DETAIL, headers=dict(RETRY_AFTER))
             self._admitted += 1
         try:
             yield
@@ -514,7 +605,9 @@ def create_app(
     # Swagger·ReDoc 문서 화면은 CDN 스크립트가 필요해 CSP와 맞지 않으므로 끈다. /openapi.json 명세는 남아 있어
     # DAST가 경로를 가져오는 데 쓴다(docs/security.md).
     app = FastAPI(title="defect-inspect", version=str(ARTIFACT_VERSION), docs_url=None, redoc_url=None)
-    app.add_middleware(_Guard, allowed_hosts=allowed_hosts, admin_token=admin_token)
+    # _Guard의 동시 업로드 상한은 _Gate와 같은 수(작업자 + 대기열)다: 본문을 받기 전에 같은 한도를 적용해
+    # 거절될 요청의 업로드가 디스크에 쓰이지 않게 한다.
+    app.add_middleware(_Guard, allowed_hosts=allowed_hosts, admin_token=admin_token, capacity=gate.capacity)
     app.state.inspectors = inspectors
     # 범주별 잠금은 임계값 상태(임계값, α, 보정 기록)를 읽고 바꿀 때만 잡는다. 채점은 잠금 밖에서 하므로 보정
     # 중에도 검사가 막히지 않고, 누구도 반쯤 바뀐 상태를 보지 않는다.
@@ -542,6 +635,19 @@ def create_app(
             for error in exc.errors()
         ]
         return JSONResponse({"detail": detail}, status_code=422)
+
+    # HTTPException 응답은 FastAPI 기본 처리기(`{"detail": ...}`, 상태 코드와 헤더 그대로)에 맡기되, 업로드를
+    # /tmp에 스풀하다 공간이 모자라 난 400만 503 + Retry-After로 바꾼다(_spool_full). 운영자가 임시 저장소
+    # (compose의 tmpfs)가 작다는 것을 알 수 있게 경고 로그를 남긴다. starlette의 HTTPException(FastAPI
+    # HTTPException의 부모)으로 등록해 FastAPI가 기본으로 등록하는 것과 같은 범위를 덮는다.
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException) -> Response:
+        if exc.status_code == 400 and _spool_full(exc):
+            logger.warning(
+                "the upload spool ran out of space while receiving %s %s", request.method, request.url.path
+            )
+            return _refusal(503, SPOOL_FULL_DETAIL, headers=RETRY_AFTER)
+        return await http_exception_handler(request, exc)
 
     # 라우트 수준의 관리자 검사. _Guard가 이미 본문을 읽기 전에 같은 규칙으로 막지만, 둘의 경로 판단이
     # 어긋나는 경우에 대비해 라우트에도 같은 규칙을 두는 이중 장치다.
@@ -597,7 +703,7 @@ def create_app(
 
     # POST /inspect: multipart의 image(파일)와 category(1~64자)를 받는다. heatmap=false면 맵을 만들지 않고,
     # preview=true면 모델이 실제로 본 리사이즈된 그림(input_png)을 함께 돌려준다(데모 페이지가 보여 줌).
-    @app.post("/inspect")
+    @app.post(INSPECT_PATH)
     async def inspect(
         image: Annotated[UploadFile, File()],
         category: Annotated[str, Form(min_length=1, max_length=64)],

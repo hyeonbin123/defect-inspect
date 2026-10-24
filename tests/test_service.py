@@ -7,11 +7,12 @@
 # 판정(예: Anti-CSRF 지적을 오탐으로 본 근거)도 이 파일의 테스트에 기대고 있다.
 # [주요 구성] 요청 도우미와 ASGI 직접 호출 → 판정·히트맵·입력 형식 → 잘못된 요청과 크기 제한 →
 # 손상 파일과 디코더 보안 권고 회귀(작은 BMP·APNG) → 16비트·투명도·미리보기 → 재보정과 되돌리기 →
-# 관리자 토큰·다른 출처 거절 → 잠금과 동시 요청·대기열 → Host 검사·보안 헤더·정적 파일 →
-# 아티팩트 읽기(load_inspectors) → 데모 페이지 JS(node가 있을 때).
+# 관리자 토큰·다른 출처 거절 → 잠금과 동시 요청·대기열 → 본문을 받기 전의 입장 제한(503)과 스풀 공간 부족 →
+# Host 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors) → 데모 페이지 JS(node가 있을 때).
 
 import asyncio
 import base64
+import errno
 import inspect as pyinspect
 import io
 import itertools
@@ -20,6 +21,7 @@ import shutil
 import struct
 import subprocess
 import threading
+import time
 import tracemalloc
 import zlib
 from pathlib import Path
@@ -35,7 +37,10 @@ pytest.importorskip("fastapi")
 pytest.importorskip("multipart")
 
 # TestClient는 실제 서버를 띄우지 않고 앱을 같은 프로세스에서 HTTP처럼 부른다. HTTPException은 서비스의
-# 디코딩 함수(_decode)를 서버 없이 직접 부를 때 400 거절을 받아 보는 데 쓴다.
+# 디코딩 함수(_decode)를 서버 없이 직접 부를 때 400 거절을 받아 보는 데 쓴다. httpx(TestClient가 쓰는 dev
+# 의존성)의 AsyncClient + ASGITransport는 요청 여럿을 한 이벤트 루프에서 겹치게 보내고, 앱이 receive()를 부를
+# 때만 본문 조각을 넘기므로 "거절된 요청의 본문이 앱에 얼마나 들어갔는가"를 재는 데 쓴다.
+import httpx  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -716,6 +721,9 @@ def test_threshold_state_is_only_touched_under_the_category_lock(client):
 
 # 서로 다른 보정(25장 α 5%, 3장 α 10%)을 네 스레드에서 겹쳐 보내도, 각 응답과 그 직후 상태의 임계값·alpha·보정
 # 기록이 한 보정에서 온 짝으로 맞아야 한다. 보정 결과의 일부만 보이는 상태(반쯤 바뀐 상태)가 없는지 확인한다.
+# 서비스는 재보정을 한 번에 하나만 받으므로(다른 재보정이 진행 중이면 본문을 받기 전에 503 + Retry-After) 겹친
+# 스레드는 503을 받으면 잠시 뒤 다시 보낸다. 그래도 한 스레드의 보정 쓰기는 다른 스레드의 /categories 읽기와
+# 겹치므로, 범주 잠금 밖에서 상태를 읽거나 쓰는 코드는 여기서 드러난다.
 def test_overlapping_calibrations_answer_with_their_own_record(client):
     sets = {25: ("0.05", _files(_bright(25))), 3: ("0.1", _files(_bright(3)))}
     expected = {}
@@ -737,11 +745,19 @@ def test_overlapping_calibrations_answer_with_their_own_record(client):
     def worker(n):
         alpha, files = sets[n]
         data = {"category": "demo", "alpha": alpha, "allow_unguaranteed": "true"}
-        for _ in range(6):
-            body = client.post("/calibrate", files=files, data=data, headers=ADMIN).json()
-            state = _state(client)
+        done = 0
+        while done < 6:
+            response = client.post("/calibrate", files=files, data=data, headers=ADMIN)
+            if response.status_code == 503 and response.headers.get("retry-after") == "1":
+                time.sleep(0.01)  # 다른 스레드의 재보정이 진행 중이다: 잠시 뒤 다시 보낸다
+                continue
+            if response.status_code != 200:
+                mixed.append((n, response.status_code, response.text))
+                break
+            body, state = response.json(), _state(client)
             if not own(body, n) or not own(state, state["calibration"]["n"]):
                 mixed.append((n, body, state))
+            done += 1
 
     threads = [threading.Thread(target=worker, args=(n,)) for n in (25, 3, 25, 3)]
     for thread in threads:
@@ -830,6 +846,172 @@ def test_gate_admission():
             assert asyncio.run(gate.run(lambda a, b: a + b, 1, 2)) == 3
     with pytest.raises(ValueError):
         service._Gate(workers=0, queue=1)
+
+
+# 서버 없이 같은 이벤트 루프에서 요청을 겹치게 보낼 때, 요청마다 앱이 본문을 얼마나 받아 갔는지 기록하는
+# ASGI 감싸개. TestClient는 본문을 한 번에 넘기지만 httpx의 ASGITransport는 앱이 receive()를 부를 때만 본문
+# 조각(파일은 64KB씩)을 넘기므로, 거절된 요청의 본문이 앱에 한 조각도 들어가지 않았는지를 여기서 셀 수 있다.
+# pulled에는 요청 순서대로 앱이 받아 간 http.request 조각들의 크기 목록이 쌓인다.
+class _Counting:
+    """요청마다 앱이 받아 간 본문 조각의 크기를 기록하는 ASGI 감싸개."""
+
+    def __init__(self, app):
+        self.app = app
+        self.pulled: list[list[int]] = []
+
+    async def __call__(self, scope, receive, send):
+        chunks: list[int] = []
+        self.pulled.append(chunks)
+
+        async def counted():
+            message = await receive()
+            if message["type"] == "http.request":
+                chunks.append(len(message.get("body", b"")))
+            return message
+
+        await self.app(scope, counted, send)
+
+
+# httpx.AsyncClient로 보낼 multipart 파일 목록. 파일을 BytesIO로 주면 httpx가 64KB 조각으로 보내, 앱이 본문을
+# 어디까지 읽었는지가 조각 단위로 드러난다(bytes로 주면 파일 전체가 한 조각이 된다).
+def _upload_files(field: str, images: list[bytes]) -> list:
+    return [(field, (f"{i}.png", io.BytesIO(data), "image/png")) for i, data in enumerate(images)]
+
+
+# 서버 없이 요청을 겹치게 보내는 비동기 클라이언트. 앱은 _Counting으로 감싸서 넘긴다.
+def _async_client(counting: _Counting) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=counting), base_url=HOST)
+
+
+# 작업자와 대기열이 모두 찼을 때 새 업로드가 본문을 한 조각도 받기 전에 503(Retry-After: 1)으로 거절되는지
+# 확인한다. FastAPI는 엔드포인트가 돌기 전에 multipart 본문을 모두 받아 1MB가 넘는 파일을 /tmp에 스풀하므로,
+# 입장 검사가 엔드포인트 안(_Gate)에만 있으면 거절될 요청의 20MB 업로드도 전부 받아 디스크에 쓴 뒤에야 503이
+# 난다. 그래서 _Guard가 본문 전에 진행 중인 업로드 요청 수를 세어 거절해야 한다. 작업자 1·대기 0으로 띄우고
+# 첫 검사를 모델 안에 붙잡은 채 2MB PNG를 보내면 503이고 앱이 받아 간 본문 조각이 없어야 하며, /calibrate도
+# 같은 자리 수를 쓰므로 503이고, /healthz는 그대로 200이다. 첫 검사를 풀어 주면 같은 업로드가 끝까지 받아져
+# 200이다.
+def test_a_busy_service_refuses_an_upload_before_reading_its_body():
+    app = service.create_offline_app(admin_token=TOKEN, workers=1, queue=0)
+    inspector = app.state.inspectors["demo"]
+    real, inside, release = inspector.session, threading.Event(), threading.Event()
+
+    class Slow:
+        def run(self, names, feeds):
+            inside.set()
+            assert release.wait(10)
+            return real.run(names, feeds)
+
+    inspector.session = Slow()
+    counting = _Counting(app)
+    big = _png(np.random.default_rng(0).integers(0, 256, (900, 900, 3), dtype=np.uint8))
+    assert len(big) > 2 * 2**20
+    calibration = [_png(im) for im in _bright(25)]
+
+    async def scenario():
+        async with _async_client(counting) as client:
+
+            def inspect(data: bytes):
+                files = _upload_files("image", [data])
+                return client.post("/inspect", files=files, data={"category": "demo"})
+
+            first = asyncio.create_task(inspect(_png(_normal())))
+            assert await asyncio.to_thread(inside.wait, 10)
+            busy = await inspect(big)
+            files = _upload_files("images", calibration)
+            full = await client.post("/calibrate", files=files, data={"category": "demo"}, headers=ADMIN)
+            health = await client.get("/healthz")
+            release.set()
+            held = await first
+            again = await inspect(big)
+        return busy, full, health, held, again
+
+    busy, full, health, held, again = asyncio.run(scenario())
+    assert busy.status_code == 503 and busy.headers["retry-after"] == "1"
+    assert busy.json() == {"detail": "busy: try again shortly"}
+    assert busy.headers["x-content-type-options"] == "nosniff"
+    assert full.status_code == 503 and full.headers["retry-after"] == "1"
+    assert health.status_code == 200
+    # 거절된 두 요청(두 번째·세 번째)의 본문은 한 조각도 앱에 들어오지 않았다.
+    assert counting.pulled[1] == [] and counting.pulled[2] == []
+    # 자리가 나면 같은 업로드를 끝까지 받아 채점한다(multipart 틀까지 더해 파일보다 크다).
+    assert held.status_code == 200 and again.status_code == 200
+    assert sum(counting.pulled[4]) > len(big)
+
+
+# 재보정은 한 번에 하나만 받는다: 첫 /calibrate가 모델 안에 붙잡혀 있는 동안 두 번째 /calibrate는 본문을
+# 받기 전에 503(Retry-After: 1)이다. 재보정 본문은 256MB까지라 둘이 겹치면 /tmp가 가장 빨리 찬다. 그동안 검사
+# 업로드는 자리가 남아 있으면(기본 작업자 2·대기 16) 그대로 들어가 모델 안에서 재보정과 나란히 돈다. 첫
+# 재보정을 풀어 주면 둘 다 200이고 다음 재보정도 다시 받는다.
+def test_only_one_calibration_runs_at_a_time_while_inspections_still_get_in():
+    app = service.create_offline_app(admin_token=TOKEN)
+    inspector = app.state.inspectors["demo"]
+    real = inspector.session
+    inside, release, overlap = threading.Event(), threading.Event(), threading.Event()
+    calls = itertools.count()
+
+    class Slow:
+        def run(self, names, feeds):
+            if next(calls) == 0:  # 첫 호출(첫 재보정의 첫 장)만 붙잡는다
+                inside.set()
+                assert release.wait(10)
+            elif not release.is_set():
+                overlap.set()  # 재보정이 붙잡혀 있는 동안 다른 작업이 모델 안에 들어왔다
+            return real.run(names, feeds)
+
+    inspector.session = Slow()
+    counting = _Counting(app)
+    images = [_png(im) for im in _bright(25)]
+
+    async def scenario():
+        async with _async_client(counting) as client:
+
+            def calibrate():
+                files = _upload_files("images", images)
+                return client.post("/calibrate", files=files, data={"category": "demo"}, headers=ADMIN)
+
+            first = asyncio.create_task(calibrate())
+            assert await asyncio.to_thread(inside.wait, 10)
+            second = await calibrate()
+            inspected = await client.post(
+                "/inspect", files=_upload_files("image", [_png(_normal())]), data={"category": "demo"}
+            )
+            release.set()
+            held = await first
+            again = await calibrate()
+            state = await client.get("/categories")
+        return second, inspected, held, again, state
+
+    second, inspected, held, again, state = asyncio.run(scenario())
+    assert second.status_code == 503 and second.headers["retry-after"] == "1"
+    assert "calibration" in second.json()["detail"] and counting.pulled[1] == []
+    # 검사는 재보정이 붙잡혀 있는 동안에도 들어가 모델 안에서 나란히 돌았다.
+    assert inspected.status_code == 200 and overlap.is_set()
+    assert held.status_code == 200 and again.status_code == 200
+    assert state.json()[0]["calibration"] == {"strategy": "holdout", "n": 25, "guaranteed": True}
+
+
+# 업로드를 /tmp에 스풀하는 동안 공간이 모자랐을 때(ENOSPC) 응답이 400이 아니라 503(Retry-After: 1)인지
+# 확인한다. FastAPI는 multipart 해석 중의 예외를 400으로 바꾸는데, 400은 클라이언트 잘못이라 재시도 대상이
+# 아니어서 정상 클라이언트가 결과를 잃는다. 공간 부족은 서버 쪽의 일시적 상태이므로 503으로 바꿔 재시도하게
+# 하고, 운영자가 알 수 있게 경고 로그를 남긴다. 그 밖의 해석 오류(boundary 없는 multipart)는 그대로 400이고,
+# 503 응답에 OS 오류 문구가 섞이지 않는다.
+def test_running_out_of_scratch_space_during_an_upload_is_a_503_not_a_400(client, monkeypatch, caplog):
+    from starlette.datastructures import UploadFile
+
+    broken = client.post("/inspect", content=b"x", headers={"Content-Type": "multipart/form-data"})
+    assert broken.status_code == 400
+
+    async def no_space(self, data):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(UploadFile, "write", no_space)
+    response = _inspect(client, _png(_normal()))
+    assert response.status_code == 503 and response.headers["retry-after"] == "1"
+    assert response.json() == {"detail": "busy: temporary storage is full, try again shortly"}
+    assert "No space" not in response.text and response.headers["x-content-type-options"] == "nosniff"
+    assert "ran out of space" in caplog.text
+    assert _calibrate(client, _bright(25)).status_code == 503
+    assert _state(client)["calibration"]["n"] == 24
 
 
 # 허용된 Host 이름에만 답하는지 확인한다. 기본 목록은 포트와 대소문자를 무시하고 받으며, 접미사
