@@ -38,5 +38,9 @@ ENV MALLOC_MMAP_THRESHOLD_=1048576
 ENV DEFECT_INSPECT_ARTIFACTS=/artifacts
 EXPOSE 8000
 
+# 프로세스 하나로 띄운다(--workers나 WEB_CONCURRENCY를 주지 않는다). /calibrate가 바꾼 임계값과 보정 기록은 그 프로세스의
+# 메모리에만 있어서, 작업자 프로세스를 둘 이상 띄우면 재보정이 그 요청을 받은 프로세스에만 남아 프로세스마다 판정이
+# 달라진다. 처리량은 DEFECT_INSPECT_WORKERS(디코딩·채점 스레드 수)와 DEFECT_INSPECT_THREADS(onnxruntime 연산 스레드 수)로
+# 조절한다(compose.yaml, README 검사 서비스 절).
 # --no-server-header: 응답에 `server: uvicorn` 헤더를 붙이지 않아 서버 소프트웨어를 드러내지 않는다.
 CMD ["/app/.venv/bin/uvicorn", "defect_inspect.service:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]

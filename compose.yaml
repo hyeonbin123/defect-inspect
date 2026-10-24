@@ -2,7 +2,9 @@
 services:
   inspect:
     build: .
-    # 이 PC(127.0.0.1)에서만 열리게 묶는다. 다른 기계에서 접속하게 하려면 주소와 아래 허용 Host를 함께 바꾼다.
+    # 이 PC(127.0.0.1)에서만 열리게 묶는다. 다른 기계에서 접속하게 하려면 주소와 아래 허용 Host를 함께 바꾸고, TLS를 끝내고
+    # 본문 읽기 시간·크기·연결 수를 제한하는 리버스 프록시 뒤에 둔다. 관리자 토큰은
+    # `python -c "import secrets; print(secrets.token_urlsafe(32))"`처럼 만들어 환경 변수(.env)로 준다(README 검사 서비스 절).
     ports:
       - "127.0.0.1:8093:8000"
     environment:
@@ -14,6 +16,14 @@ services:
       # POST /calibrate(임계값 바꾸기)는 여기에 토큰을 설정하기 전까지 꺼져 있다. 호출하는 쪽은 그 값을
       # X-Admin-Token 헤더로 보낸다.
       DEFECT_INSPECT_ADMIN_TOKEN: ${DEFECT_INSPECT_ADMIN_TOKEN:-}
+      # 동시에 디코딩·채점하는 스레드 수(기본 2)와 작업자를 기다릴 수 있는 요청 수(기본 16). 비우면 기본값. 둘의 합을 넘는
+      # 업로드 요청은 503(Retry-After)으로 거절된다. 재보정 상태는 프로세스 메모리에만 있어 uvicorn 작업자 프로세스를
+      # 늘리지 않으므로(Dockerfile), 처리량은 이 두 값으로 조절한다.
+      DEFECT_INSPECT_WORKERS: ${DEFECT_INSPECT_WORKERS:-}
+      DEFECT_INSPECT_QUEUE: ${DEFECT_INSPECT_QUEUE:-}
+      # 모델 세션 하나가 쓰는 onnxruntime 연산 스레드 수. 비우면 onnxruntime 기본값(호스트의 물리 코어 수)이다. 이 서비스에
+      # cpus: 로 CPU 제한을 걸면 기본값은 그 제한을 따르지 않으므로 제한한 코어 수로 맞춘다.
+      DEFECT_INSPECT_THREADS: ${DEFECT_INSPECT_THREADS:-}
     volumes:
       # 아티팩트 세트: 6단계의 서빙 Dinomaly ViT-S 모델(`dinomaly_serving export` + `calibrate`: ONNX 모델 하나,
       # 범주마다 임계값) 또는 `defect_inspect.export`의 PatchCore 세트. 읽기 전용으로 마운트한다.
