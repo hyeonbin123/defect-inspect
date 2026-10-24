@@ -43,4 +43,10 @@ EXPOSE 8000
 # 달라진다. 처리량은 DEFECT_INSPECT_WORKERS(디코딩·채점 스레드 수)와 DEFECT_INSPECT_THREADS(onnxruntime 연산 스레드 수)로
 # 조절한다(compose.yaml, README 검사 서비스 절).
 # --no-server-header: 응답에 `server: uvicorn` 헤더를 붙이지 않아 서버 소프트웨어를 드러내지 않는다.
-CMD ["/app/.venv/bin/uvicorn", "defect_inspect.service:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]
+# --limit-concurrency 32: 동시에 열린 연결(유휴 keep-alive 연결 포함)이나 처리 중인 요청이 32개에 이르면 uvicorn이
+# 32번째부터 앱을 부르지 않고 자체 503(본문 "Service Unavailable", Connection: close)을 낸다. 앱 안의 입장 제한(진행
+# 중인 업로드 요청을 작업자 + 대기열, 기본 2 + 16 = 18개로 묶고 넘으면 본문을 받기 전에 JSON 503 + Retry-After)
+# 바깥의 비상 상한으로, 본문 없이 연결만 쥐고 있는 클라이언트가 수백 개 쌓이는 것을 막는다. 18보다 여유를 둔 것은
+# 데모 페이지를 띄운 브라우저가 keep-alive 연결 몇 개를 쥐고 있어도 정상 요청이 거절되지 않게 하려는 것이다. 이보다
+# 작게 잡으면 유휴 연결만으로도 503이 날 수 있다. --timeout-keep-alive는 기본값 5초라 적지 않는다.
+CMD ["/app/.venv/bin/uvicorn", "defect_inspect.service:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-server-header", "--limit-concurrency", "32"]

@@ -30,10 +30,15 @@ services:
       - ${DEFECT_INSPECT_ARTIFACT_DIR:-./artifacts/dms-280-car}:/artifacts:ro
     # 컨테이너 루트 파일 시스템을 읽기 전용으로 둔다(쓸 곳은 아래 /tmp뿐).
     read_only: true
-    # 1MB가 넘는 업로드는 요청을 해석하는 동안 여기에 임시로 쓰인다. tmpfs는 메모리 한도에 포함되므로, 재보정
-    # 호출 한 번(256MB)과 검사 업로드가 들어갈 크기로 잡았다.
+    # 1MB가 넘는 업로드 파일은 요청을 해석하는 동안 여기에 임시로 쓰인다(Starlette의 SpooledTemporaryFile). tmpfs는
+    # 메모리 한도에 포함된다. 크기는 서비스가 동시에 받아 둘 수 있는 업로드의 최대 합으로 잡았다: 서비스는 진행 중인
+    # 업로드 요청(POST /inspect와 /calibrate)을 작업자 + 대기열(기본 2 + 16 = 18개)로 묶고 넘으면 본문을 받기 전에
+    # 503을 내며, 재보정은 한 번에 하나만 받는다. 가장 큰 경우는 검사 17개 × (파일 20MB + multipart 여유 64KB) +
+    # 재보정 1개 × 256MB ≈ 597MB라 768m이면 들어가고, mem_limit 2g 안에도 든다. 공간이 모자라면 서비스는 그 업로드에
+    # 503(Retry-After)으로 답하고 경고 로그를 남긴다. DEFECT_INSPECT_QUEUE를 늘리면 이 크기도 함께 늘린다. 메모리를
+    # 아끼려면 대기열을 줄이는 쪽이 낫다(예: 대기열 4면 검사 5개 × 20MB + 256MB ≈ 357MB로 512m에 든다).
     tmpfs:
-      - /tmp:size=512m
+      - /tmp:size=768m
     mem_limit: 2g
     restart: unless-stopped
     # 상태 점검: 이미지 안의 Python으로 /healthz를 부른다(curl이 이미지에 없다).
