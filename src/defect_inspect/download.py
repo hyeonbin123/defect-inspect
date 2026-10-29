@@ -6,8 +6,8 @@
 # [설계 이유] 큰 파일을 받다가 끊겨도 처음부터 다시 받지 않도록 `.part` 파일에 이어 받고(HTTP Range), 다 받은
 # 뒤 해시가 맞을 때만 최종 이름으로 바꾼다. 그래서 최종 경로에는 검증된 파일만 남는다. 표준 라이브러리만 써서,
 # 기본 패키지만 설치한 환경에서도 돈다.
-# [흐름] download(): 이미 검증된 파일이 있으면 끝 → `.part` 크기만큼 Range 요청으로 이어 받기(_fetch) → 해시
-# 검증 → os.replace로 이름 바꾸기.
+# [흐름] download(): https 주소인지 확인 → 이미 검증된 파일이 있으면 끝 → `.part` 크기만큼 Range 요청으로 이어
+# 받기(_fetch) → 해시 검증 → os.replace로 이름 바꾸기.
 # [연결] paths.VISA_TAR가 저장 위치다. sha256_file은 dinomaly_serving, run_dinomaly, run_perturb,
 # runtime_compare가 가져다 쓴다. tests/test_download.py는 opener 인자에 가짜 서버를 넣어 이어 받기·416·206
 # 같은 경우를 확인한다.
@@ -16,6 +16,7 @@ import hashlib
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -98,7 +99,8 @@ def _fetch(url: str, part: Path, opener) -> None:
     """`.part` 파일을 전체 내용까지 채운다. 서버가 허락하면 이어 받는다."""
     offset = part.stat().st_size if part.exists() else 0
     if offset:
-        request = urllib.request.Request(url, headers={"Range": f"bytes={offset}-"})
+        # S310 예외 사유(이 함수의 Request 두 곳 공통): url은 download()가 https인지 확인한 뒤에만 온다.
+        request = urllib.request.Request(url, headers={"Range": f"bytes={offset}-"})  # noqa: S310
         try:
             response = opener(request)
         except urllib.error.HTTPError as err:
@@ -126,7 +128,7 @@ def _fetch(url: str, part: Path, opener) -> None:
                     return
         # 위 어느 경우에도 해당하지 않으면 이어 받기를 포기하고 `.part`를 지운 뒤 아래에서 처음부터 받는다.
         part.unlink()
-    with opener(urllib.request.Request(url)) as response:
+    with opener(urllib.request.Request(url)) as response:  # noqa: S310
         _stream(response, part, "wb")
 
 
@@ -134,8 +136,9 @@ def _fetch(url: str, part: Path, opener) -> None:
 # 부르므로 테스트가 monkeypatch로 바꿔 끼운 urlopen도 그대로 쓰인다.
 def _urlopen_with_timeout(request):
     # 시간 제한은 연결과 모든 대기 읽기에 걸리므로, 멈춘 전송은 무한히 기다리지 않고 예외를 낸다(`.part`
-    # 파일은 다음 호출을 위해 남는다).
-    return urllib.request.urlopen(request, timeout=TIMEOUT_S)
+    # 파일은 다음 호출을 위해 남는다). S310 예외 사유: request는 _fetch가 download()에서 https로 확인한
+    # 주소로만 만든다.
+    return urllib.request.urlopen(request, timeout=TIMEOUT_S)  # noqa: S310
 
 
 # expected_sha256을 주면 검증까지 하고, 대소문자는 소문자로 맞춰 비교한다.
@@ -151,8 +154,14 @@ def download(
 ) -> Path:
     """`url`을 `dest` + ".part"를 거쳐 `dest`로 받는다. 덜 받은 파일은 이어 받고, 해시를 검증한다.
 
-    기본 opener는 `TIMEOUT_S`초 시간 제한을 붙인 `urllib.request.urlopen`이다.
+    기본 opener는 `TIMEOUT_S`초 시간 제한을 붙인 `urllib.request.urlopen`이다. https 주소만 받고, 다른
+    scheme이면 요청 전에 `ValueError`를 낸다.
     """
+    # https만 받는다: urlopen은 file:·ftp: 같은 다른 scheme도 열기 때문에, 잘못된 주소가 들어오면 로컬
+    # 파일을 dest로 복사해 오거나 암호화되지 않은 연결로 받을 수 있다(해시를 주지 않으면 그대로 성공한다).
+    # 이 저장소가 받는 주소(VISA_URL)는 https다. urlsplit은 scheme을 소문자로 돌려주므로 "HTTPS://"도 받는다.
+    if urllib.parse.urlsplit(url).scheme != "https":
+        raise ValueError(f"only https URLs are downloaded, got {url!r}")
     if opener is _URLOPEN:
         opener = _urlopen_with_timeout
     dest = Path(dest)

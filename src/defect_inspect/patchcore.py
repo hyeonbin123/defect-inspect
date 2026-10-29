@@ -112,7 +112,12 @@ def collect_features(
             out = torch.empty((n * h * w, dim), dtype=torch.float16)
         out[pos : pos + b * h * w] = feats.reshape(b * h * w, dim).cpu()
         pos += b * h * w
-    assert out is not None and pos == out.shape[0]
+    # n > 0이라 루프가 한 번은 돌아 out이 잡히고, 배치마다 b·h·w행씩 채워 pos가 끝에 닿아야 한다
+    # (배치마다 격자가 달라지면 어긋난다). assert 대신 명시적으로 검사해 assert를 지우는 `python -O`에서도
+    # 덜 채운 배열을 돌려주지 않는다(ruff S101).
+    if out is None or pos != out.shape[0]:
+        total = 0 if out is None else out.shape[0]
+        raise RuntimeError(f"patch features filled {pos} of {total} rows")
     return out, grid
 
 

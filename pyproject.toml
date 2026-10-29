@@ -87,4 +87,14 @@ line-length = 110
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+# S: flake8-bandit 보안 규칙(assert 사용, 셸·부분 경로 subprocess, urlopen의 scheme, 약한 해시, 하드코딩한 비밀값
+# 등). src에서 남긴 예외는 그 줄의 `# noqa: S…`와 바로 위 주석에 사유를 적었다.
+select = ["E", "F", "I", "UP", "B", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# 테스트에서만 끄는 보안 규칙과 사유:
+# - S101: pytest는 assert로 단언한다.
+# - S105: 테스트용 관리자 토큰("test-admin-token")은 비밀값이 아니다.
+# - S603·S607: 테스트가 고정 인자 목록으로 git과 이 인터프리터(sys.executable)를 셸 없이 띄운다(장부의 git 기록,
+#   torch 없는 import 확인 등). 인자는 테스트 안의 상수와 임시 폴더 경로뿐이다.
+"tests/**" = ["S101", "S105", "S603", "S607"]

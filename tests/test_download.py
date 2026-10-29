@@ -280,6 +280,27 @@ def test_truncated_body_keeps_the_part_file_for_resuming(tmp_path):
     assert dest.read_bytes() == CONTENT
 
 
+# 확인: https가 아닌 주소(file:·http:·ftp:)는 요청을 보내기 전에 ValueError로 거절하고 dest도 `.part`도
+# 만들지 않는다. urllib의 urlopen은 file: 주소도 열기 때문에, 이 검사가 없으면 잘못 넘긴 주소로 로컬 파일을
+# dest에 복사해 올 수 있다(해시를 주지 않으면 그대로 성공한다). opener가 불리면 요청이 나간 것이라 바로
+# 실패시킨다.
+@pytest.mark.parametrize(
+    "url", ["file:///etc/hostname", "http://example.invalid/file.bin", "ftp://example.invalid/file.bin"]
+)
+def test_download_refuses_a_url_that_is_not_https(tmp_path, url):
+    dest = tmp_path / "file.bin"
+    sent = []
+
+    def opener(request):
+        sent.append(request.full_url)
+        raise AssertionError(f"a request was sent for {request.full_url}")
+
+    with pytest.raises(ValueError, match="https"):
+        dl.download(url, dest, opener=opener)
+    assert sent == []
+    assert not dest.exists() and not dest.with_name("file.bin.part").exists()
+
+
 # 확인: VisA의 공식 S3 URL과 SHA-256이 docs/experiments.md 데이터 절에 등록한 값(2eb8690c…f362)과 같다. 값이
 # 바뀌면 다른 데이터로 모든 측정을 하게 된다.
 def test_visa_constants():

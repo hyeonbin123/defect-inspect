@@ -35,9 +35,19 @@ _LOCK_POLL_S = 0.005
 
 # git 명령을 root에서 실행해 표준 출력을 돌려주는 작은 도우미. timeout=30과 check=True로, git이 멈추거나
 # 실패하면 예외가 나서 git_commit이 "unknown"으로 처리한다.
+# S603·S607 예외 사유(이 파일의 git 호출 세 곳 공통): 셸 없이 고정 프로그램 git을 인자 목록으로
+# 실행한다. 인자는 이 모듈의 상수(rev-parse·status·diff 옵션)와 저장소 안 상대 경로뿐이라 외부 입력이
+# 명령이 되지 않는다. git은 이 PC의 PATH에서 찾는 것이 의도다(없으면 예외가 나고 호출한 쪽이
+# "unknown"·None으로 처리한다).
 def _git(args: list[str], root: Path) -> str:
-    done = subprocess.run(
-        ["git", *args], cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=30, check=True
+    done = subprocess.run(  # noqa: S603
+        ["git", *args],  # noqa: S607
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        check=True,
     )
     return done.stdout.strip()
 
@@ -85,7 +95,7 @@ _TREE_DIFF = ("diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv"
 # 바이트 그대로 받는 git 도우미. diff 출력은 임의의 바이트(파일 내용)라 텍스트로 풀면 깨지거나 실패할 수 있어
 # 해시는 바이트에 대해 계산한다. _git과 같이 timeout=30, check=True라 실패하면 예외가 난다.
 def _git_bytes(args: list[str], root: Path) -> bytes:
-    done = subprocess.run(["git", *args], cwd=root, capture_output=True, timeout=30, check=True)
+    done = subprocess.run(["git", *args], cwd=root, capture_output=True, timeout=30, check=True)  # noqa: S603, S607
     return done.stdout
 
 
@@ -141,8 +151,9 @@ def ledger_tree(ledger: Path) -> dict | None:
     except ValueError:
         return None  # 저장소 밖의 장부
     try:
-        done = subprocess.run(
-            ["git", *_TREE_GIT, "check-ignore", "-q", "--", rel.as_posix()],
+        # S603·S607 예외 사유는 _git 위 주석과 같다(고정 git, 셸 없음, 인자는 상수와 저장소 안 상대 경로).
+        done = subprocess.run(  # noqa: S603
+            ["git", *_TREE_GIT, "check-ignore", "-q", "--", rel.as_posix()],  # noqa: S607
             cwd=root,
             capture_output=True,
             timeout=30,

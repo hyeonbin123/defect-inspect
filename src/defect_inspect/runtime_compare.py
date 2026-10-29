@@ -460,11 +460,13 @@ def cpu_percent(seconds: float) -> float | None:
 
 
 # nvidia-smi로 첫 GPU의 사용률을 읽는다. 명령이 없거나 실패하면 None(GPU 조건은 건너뜀).
+# S607 예외 사유: 인자가 모두 고정 문자열이고 셸이 없다. nvidia-smi는 GPU 드라이버가 PATH에 두는 도구라
+# PATH에서 찾는 것이 의도이며, 없거나 실패하면 None이 된다.
 def gpu_percent() -> float | None:
     """nvidia-smi로 읽은 첫 GPU의 사용률, 또는 None."""
     try:
         out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],  # noqa: S607
             capture_output=True,
             text=True,
             timeout=30,
@@ -678,7 +680,9 @@ def _latency_command(args: argparse.Namespace, parser: argparse.ArgumentParser) 
             # 이것이 없어 그 정정에서 블록 시각을 실행 시간의 합으로 추정해야 했다. 직전 5초 측정은 started
             # 바로 앞 5초다.
             run_started = now_iso()
-            done = subprocess.run(_run_arm_cmd(args, arm), capture_output=True, text=True, check=False)
+            # S603 예외 사유: 셸 없이 이 인터프리터(sys.executable)로 이 모듈의 run-arm을 띄운다. 인자는 이
+            # 명령을 실행한 사람이 준 명령행 값을 항목별로 넘길 뿐이라 셸 해석을 거치지 않는다(_run_arm_cmd).
+            done = subprocess.run(_run_arm_cmd(args, arm), capture_output=True, text=True, check=False)  # noqa: S603
             run_ended = now_iso()
             if done.returncode != 0:
                 raise RuntimeError(f"run-arm {arm} failed: {done.stderr[-2000:]}")

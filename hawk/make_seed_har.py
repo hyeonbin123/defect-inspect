@@ -30,22 +30,25 @@ BOUNDARY = "hawkseedboundary7d3a"
 OUT = Path(__file__).with_name("seed.har")
 
 
-# 픽셀은 100~127의 회색 잡음이고, 헤더의 크기 값도 32px에서는 작아 0x80 미만 조건을 지킨다. 두 assert로 그
-# 조건(행 패딩 없음, 7비트)이 깨지면 바로 멈춘다.
+# 픽셀은 100~127의 회색 잡음이고, 헤더의 크기 값도 32px에서는 작아 0x80 미만 조건을 지킨다. 두 검사로 그
+# 조건(행 패딩 없음, 7비트)이 깨지면 바로 멈춘다. assert가 아니라 명시적 검사라 assert를 지우는 `python -O`로
+# 돌려도 조건을 어긴 시드를 만들지 않는다(ruff S101).
 def ascii_bmp(seed: int, size: int = 32) -> bytes:
     """size×size 크기의 중간 회색 잡음 24비트 BMP 바이트를 만든다. 파일의 모든 바이트가 0x80 미만이다."""
     pixels = np.random.default_rng(seed).integers(100, 128, (size, size, 3), dtype=np.uint8)
     # BMP는 각 행을 4바이트 배수로 채워야 한다. 32px × 3바이트 = 96이라 패딩이 필요 없고, 패딩을 쓰지 않는
-    # 간단한 구현을 assert로 보장한다.
+    # 간단한 구현을 이 검사로 보장한다.
     row = size * 3
-    assert row % 4 == 0, "rows must need no padding"
+    if row % 4 != 0:
+        raise ValueError("rows must need no padding")
     body = pixels[::-1].tobytes()  # BMP는 행을 아래에서 위 순서로 저장한다
     # 14바이트 파일 헤더("BM", 파일 크기, 픽셀 시작 위치 54)와 40바이트 BITMAPINFOHEADER(너비, 높이, 평면 1,
     # 24비트, 무압축, 본문 크기)를 리틀엔디언으로 묶는다.
     header = b"BM" + struct.pack("<IHHI", 54 + len(body), 0, 0, 54)
     info = struct.pack("<IiiHHIIiiII", 40, size, size, 1, 24, 0, len(body), 0, 0, 0, 0)
     data = header + info + body
-    assert max(data) < 0x80, "the BMP must stay within 7-bit bytes"
+    if max(data) >= 0x80:
+        raise ValueError("the BMP must stay within 7-bit bytes")
     return data
 
 

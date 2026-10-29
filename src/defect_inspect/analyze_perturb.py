@@ -74,7 +74,10 @@ def _condition_names(cats: dict[str, dict[str, np.ndarray]]) -> list[str]:
             raise ValueError(f"{c}: scores {cat['scores'].shape} do not match conditions x images")
         if not np.isfinite(cat["scores"]).all():
             raise ValueError(f"{c}: scores are not finite")
-    assert names is not None
+    # 위에서 cats가 비어 있지 않음을 확인했으므로 names는 늘 채워져 있다. assert 대신 명시적으로
+    # 검사해 assert를 지우는 `python -O`에서도 같은 오류로 멈추게 한다(ruff S101).
+    if names is None:
+        raise ValueError("the run has no categories")
     if names.count(CLEAN) != 1:
         raise ValueError(f"the run needs exactly one {CLEAN!r} condition, got {names}")
     return names

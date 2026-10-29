@@ -45,8 +45,9 @@ def make_rows() -> tuple[list[VisaRow], dict[str, tuple[str, ...]]]:
                 VisaRow(category, split, "anomaly", image, f"{category}/Data/Masks/Anomaly/{i:03d}.png")
             )
             types[image] = ("bent", "melt") if i % 3 == 0 else ("scratch",)
-    # 공식 CSV는 정렬돼 있지 않다: 결정적으로 섞어 코드가 입력 순서에 기대지 못하게 한다.
-    rows.sort(key=lambda r: hashlib.md5(r.image.encode()).hexdigest())
+    # 공식 CSV는 정렬돼 있지 않다: 결정적으로 섞어 코드가 입력 순서에 기대지 못하게 한다. md5는 섞는
+    # 순서를 정하는 데만 쓰므로 usedforsecurity=False로 보안 용도가 아님을 밝힌다(같은 값, ruff S324).
+    rows.sort(key=lambda r: hashlib.md5(r.image.encode(), usedforsecurity=False).hexdigest())
     return rows, types
 
 
