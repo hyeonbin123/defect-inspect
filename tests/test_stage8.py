@@ -210,9 +210,73 @@ def test_calibrate_arms_carry_the_image_auroc(threshold_runs):
         "t30_fpr_upper_at_most_10pct",
         "d_fpr_t30_bank30",
         "d_auroc_t30_bank30",
+        "bank30_at_t30_false_positives",  # 2026-10-30 보충(아래 테스트), 끝에 붙는다
     ]
     assert list(entry) == ["arms", "per_light", "h23", "gate"]
     assert all("auroc" not in key for v in entry["per_light"].values() for key in v)
+
+
+# 8-A 2026-10-30 보충(판정 없음, test 라벨로 맞춘 기술 통계): 뱅크+임계값 n = 30 팔의 임계값을 검사기·조명
+# 칸마다 그 칸 test 정상 점수의 k + 1번째로 큰 값으로 옮겨, 같은 칸 T30 팔의 오검출 수 k와 같게 맞춘다. 확인:
+# (1) 손으로 만든 칸에서 임계값과 오검출 수, 동점이면 오검출 수가 k보다 작아지고 그 칸을 세는 것, k가 정상
+# 수와 같으면 -inf(모두 불량), 라벨이 다른 두 칸은 거절, 라벨 -1 이미지는 세지 않음, (2) 가짜 8-A 자료에서
+# 맞춘 팔의 수치가 맞춘 칸을 _rates에 넣은 것과 같고, 칸마다 오검출 수가 T30 이하(동점이 없으면 같음)이며,
+# 분리도 몫(T30 − 맞춘 팔)과 운영점 몫(맞춘 팔 − 뱅크+임계값 n = 30)의 합이 H23 차이와 같고 구간이 같은 추출의
+# 표본으로 난다.
+def test_bank_arm_matched_to_the_t30_false_positives(threshold_runs):
+    from defect_inspect.analyze_m2ad_enrol import _public, _rates
+
+    labels = np.array([0, 0, 0, 0, 1, 1, -1])
+    # 기준 칸: 정상 점수 0.1, 0.9, 0.8, 0.2 가운데 임계값 0.5를 넘는 것은 두 개(k = 2). 라벨 -1(5.0)은 세지
+    # 않는다.
+    reference = [(np.array([0.1, 0.9, 0.8, 0.2, 0.95, 0.3, 5.0]), labels, 0.5)]
+    target = [(np.array([0.4, 0.7, 0.6, 0.1, 0.65, 0.2, 9.0]), labels, 0.75)]
+    matched, ties = analyze_stage8.match_false_positives(reference, target)
+    # 맞출 칸의 정상 점수 내림차순 0.7, 0.6, 0.4, 0.1에서 세 번째 값 0.4가 임계값이고, 0.7·0.6만 넘는다.
+    assert matched[0][2] == 0.4 and ties == 0
+    assert matched[0][0] is target[0][0] and matched[0][1] is labels
+    # 동점: 정상 0.6, 0.6, 0.6, 0.1이면 세 번째 값도 0.6이라 넘는 정상이 0개(k = 2보다 적다) → 동점 칸 하나.
+    tied = [(np.array([0.6, 0.6, 0.6, 0.1, 0.65, 0.2, 9.0]), labels, 0.75)]
+    matched, ties = analyze_stage8.match_false_positives(reference, tied)
+    assert matched[0][2] == 0.6 and ties == 1
+    # 기준 칸이 모든 정상을 불량으로 두면(k = 4) 맞출 칸도 모두 불량(-inf).
+    everything = [(reference[0][0], labels, 0.0)]
+    matched, ties = analyze_stage8.match_false_positives(everything, target)
+    assert matched[0][2] == float("-inf") and ties == 0
+    with pytest.raises(ValueError, match="same test images"):
+        analyze_stage8.match_false_positives(reference, [(target[0][0], labels[::-1].copy(), 0.75)])
+
+    root, _, _ = threshold_runs
+    ref = analyze_m2ad.load(root / "m2ad-p0")
+    run = analyze_stage8.load_threshold_run(root / "m2ad-threshold-p0")
+    boot = analyze_m2ad.ClusterBootstrap(ref, 50, 0)
+    entry = analyze_stage8.calibrate_method(ref, run, boot)
+    h23, arms = entry["h23"], entry["arms"]
+    got = h23["bank30_at_t30_false_positives"]
+    lights = analyze_stage8.NEW_LIGHTS
+    t30 = [analyze_stage8.threshold_cell(ref, run, light, 30)[0] for light in lights]
+    bank = [analyze_m2ad.recal_cell(ref, f"{light}:30") for light in lights]
+    cells, ties = [], 0
+    for t30_cell, bank_cell in zip(t30, bank, strict=True):
+        cell, n_ties = analyze_stage8.match_false_positives(t30_cell, bank_cell)
+        cells.append(cell)
+        ties += n_ties
+        for (s_ref, lab, thr_ref), (s, _, thr) in zip(t30_cell, cell, strict=True):
+            k = int((s_ref[lab == 0] > thr_ref).sum())
+            assert int((s[lab == 0] > thr).sum()) == k or n_ties > 0
+    rates = _rates(boot, cells)
+    expected = _public(rates) | {"tied_cells": ties}
+    assert {k: got[k] for k in expected} == expected
+    assert got["n_normal"] == arms["T30"]["n_normal"] and got["n_defect"] == arms["T30"]["n_defect"]
+    if ties == 0:
+        assert got["false_positives"] == arms["T30"]["false_positives"]
+    t30_rates, bank_rates = _rates(boot, t30), _rates(boot, bank)
+    sep, op = got["d_tpr_separation"], got["d_tpr_operating_point"]
+    assert sep["diff"] == t30_rates["tpr"] - rates["tpr"] and op["diff"] == rates["tpr"] - bank_rates["tpr"]
+    assert sep["diff"] + op["diff"] == pytest.approx(h23["d_tpr"], abs=1e-12)
+    assert sep["ci"] == analyze_m2ad._ci(t30_rates["tpr_samples"] - rates["tpr_samples"])
+    assert op["ci"] == analyze_m2ad._ci(rates["tpr_samples"] - bank_rates["tpr_samples"])
+    assert list(got)[-3:] == ["tied_cells", "d_tpr_separation", "d_tpr_operating_point"]
 
 
 def test_verdict_lines():

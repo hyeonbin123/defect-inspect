@@ -12,7 +12,8 @@
 # 만들면 3-B 표와 같은 재표집이 나와, 3-B 사람 재보정 행과의 차이도 같은 추출로 낼 수 있다. 임계값을 정하는
 # 규칙(conformal, 목표 5%)은 calibrate.conformal_threshold 하나만 쓴다.
 # [흐름] calibrate: 3-B 실행 + 8-A 실행 → 팔(T8, T19, T30)마다 조명별 임계값 → 합산 비율 → H23. 팔마다
-# 검사기·조명 평균 이미지 AUROC도 같은 추출로 낸다(판정 없음).
+# 검사기·조명 평균 이미지 AUROC도 같은 추출로 낸다(판정 없음). 뱅크+임계값 n = 30을 칸마다 T30과 같은 test
+# 정상 오검출 수에 맞춘 검출률과 H23 차이의 분리도·운영점 몫도 낸다(판정 없음, test 라벨로 맞춘 기술 통계).
 # loop: 3-B 실행 + 7단계 폐루프 + 8-B 실행 → 재현 관문 → 팔별 표 → H25와 차이.
 # dms-train: 8-C 학습 기록과 학습 시편 교차 적합 점수 → 팔별 등록·못 본 조명 오검출률(판정 없음).
 # dms-test: 8-C test 점수 → 7단계와 같은 표 → H24, 임계값만 다시 잡기, 폐루프(판정 없음).
@@ -156,6 +157,35 @@ def threshold_cell(ref: dict, run: dict, light: str, n: int) -> tuple[list, list
     return cell, thresholds
 
 
+# 운영점 맞추기(8-A 2026-10-30 보충 규칙, 판정 없음). 기준 칸(T30 팔)과 맞출 칸(뱅크+임계값 n = 30 팔)은 같은
+# 조명의 검사기별 (점수, 라벨, 임계값) 목록이다. 검사기마다 기준 칸의 test 정상 오검출 수 k(`점수 > 임계값`)를
+# 세고, 맞출 칸의 임계값을 그 검사기 test 정상 점수 가운데 k + 1번째로 큰 값으로 바꾼다. 그러면 정상 가운데 그
+# 값보다 큰 것이 k개라 오검출 수가 같아진다. k가 정상 수와 같으면 -inf로 두어 모두 불량이다. k + 1번째 값과
+# 같은 정상 점수가 그보다 앞에 있으면(동점) 오검출 수가 k보다 작아지므로, 그런 검사기 칸 수를 함께 돌려준다.
+# 왜: H23의 검출률 차이에는 분리도 몫과 운영점 몫(T30은 30장 중 30번째, 뱅크+임계값은 60장 중 58번째)이 섞여
+# 있어, 두 팔을 칸마다 같은 오검출 수에 두고 검출률을 비교하면 분리도 몫만 남는다. test 정상을 보고 정한
+# 임계값이라 운영 절차가 될 수 없고 기술 통계에만 쓴다(판정 없음).
+# 입력 검사: 두 칸의 라벨이 같아야 한다(같은 test 이미지를 같은 순서로 매긴 점수). 다르면 ValueError.
+# 점수·라벨 배열은 그대로 넘기고 임계값만 바꾼 새 목록을 돌려준다. 라벨 -1(쓰지 않는 이미지)은 정상으로 세지
+# 않는다.
+def match_false_positives(reference: list, target: list) -> tuple[list, int]:
+    """`target` 칸의 임계값을 검사기마다 `reference` 칸과 같은 test 정상 오검출 수가 되도록 옮긴다.
+
+    돌려주는 값: (임계값만 바꾼 칸, 동점 때문에 오검출 수가 기준보다 작아진 검사기 칸 수).
+    """
+    matched, ties = [], 0
+    for (ref_scores, ref_labels, ref_threshold), (scores, labels, _) in zip(reference, target, strict=True):
+        if not np.array_equal(ref_labels, labels):
+            raise ValueError("the reference and the target cells do not label the same test images")
+        normal = labels == 0
+        k = int((np.asarray(ref_scores, dtype=np.float64)[normal] > ref_threshold).sum())
+        ordered = np.sort(np.asarray(scores, dtype=np.float64)[normal])[::-1]
+        threshold = float(ordered[k]) if k < ordered.size else float("-inf")
+        ties += int(int((ordered > threshold).sum()) != k)
+        matched.append((scores, labels, threshold))
+    return matched, ties
+
+
 # 방법 하나의 8-A 표. 팔 T8·T19·T30(임계값만), 3-B의 뱅크+임계값 재보정(bank8, bank30), 재보정 없음(none)을
 # 같은 부트스트랩 추출로 내고, H23(T30 − bank30 검출률)과 T30 오검출률 상한이 10% 이하인지를 적는다. 동일성
 # 관문 기록도 같이 싣는다.
@@ -165,8 +195,12 @@ def threshold_cell(ref: dict, run: dict, light: str, n: int) -> tuple[list, list
 # 더했다. 3-B 실행에 저장된 점수만 쓰므로 봉인 이미지를 다시 읽지 않고 장부 줄도 생기지 않는다. 임계값만 팔은
 # test 점수가 none(3-B E0 점수)과 같아 AUROC도 none과 같다. 새 키는 각 묶음의 끝에 붙여 기존 키의 값과 순서는
 # 그대로다(커밋한 리포트를 다시 만들어도 새 키만 는다).
+# h23 끝의 bank30_at_t30_false_positives(2026-10-30 보충, 판정 없음): 뱅크+임계값 n = 30 팔을 칸마다 T30 팔과
+# 같은 test 정상 오검출 수에 맞춘 팔(match_false_positives)의 합산 비율과 구간, 동점 칸 수, 그리고 같은 추출의
+# 검출률 차이 둘 — d_tpr_separation(T30 − 맞춘 팔, 분리도 몫)과 d_tpr_operating_point(맞춘 팔 − bank30, 운영점
+# 몫). 두 몫의 합은 H23의 d_tpr이다. 임계값은 관측 자료로 맞춘 값에 고정하고 재표집마다 다시 맞추지 않는다.
 def calibrate_method(ref: dict, run: dict, boot: ClusterBootstrap) -> dict:
-    arms, per_light, aurocs = {}, {}, {}
+    arms, per_light, aurocs, arm_cells = {}, {}, {}, {}
     for n in THRESHOLD_ARMS:
         cells, thresholds = [], []
         for light in NEW_LIGHTS:
@@ -176,10 +210,12 @@ def calibrate_method(ref: dict, run: dict, boot: ClusterBootstrap) -> dict:
             per_light[f"T{n}:{light}"] = _public(_rates(boot, [cell]))
         arms[f"T{n}"] = _rates(boot, cells) | {"thresholds": _threshold_summary(thresholds)}
         aurocs[f"T{n}"] = _mean_auroc(boot, cells)
+        arm_cells[f"T{n}"] = cells
     for n in (8, 30):
         cells = [recal_cell(ref, f"{light}:{n}") for light in NEW_LIGHTS]
         arms[f"bank{n}"] = _rates(boot, cells)
         aurocs[f"bank{n}"] = _mean_auroc(boot, cells)
+        arm_cells[f"bank{n}"] = cells
         for light, cell in zip(NEW_LIGHTS, cells, strict=True):
             per_light[f"bank{n}:{light}"] = _public(_rates(boot, [cell]))
     none_cells = [condition_cell(ref, f"R:{light}") for light in NEW_LIGHTS]
@@ -189,6 +225,18 @@ def calibrate_method(ref: dict, run: dict, boot: ClusterBootstrap) -> dict:
     lo, hi = d_tpr["ci"]
     t30_fpr_ci = _ci(arms["T30"]["fpr_samples"])
     public_auroc = {k: {"auroc": a["auroc"], "auroc_ci": _ci(a["auroc_samples"])} for k, a in aurocs.items()}
+    # 운영점을 맞춘 뱅크+임계값 팔: 조명마다 T30 칸과 bank30 칸을 검사기별로 맞춘다(위 주석).
+    matched_cells, tied = [], 0
+    for t30_cell, bank_cell in zip(arm_cells["T30"], arm_cells["bank30"], strict=True):
+        cell, cell_ties = match_false_positives(t30_cell, bank_cell)
+        matched_cells.append(cell)
+        tied += cell_ties
+    matched = _rates(boot, matched_cells)
+    matched_entry = _public(matched) | {
+        "tied_cells": tied,
+        "d_tpr_separation": _diff(arms["T30"], matched, "tpr"),
+        "d_tpr_operating_point": _diff(matched, arms["bank30"], "tpr"),
+    }
     return {
         "arms": {k: _public(v) | public_auroc[k] for k, v in arms.items()},
         "per_light": per_light,
@@ -202,6 +250,7 @@ def calibrate_method(ref: dict, run: dict, boot: ClusterBootstrap) -> dict:
             "t30_fpr_upper_at_most_10pct": bool(t30_fpr_ci[1] <= LIMIT + _TOL),
             "d_fpr_t30_bank30": _diff(arms["T30"], arms["bank30"], "fpr"),
             "d_auroc_t30_bank30": _diff(aurocs["T30"], aurocs["bank30"], "auroc"),
+            "bank30_at_t30_false_positives": matched_entry,
         },
         "gate": [
             info["gate"] | {"inspector": f"{info['category']}_{info['view']}"}
