@@ -1,21 +1,33 @@
 # [파일 역할] CPU 런타임 대조(onnxruntime R0·R1 대 OpenVINO R2) 모듈 `defect_inspect.runtime_compare`를
 # 검증하는 테스트 묶음이다. 블록 순서 돌리기, 점수 동일성 관문 (가)~(라), 지연 요약과 H22 판정, 한가함 판정과
-# 기다리기, CPU 사용률 계산, 호출 시간 재기, 세 팔이 같은 ONNX 파일을 읽는지를 확인한다.
+# 기다리기, CPU 사용률 계산(Windows GetSystemTimes와 Linux /proc/stat), 리포트 기록 시각의 형식, latency
+# 리포트의 한가함·실행 시각 기록, 호출 시간 재기, 세 팔이 같은 ONNX 파일을 읽는지를 확인한다.
 # [왜 필요한가] 이 대조는 규칙(docs/experiments.md 'CPU 런타임 대조', 2026-10-04 측정 전 등록)에 정한 관문과
 # 기준(10% 이득)으로 판정한다. 관문 계산이나 블록 순서가 틀리면 판정 자체가 틀리므로, 실제 모델과 데이터 없이
 # 작은 점수 배열과 가짜 함수로 규칙의 각 조건을 하나씩 시험한다.
-# [설계 메모] torch가 필요 없어 CI에서도 돈다. 마지막 테스트만 onnx·onnxruntime·openvino가 있을 때 아주 작은
+# [설계 메모] torch가 필요 없어 CI(Linux)에서도 돈다. 그래서 CPU 사용률을 실제로 읽는 테스트는 이
+# PC(Windows)와 CI에서 서로 다른 경로를 지난다. 마지막 테스트만 onnx·onnxruntime·openvino가 있을 때 아주 작은
 # ONNX 모델을 만들어 세 팔에 실제로 돌린다.
 
 import json
+import os
+import re
+import subprocess
+import types
+from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 # inspector는 작은 아티팩트의 meta.json 버전 값을, calibrate.conformal_threshold는 기대 임계값(목표 5%)을
-# 만드는 데 쓴다.
-from defect_inspect import inspector, runtime_compare
+# 만드는 데 쓴다. bench는 latency 명령이 함수 안에서 가져오는 리사이즈 시간·CPU 이름 함수를 가짜로 바꾸려고
+# 가져온다.
+from defect_inspect import bench, inspector, runtime_compare
 from defect_inspect.calibrate import conformal_threshold
+
+# 리포트 기록 시각의 형식: 초 단위 ISO 8601에 UTC 오프셋(예: 2026-10-29T21:05:13+09:00, CI에서는 +00:00).
+ISO_WITH_OFFSET = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}")
 
 
 # 지연 측정의 블록 순서: 블록 b는 팔 목록을 b만큼 돌린다. 세 블록이면 모든 팔이 모든 자리(처음·가운데·끝)를 한
@@ -143,9 +155,10 @@ def test_h22_needs_parity_the_record_match_and_ten_percent():
 
 # 한가함 규칙: 1분 평균 CPU 10% 미만이고 GPU 10% 미만(GPU를 읽을 수 없으면 CPU만 본다)이어야 한다. CPU를 읽을
 # 수 없으면 한가하지 않은 것으로 본다. wait_idle은 1분씩 재다가 한가해지면 멈추고, 최대 횟수가 지나면 한가하지
-# 않음과 기록을 돌려준다.
+# 않음과 기록을 돌려준다. 돌려주는 dict는 리포트의 idle 절이 되며, CPU를 읽은 방법(cpu_probe)을 함께 담는다.
 # 마지막 부분은 각 기록의 끝 시각(end)을 그 1분을 잰 뒤에 읽는지 확인한다. 2026-10-04 검토에서 측정 시각 기록
-# 순서를 고친 것(runtime_compare.wait_idle의 2026-10-04 수정)의 회귀를 막는다.
+# 순서를 고친 것(runtime_compare.wait_idle의 2026-10-04 수정)의 회귀를 막는다. CPU를 읽을 수 있는지(probe)는
+# 1분을 재기 전에 한 번만 본다.
 def test_idle_rule_and_wait():
     assert runtime_compare.is_idle({"cpu_pct": 9.9, "gpu_pct": 9.9})
     assert not runtime_compare.is_idle({"cpu_pct": 10.0, "gpu_pct": 0.0})
@@ -154,35 +167,174 @@ def test_idle_rule_and_wait():
     assert not runtime_compare.is_idle({"cpu_pct": None, "gpu_pct": 0.0})
 
     minutes = iter([{"cpu_pct": 40.0, "gpu_pct": 0.0}, {"cpu_pct": 5.0, "gpu_pct": 1.0}])
-    idle, log = runtime_compare.wait_idle(5, minute=lambda: next(minutes), clock=lambda fmt: "t")
-    assert idle and [r["idle"] for r in log] == [False, True]
-    idle, log = runtime_compare.wait_idle(2, minute=lambda: {"cpu_pct": 50.0, "gpu_pct": 0.0}, clock=str)
-    assert not idle and len(log) == 2
+    result = runtime_compare.wait_idle(
+        5, minute=lambda: next(minutes), clock=lambda: "t", probe=lambda: "GetSystemTimes"
+    )
+    assert result["reached"] and result["cpu_probe"] == "GetSystemTimes"
+    assert [r["idle"] for r in result["wait"]] == [False, True]
+    assert [(r["minute"], r["end"]) for r in result["wait"]] == [(1, "t"), (2, "t")]
+    result = runtime_compare.wait_idle(
+        2, minute=lambda: {"cpu_pct": 50.0, "gpu_pct": 0.0}, clock=lambda: "t", probe=lambda: "/proc/stat"
+    )
+    assert not result["reached"] and result["cpu_probe"] == "/proc/stat" and len(result["wait"]) == 2
 
-    # `end`는 그 1분을 잰 뒤에 읽는다.
+    # `end`는 그 1분을 잰 뒤에 읽는다. CPU를 읽을 수 있는지는 그 전에 한 번 본다.
     events = []
+
+    def probe():
+        events.append("probe")
+        return "GetSystemTimes"
 
     def minute():
         events.append("minute")
         return {"cpu_pct": 1.0, "gpu_pct": 0.0}
 
-    def clock(fmt):
+    def clock():
         events.append("clock")
         return "t"
 
-    runtime_compare.wait_idle(1, minute=minute, clock=clock)
-    assert events == ["minute", "clock"]
+    runtime_compare.wait_idle(1, minute=minute, clock=clock, probe=probe)
+    assert events == ["probe", "minute", "clock"]
 
 
 # CPU 사용률 계산: (유휴 시간, 전체 시간) 두 측정 사이의 증가분으로 100 × (1 - 유휴 증가 / 전체 증가)를 낸다.
-# 측정이 없거나 시간이 흐르지 않았으면 None이다. cpu_percent는 실제로 짧게 재 보고(Windows가 아니면 None)
-# 범위만 확인한다.
+# 측정이 없거나 시간이 흐르지 않았으면 None이다. cpu_percent는 실제로 짧게 재 보고(Windows도 Linux도 아니면
+# None) 범위만 확인한다.
 def test_busy_percent():
     assert runtime_compare.busy_percent((50, 100), (80, 200)) == pytest.approx(70.0)
     assert runtime_compare.busy_percent(None, (1, 2)) is None
     assert runtime_compare.busy_percent((5, 10), (5, 10)) is None
     value = runtime_compare.cpu_percent(0.05)
     assert value is None or 0.0 <= value <= 100.0
+
+
+# Linux의 CPU 사용률: /proc/stat 첫 줄(모든 CPU의 합계)에서 (유휴 + iowait, 합계) 틱을 읽는다. 열 순서는
+# proc(5)의 user nice system idle iowait irq softirq steal guest guest_nice다. guest·guest_nice는 커널이
+# user·nice에 이미 더해 두므로 합계에서 빼고 센다(psutil·htop과 같은 계산). 두 번 세면 아래 두 표본의 바쁨이
+# 25%로 부풀려진다(guest 30틱이 user 60틱 안에 이미 들어 있다). 첫 표본은 WSL2 커널(6.18)의 실제 첫 줄이다.
+# iowait 이후 열이 없는 옛 커널 형식도 읽고, cpu 줄이 아니거나(cpu0, intr) 열이 모자라거나 숫자가 아니면
+# None이다. 파일에서는 첫 줄만 읽고, 파일이 없으면 None이다.
+def test_proc_stat_first_line_gives_idle_and_total_ticks(tmp_path):
+    sample = "cpu  19317 0 18284 3754496 125378 0 6083 0 0 0\n"
+    assert runtime_compare.parse_proc_stat(sample) == (
+        3754496 + 125378,
+        19317 + 0 + 18284 + 3754496 + 125378 + 0 + 6083 + 0,
+    )
+    before = runtime_compare.parse_proc_stat("cpu  100 20 30 400 50 6 7 8 90 10")
+    after = runtime_compare.parse_proc_stat("cpu  160 20 50 700 80 6 7 8 120 10")
+    assert before == (450, 621) and after == (780, 1031)
+    assert runtime_compare.busy_percent(before, after) == pytest.approx(100.0 * 80 / 410)
+    assert runtime_compare.parse_proc_stat("cpu  100 20 30 400") == (400, 550)  # iowait 이후 열이 없는 형식
+    for bad in ("", "\n", "cpu0 1 2 3 4 5", "intr 1 2 3 4 5", "cpu  1 2 3", "cpu  1 2 x 4 5"):
+        assert runtime_compare.parse_proc_stat(bad) is None, bad
+
+    stat = tmp_path / "stat"
+    stat.write_text(sample + "cpu0 1 0 1 1 0 0 0 0 0 0\nintr 5 6 7\n", encoding="ascii")
+    assert runtime_compare._proc_stat_times(stat) == runtime_compare.parse_proc_stat(sample)
+    assert runtime_compare._proc_stat_times(tmp_path / "missing") is None
+
+
+# 이 PC의 CPU 사용률을 실제로 읽는다. Windows는 GetSystemTimes, /proc/stat이 있는 곳(Linux, CI)은
+# /proc/stat이고, 둘 다 없으면 unavailable이다. 읽은 값은 (유휴, 합계) 정수 쌍이고 유휴는 합계를 넘지 않는다.
+def test_cpu_probe_names_how_this_platform_reads_the_cpu():
+    if os.name == "nt":
+        expected = "GetSystemTimes"
+    else:
+        expected = "/proc/stat" if Path("/proc/stat").exists() else "unavailable"
+    assert runtime_compare.cpu_probe() == expected
+    times = runtime_compare._system_times()
+    if expected == "unavailable":
+        assert times is None
+    else:
+        idle, total = times
+        assert isinstance(idle, int) and isinstance(total, int) and 0 <= idle <= total
+
+
+# CPU 사용률을 읽을 수 없는 플랫폼에서는 한가함을 판정할 수 없다. 예전에는 1분씩 --wait-max-min번(기본 60분)을
+# 아무 알림 없이 기다린 뒤 '한가하지 않음'으로 쟀다. 이제 wait_idle은 1분 측정을 한 번도 하지 않고 곧바로
+# 돌아오며, 돌려주는 기록(리포트의 idle 절)에 cpu_probe: unavailable이 남고 표준 오류에 알림이 나간다.
+def test_wait_idle_returns_at_once_when_the_cpu_load_cannot_be_read(monkeypatch, capsys):
+    monkeypatch.setattr(runtime_compare, "_system_times", lambda: None)
+
+    def minute():
+        raise AssertionError("a minute was measured although the CPU load cannot be read")
+
+    result = runtime_compare.wait_idle(60, minute=minute, clock=lambda: "t")
+    assert result == {"reached": False, "cpu_probe": "unavailable", "wait": []}
+    assert "unavailable" in capsys.readouterr().err
+
+
+# 리포트 기록 시각은 이 PC의 지역 시각에 UTC 오프셋을 붙인 ISO 8601이다. 2026-10-04 리포트는 오프셋 없는 지역
+# 시각('2026-10-04 22:08:28')이라 UTC로 적는 장부와 맞춰 보기 어려웠다. 오프셋을 붙여 읽은 시각은 지금(UTC)과
+# 몇 초 안이고, wait_idle의 기본 시계도 이 형식이다.
+def test_report_times_carry_the_utc_offset():
+    stamp = runtime_compare.now_iso()
+    assert ISO_WITH_OFFSET.fullmatch(stamp), stamp
+    assert abs((datetime.now(UTC) - datetime.fromisoformat(stamp)).total_seconds()) < 5
+    result = runtime_compare.wait_idle(
+        1, minute=lambda: {"cpu_pct": 1.0, "gpu_pct": 0.0}, probe=lambda: "GetSystemTimes"
+    )
+    assert ISO_WITH_OFFSET.fullmatch(result["wait"][0]["end"]), result
+
+
+# latency 명령의 리포트 배선을 실제 측정 없이 본다(5초 CPU, nvidia-smi, 리사이즈, 팔마다 새 프로세스, 세션 뒤
+# 1분을 모두 가짜로 바꿔 순식간에 끝난다). CPU를 읽을 수 없으면 한가함을 기다리지 않고(1분 측정은 세션 뒤의
+# 한 번뿐) idle 절에 cpu_probe: unavailable과 reached: false를 남긴다. 세션 시작 시각과 팔 실행마다 새
+# 프로세스의 시작·끝 시각을 UTC 오프셋이 붙은 ISO 8601로 적는다. 2026-10-04 리포트에는 실행별 시각이 없어 블록
+# 시각을 실행 시간의 합으로 추정해야 했다(docs/experiments.md CPU 런타임 대조 결과의 정정). --wait-max-min 1은
+# 기다림을 잘못 고쳤을 때 테스트가 오래 매달리지 않게 하는 상한이다.
+def test_latency_report_records_the_cpu_probe_and_each_run_time(tmp_path, monkeypatch):
+    art = tmp_path / "art"
+    (art / "pcb1").mkdir(parents=True)
+    (art / "pcb1" / "meta.json").write_text(json.dumps({"img_size": 8}), encoding="utf-8")
+    (art / "model_fp32.onnx").write_bytes(b"not a model: only its sha256 is recorded")
+    after_minutes = []
+    launched = []
+
+    def after_minute():
+        after_minutes.append(runtime_compare.now_iso())
+        return {"cpu_pct": None, "gpu_pct": None, "gpu_samples": 0}
+
+    def run_arm(cmd, **kwargs):
+        arm = cmd[cmd.index("--arm") + 1]
+        launched.append(arm)
+        line = json.dumps({"arm": arm, "load_s": 0.1, "ms": [10.0, 11.0, 12.0], "runtime": "fake"})
+        return subprocess.CompletedProcess(cmd, 0, stdout="loading\n" + line + "\n", stderr="")
+
+    monkeypatch.setattr(runtime_compare, "_system_times", lambda: None)
+    monkeypatch.setattr(runtime_compare, "cpu_percent", lambda seconds: None)
+    monkeypatch.setattr(runtime_compare, "gpu_percent", lambda: None)
+    monkeypatch.setattr(runtime_compare, "load_minute", after_minute)
+    monkeypatch.setattr(runtime_compare, "git_commit", lambda: "abc1234")
+    monkeypatch.setattr(runtime_compare, "subprocess", types.SimpleNamespace(run=run_arm))
+    monkeypatch.setattr(bench, "time_resize", lambda size: 8.0)
+    monkeypatch.setattr(bench, "cpu_name", lambda: "test cpu")
+    out = tmp_path / "latency.json"
+    runtime_compare.main(
+        ["latency", "--artifacts", str(art), "--arms", "R0", "R2", "--blocks", "2", "--wait-max-min", "1"]
+        + ["--parity", str(tmp_path / "no-parity.json"), "--out", str(out)]
+    )
+
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["idle"] == {
+        "reached": False,
+        "cpu_probe": "unavailable",
+        "cpu_limit_pct": runtime_compare.CPU_IDLE_PCT,
+        "gpu_limit_pct": runtime_compare.GPU_IDLE_PCT,
+        "wait": [],
+    }
+    assert len(after_minutes) == 1 and launched == ["R0", "R2", "R2", "R0"]
+    assert ISO_WITH_OFFSET.fullmatch(report["started"]), report["started"]
+    session = datetime.fromisoformat(report["started"])
+    previous_end = session
+    for run in report["runs"]:
+        assert ISO_WITH_OFFSET.fullmatch(run["started"]) and ISO_WITH_OFFSET.fullmatch(run["ended"]), run
+        started, ended = datetime.fromisoformat(run["started"]), datetime.fromisoformat(run["ended"])
+        assert previous_end <= started <= ended  # 실행은 차례로 돈다
+        previous_end = ended
+    assert previous_end <= datetime.fromisoformat(after_minutes[0])
+    assert [(r["block"], r["arm"]) for r in report["runs"]] == [(1, "R0"), (1, "R2"), (2, "R2"), (2, "R0")]
+    assert report["arms"]["R0"]["timed_calls"] == 6 and report["H22"]["R2"]["parity_pass"] is None
 
 
 # time_calls는 워밍업 호출을 시간에서 빼고, 이미지를 순서대로 돌려 가며 쓴다(워밍업 2 + 측정 5 = 이미지

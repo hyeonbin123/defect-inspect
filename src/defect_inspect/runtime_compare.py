@@ -9,8 +9,9 @@
 
 `parity`는 dev 평가 세트(겹 0 정상 + dev 결함)를 팔마다 이미지 한 장씩 채점해 점수, 맵, AUROC, 홀드아웃
 판정을 R0와 비교한다(R0는 기록된 dev 실행과 비교). `latency`는 PC가 한가해질 때까지 기다린 뒤, 순서가
-돌아가는 블록으로 팔들의 시간을 잰다. 실행마다 새 프로세스(`run-arm`)를 띄운다. 두 명령 모두 봉인 테스트
-세트를 읽지 않는다. OpenVINO는 OpenVINO 팔을 만들 때만 가져온다(의존성 그룹 `openvino`).
+돌아가는 블록으로 팔들의 시간을 잰다(CPU 사용률을 읽을 수 없는 플랫폼에서는 기다리지 않고 리포트에 그렇게
+적는다). 실행마다 새 프로세스(`run-arm`)를 띄운다. 두 명령 모두 봉인 테스트 세트를 읽지 않는다. OpenVINO는
+OpenVINO 팔을 만들 때만 가져온다(의존성 그룹 `openvino`).
 """
 
 # [파일 역할] 검사 서비스 모델(dms-280-car, Dinomaly ViT-S 280px + CAR의 FP32 ONNX)을 CPU 런타임 세 팔로 돌려
@@ -37,6 +38,7 @@ import statistics
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 # openvino와 onnxruntime은 팔을 만들 때만 함수 안에서 가져온다(openvino는 별도 의존성 그룹이라 서비스 이미지에
@@ -92,6 +94,17 @@ def _write_json(path: Path, data: dict) -> None:
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+
+# 리포트에 남기는 기록 시각: 측정 PC의 지역 시각에 UTC 오프셋을 붙인 초 단위 ISO 8601(예:
+# 2026-10-29T21:05:13+09:00). 2026-10-04 리포트(reports/runtime/latency.json)는 time.strftime으로 오프셋 없는
+# 지역 시각을 적어, UTC로 적는 봉인 테스트 장부(ledger.record_test_access)와 맞춰 보려면 측정 PC의 시간대를
+# 따로 알아야 했다. 지역 시각을 그대로 두면 docs/experiments.md의 시각 표기와 바로 맞춰 읽히고, 오프셋이 있어
+# 장부의 UTC와도 정확히 비교된다. 기록용 시각일 뿐 분할·표본 추출처럼 결과를 정하는 계산에는 쓰지 않으므로
+# 재현성과는 무관하다.
+def now_iso() -> str:
+    """지금 시각을 UTC 오프셋이 붙은 지역 시각 ISO 8601 문자열(초 단위)로 돌려준다."""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------- 팔
@@ -368,12 +381,50 @@ def _filetime(ft) -> int:
     return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
 
 
-# Windows GetSystemTimes로 (유휴 시간, 커널 + 사용자 시간)을 읽는다. 커널 시간에 유휴 시간이 포함되므로 둘의
-# 비율로 전체 CPU 사용률을 낼 수 있다. 외부 패키지(psutil) 없이 ctypes만 쓴다. Windows가 아니면 None이다.
-def _system_times() -> tuple[int, int] | None:
-    """Windows에서 (유휴, 커널 + 사용자) 시간을 100ns 단위로 돌려준다. 커널 시간에 유휴 시간이 들어 있다."""
-    if os.name != "nt":
+# Linux 커널이 모든 CPU의 누적 시간을 적어 두는 파일. 첫 줄이 모든 CPU를 합친 `cpu` 줄이다.
+PROC_STAT = Path("/proc/stat")
+
+
+# /proc/stat 첫 줄에서 (유휴 + iowait, 합계) 틱을 읽는다. 열 순서는 proc(5)의 user nice system idle iowait irq
+# softirq steal guest guest_nice이고, 단위는 USER_HZ 틱(보통 1/100초)이다. 사용률은 두 측정의 비율이라 단위는
+# 상관없다. psutil·htop과 같은 계산을 쓴다: iowait는 CPU가 일하지 않고 입출력을 기다린 시간이라 유휴로 세고,
+# guest·guest_nice는 커널이 user·nice에 이미 더해 두므로 합계에서 뺀다(더하면 두 번 센다). iowait 값은
+# 줄어드는 일도 있지만(proc(5)), 유휴와 합계에 똑같이 들어가므로 바쁜 시간(합계 − 유휴)은 늘 0 이상이다.
+# iowait 이후 열이 없는 옛 커널 형식(열 4개부터)도 읽고, 첫 줄이 `cpu` 줄이 아니거나 숫자가 아니면 None이다.
+def parse_proc_stat(text: str) -> tuple[int, int] | None:
+    """/proc/stat의 첫 줄(`cpu` 줄)에서 (유휴 + iowait, guest를 뺀 합계) 틱을 돌려준다. 형식이 다르면 None."""
+    lines = text.splitlines()
+    fields = lines[0].split() if lines else []
+    if not fields or fields[0] != "cpu":
         return None
+    try:
+        ticks = [int(v) for v in fields[1:]]
+    except ValueError:
+        return None
+    if len(ticks) < 4:
+        return None
+    idle = ticks[3] + (ticks[4] if len(ticks) > 4 else 0)  # idle + iowait
+    return idle, sum(ticks[:8])  # user ~ steal. 9번째 이후(guest, guest_nice)는 user·nice에 이미 들어 있다
+
+
+# /proc/stat은 줄이 길어질 수 있으므로(CPU별 줄, 인터럽트 수) 첫 줄만 읽는다. 파일이 없거나(macOS 등) 읽을 수
+# 없으면 None이다. path는 테스트가 표본 파일을 넘길 수 있게 받는다.
+def _proc_stat_times(path: Path = PROC_STAT) -> tuple[int, int] | None:
+    try:
+        with open(path, encoding="ascii") as f:
+            first = f.readline()
+    except (OSError, ValueError):  # ValueError: ASCII가 아닌 내용(UnicodeDecodeError)
+        return None
+    return parse_proc_stat(first)
+
+
+# Windows는 GetSystemTimes로 (유휴 시간, 커널 + 사용자 시간)을 읽는다. 커널 시간에 유휴 시간이 포함되므로 둘의
+# 비율로 전체 CPU 사용률을 낼 수 있다. 외부 패키지(psutil) 없이 ctypes만 쓴다. 다른 플랫폼에서는 /proc/stat을
+# 읽는다(Linux). 둘 다 안 되면 None이고, 그때 wait_idle은 한가함을 기다리지 않는다(cpu_probe).
+def _system_times() -> tuple[int, int] | None:
+    """(유휴, 합계) CPU 시간. Windows는 GetSystemTimes(100ns 단위), 그 밖은 /proc/stat(틱). 못 읽으면 None."""
+    if os.name != "nt":
+        return _proc_stat_times()
     import ctypes
     from ctypes import wintypes
 
@@ -383,6 +434,15 @@ def _system_times() -> tuple[int, int] | None:
     ):
         return None
     return _filetime(idle), _filetime(kernel) + _filetime(user)
+
+
+# 리포트의 idle.cpu_probe에 남길 CPU 사용률 출처 이름. 이 플랫폼에서 _system_times가 값을 읽지 못하면(예:
+# macOS, /proc이 없는 환경) "unavailable"이다.
+def cpu_probe() -> str:
+    """CPU 사용률을 읽는 방법: "GetSystemTimes"(Windows), "/proc/stat"(Linux), 못 읽으면 "unavailable"."""
+    if _system_times() is None:
+        return "unavailable"
+    return "GetSystemTimes" if os.name == "nt" else "/proc/stat"
 
 
 # 두 시점 사이의 CPU 사용률 = 1 − (유휴 증가분 / 전체 증가분). 값을 못 읽었거나 시간이 흐르지 않았으면 None.
@@ -439,21 +499,35 @@ def is_idle(minute: dict, cpu_limit: float = CPU_IDLE_PCT, gpu_limit: float = GP
     return cpu is not None and cpu < cpu_limit and (gpu is None or gpu < gpu_limit)
 
 
-# 1분씩 재며 한가해질 때까지 최대 max_minutes분 기다린다. 끝내 한가하지 않으면 False와 기록을 돌려주고, 호출한
-# 쪽은 그대로 재되 리포트에 조건을 남긴다(규칙). 1분을 먼저 잰 뒤 그 끝 시각을 기록하도록 2026-10-04에 순서를
-# 고쳤다. minute와 clock을 인자로 받아 테스트가 가짜 측정을 넣을 수 있다.
-def wait_idle(max_minutes: int, minute=load_minute, clock=time.strftime) -> tuple[bool, list[dict]]:
-    """PC가 한가해지거나 `max_minutes`분이 지날 때까지 1분씩 잰다."""
+# 1분씩 재며 한가해질 때까지 최대 max_minutes분 기다린다. 끝내 한가하지 않으면 reached False와 기록을
+# 돌려주고, 호출한 쪽은 그대로 재되 리포트에 조건을 남긴다(규칙). 1분을 먼저 잰 뒤 그 끝 시각을 기록하도록
+# 2026-10-04에 순서를 고쳤다. 돌려주는 dict(reached, cpu_probe, wait)가 리포트의 idle 절이 된다.
+# CPU 사용률을 읽을 수 없는 플랫폼(probe가 "unavailable")에서는 한가함을 판정할 수 없으므로 1분 측정 없이
+# 곧바로 돌아오고 표준 오류에 알린다. 예전에는 이때도(Linux 포함) 1분씩 max_minutes번(기본 60분)을 알림 없이
+# 기다린 뒤 한가하지 않음으로 쟀다. Windows의 기다림과 기준은 그대로이고, Linux는 이제 /proc/stat으로 같은
+# 기준을 쓴다.
+# minute(1분 측정), clock(기록 시각), probe(CPU 사용률 출처)를 인자로 받아 테스트가 가짜를 넣을 수 있다.
+def wait_idle(max_minutes: int, minute=load_minute, clock=now_iso, probe=cpu_probe) -> dict:
+    """PC가 한가해지거나 `max_minutes`분이 지날 때까지 1분씩 잰다. CPU를 읽을 수 없으면 곧바로 돌아온다."""
+    source = probe()
+    if source == "unavailable":
+        print(
+            "cannot read the CPU load on this platform: measuring without waiting for an idle PC "
+            '(the report records idle.cpu_probe = "unavailable")',
+            file=sys.stderr,
+            flush=True,
+        )
+        return {"reached": False, "cpu_probe": source, "wait": []}
     log = []
     for i in range(max_minutes):
         load = minute()  # 먼저 잰다: `end`는 그 1분이 끝난 시각이다(2026-10-04 수정)
-        record = {"minute": i + 1, "end": clock("%Y-%m-%d %H:%M:%S"), **load}
+        record = {"minute": i + 1, "end": clock(), **load}
         record["idle"] = is_idle(record)
         log.append(record)
         print(json.dumps(record), flush=True)
         if record["idle"]:
-            return True, log
-    return False, log
+            return {"reached": True, "cpu_probe": source, "wait": log}
+    return {"reached": False, "cpu_probe": source, "wait": log}
 
 
 # ---------------------------------------------------------------- 지연(latency)
@@ -581,7 +655,7 @@ def _rel(path: Path) -> str:
 
 
 # latency 명령. 한가함을 기다린 뒤 세션 시작 시각을 적고, 1500×1000 사진을 입력 크기로 줄이는 시간을 한 번
-# 재서 모든 팔에 더한다.
+# 재서 모든 팔에 더한다. 시각은 모두 UTC 오프셋이 붙은 ISO 8601이다(now_iso).
 def _latency_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     from .bench import cpu_name, time_resize
 
@@ -590,23 +664,28 @@ def _latency_command(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         parser.error(f"arms must start with {REFERENCE} and be distinct names from {sorted(ARMS)}")
     with open(args.artifacts / args.category / "meta.json", encoding="utf-8") as f:
         size = int(json.load(f)["img_size"])
-    idle, wait_log = wait_idle(args.wait_max_min)
-    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    idle = wait_idle(args.wait_max_min)
+    started = now_iso()
     resize_ms = time_resize(size)
     runs = []
     for b, order in enumerate(block_orders(arms, args.blocks)):
         for arm in order:
             # 실행마다 직전 5초 CPU 사용률과 GPU 사용률을 남긴다. 측정 중 다른 작업이 끼어들었는지 나중에
-            # 확인하기 위해서다(experiments.md 결과 절의 정정이 이 값을 부하 근거 중 하나로 썼다). 실행별
-            # 시작·끝 시각은 남기지 않아, 그 정정에서는 블록 시각을 실행 시간의 합으로 추정했다.
+            # 확인하기 위해서다(experiments.md 결과 절의 정정이 이 값을 부하 근거 중 하나로 썼다).
             cpu5, gpu = cpu_percent(5.0), gpu_percent()
             # 팔 실행 하나 = 새 프로세스: 모델 적재, 워밍업 5회, 50회 측정. 앞 팔의 스레드 풀이 남아 끼어들지
-            # 않게 한다(규칙).
+            # 않게 한다(규칙). 그 프로세스의 시작·끝 시각(started·ended)도 남긴다. 2026-10-04 리포트에는
+            # 이것이 없어 그 정정에서 블록 시각을 실행 시간의 합으로 추정해야 했다. 직전 5초 측정은 started
+            # 바로 앞 5초다.
+            run_started = now_iso()
             done = subprocess.run(_run_arm_cmd(args, arm), capture_output=True, text=True, check=False)
+            run_ended = now_iso()
             if done.returncode != 0:
                 raise RuntimeError(f"run-arm {arm} failed: {done.stderr[-2000:]}")
             run = json.loads(done.stdout.strip().splitlines()[-1])
-            run.update(block=b + 1, cpu5_before_pct=cpu5, gpu_before_pct=gpu)
+            run.update(
+                block=b + 1, started=run_started, ended=run_ended, cpu5_before_pct=cpu5, gpu_before_pct=gpu
+            )
             runs.append(run)
             print(
                 json.dumps(
@@ -633,11 +712,13 @@ def _latency_command(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         "warmup": args.warmup,
         "repeats_per_run": args.repeats,
         "blocks": block_orders(arms, args.blocks),
+        # cpu_probe: CPU 사용률을 읽은 방법(GetSystemTimes, /proc/stat). "unavailable"이면 기다리지 않고 쟀다.
         "idle": {
-            "reached": idle,
+            "reached": idle["reached"],
+            "cpu_probe": idle["cpu_probe"],
             "cpu_limit_pct": CPU_IDLE_PCT,
             "gpu_limit_pct": GPU_IDLE_PCT,
-            "wait": wait_log,
+            "wait": idle["wait"],
         },
         "started": started,
         "after_minute": after,
