@@ -1,0 +1,169 @@
+{
+  "date": "2026-10-30",
+  "rules": "docs/security.md (2026-10-30 rescan rules, commit 5cf1fc7)",
+  "note": "Local scan only (127.0.0.1:8096), throwaway admin token on every request. Target (1) only; the dms-280-car target was not scanned this time (see the rules).",
+  "scans": [
+    {
+      "tool": "OWASP ZAP 2.17.0",
+      "target": "1",
+      "target_description": "create_offline_app (synthetic category demo) on 127.0.0.1:8096, seed from hawk/make_seed_har.py --host http://127.0.0.1:8096 (hawk/seed.har with only the port changed)",
+      "service_commit": "5cf1fc7",
+      "config": "zap/automation.yaml",
+      "cpu_load_percent_just_before": [
+        36,
+        62,
+        36,
+        40
+      ],
+      "traffic": {
+        "requests": 6860,
+        "by_status": {
+          "200": 2179,
+          "307": 71,
+          "400": 659,
+          "404": 568,
+          "405": 706,
+          "422": 1924,
+          "503": 753
+        },
+        "upload_routes": {
+          "POST /calibrate 200": 1303,
+          "POST /inspect 422": 1295,
+          "POST /calibrate 503": 753,
+          "POST /calibrate 422": 596,
+          "POST /calibrate 400": 527,
+          "POST /inspect 200": 518,
+          "GET /inspect 405": 436,
+          "GET /calibrate 405": 247,
+          "DELETE /calibrate 404": 180,
+          "POST /inspect 404": 169,
+          "POST /inspect 400": 123,
+          "POST /calibrate 404": 100,
+          "DELETE /calibrate 422": 33,
+          "DELETE /calibrate 200": 19
+        },
+        "status_503_intended": 753,
+        "status_5xx_errors": 0,
+        "audit_lines": {
+          "calibrate": 1303,
+          "reset": 19
+        },
+        "audit_lines_not_one_json_record": 0
+      },
+      "alerts": [
+        {
+          "name": "SQL Injection",
+          "rule_id": 40018,
+          "risk": "High",
+          "confidence": "Medium",
+          "count": 3,
+          "systemic": false,
+          "samples": [
+            "POST /calibrate"
+          ]
+        },
+        {
+          "name": "Information Disclosure - Suspicious Comments",
+          "rule_id": 10027,
+          "risk": "Informational",
+          "confidence": "Low",
+          "count": 1,
+          "systemic": false,
+          "samples": [
+            "GET /static/demo.js"
+          ]
+        },
+        {
+          "name": "User Agent Fuzzer",
+          "rule_id": 10104,
+          "risk": "Informational",
+          "confidence": "Medium",
+          "count": 3,
+          "systemic": true,
+          "samples": [
+            "DELETE /calibrate",
+            "POST /calibrate"
+          ]
+        }
+      ],
+      "rules": {
+        "started": 53,
+        "completed": 50,
+        "completed_with_zero_requests": [
+          "ExponentialEntityExpansionScanRule",
+          "GetForPostScanRule",
+          "HttpOnlySiteScanRule",
+          "HttpsAsHttpScanRule",
+          "PaddingOracleScanRule",
+          "PersistentXssScanRule",
+          "SOAPActionSpoofingActiveScanRule",
+          "SOAPXMLInjectionActiveScanRule",
+          "XxeScanRule"
+        ],
+        "skipped": [
+          {
+            "rule": "DomXssScanRule",
+            "reason": "failed to start or connect to the browser"
+          },
+          {
+            "rule": "Log4ShellScanRule",
+            "reason": "no Active Scan OAST service is selected"
+          },
+          {
+            "rule": "ScriptsActiveScanner",
+            "reason": "no scripts enabled"
+          }
+        ],
+        "null_pointer_exceptions_in_log": 16
+      },
+      "compared_with_2026_10_04_and_2026_10_15_target_1": {
+        "new_high_or_medium": [
+          "SQL Injection"
+        ]
+      },
+      "active_scan_time": "00:00:30",
+      "false_positive_check": {
+        "alert": "SQL Injection (40018) on POST /calibrate: allow_unguaranteed, alpha, category",
+        "method": "fresh offline service on 127.0.0.1:8096; the seed's /calibrate request with each reported true/false condition in that field, sent one at a time in 5 rotating rounds, then again while another calibration was held open mid-body, then once more after releasing it",
+        "original_request_statuses": [
+          200
+        ],
+        "one_at_a_time": {
+          "allow_unguaranteed": {
+            "statuses": [
+              422
+            ],
+            "rounds": 5,
+            "conditions_answer_alike_every_round": true
+          },
+          "alpha": {
+            "statuses": [
+              422
+            ],
+            "rounds": 5,
+            "conditions_answer_alike_every_round": true
+          },
+          "category": {
+            "statuses": [
+              404
+            ],
+            "rounds": 5,
+            "conditions_answer_alike_every_round": true
+          }
+        },
+        "while_another_calibration_runs_all_503_with_retry_after_1": true,
+        "after_release_statuses": {
+          "allow_unguaranteed": [
+            422
+          ],
+          "alpha": [
+            422
+          ],
+          "category": [
+            404
+          ]
+        }
+      }
+    }
+  ]
+}
