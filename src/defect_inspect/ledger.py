@@ -9,9 +9,11 @@
 # 실행(스레드·프로세스)이 동시에 장부에 쓸 수 있으므로 잠금 파일로 덧붙이기를 한 번에 하나씩만 하게 한다.
 # [연결] run_patchcore, run_grid, run_export_eval, run_m2ad, run_dinomaly, run_perturb, run_supervised,
 # run_m2ad_enrol, dinomaly_serving, cache, m2ad, figures가 record_test_access를 부르고, git_commit은 리포트의
-# commit 필드를 채우는 데 쓰인다.
+# commit 필드를 채우는 데 쓰인다. ledger_tree(안에서 git_tree)는 record_test_access가 장부 줄의 tree 필드를
+# 채울 때 쓴다.
 
 import contextlib
+import hashlib
 import json
 import os
 import subprocess
@@ -66,6 +68,90 @@ def git_commit(root: Path | None = None) -> str:
     if not head:
         return "unknown"
     return head + ("+dirty" if dirty else "")
+
+
+# git_tree가 모든 git 명령 앞에 붙이는 전역 옵션. --no-optional-locks: status·diff가 덤으로 하는 색인 파일
+# 갱신(index.lock 잡기)을 하지 않게 해, 측정 실행이 같은 저장소에서 사람이 하는 git add·commit과 부딪치지 않게
+# 한다. core.quotePath=true: 특이한 글자가 든 경로를 사용자 설정과 관계없이 늘 따옴표와 8진 이스케이프로 적게
+# 해 출력이 ASCII로만 나온다(그래서 어느 OS·인코딩에서도 문자열로 읽힌다).
+_TREE_GIT = ("--no-optional-locks", "-c", "core.quotePath=true")
+# 커밋하지 않은 추적 파일 변경을 지문으로 만드는 diff 옵션. --binary: 바이너리 파일도 "Binary files differ" 한
+# 줄이 아니라 내용 패치로 적는다(전체 블롭 해시도 함께). 색(color.ui=always), 외부 diff 도구(diff.external),
+# textconv 필터, 하위 폴더 한정(diff.relative)처럼 출력을 크게 바꾸거나 일부만 보이게 하는 설정을 끈다. 그
+# 밖의 diff 설정(diff.noprefix 등)까지 막지는 않으므로, 같은 PC·같은 git 설정에서 쓴 줄끼리 비교하는 지문이다.
+_TREE_DIFF = ("diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "HEAD")
+
+
+# 바이트 그대로 받는 git 도우미. diff 출력은 임의의 바이트(파일 내용)라 텍스트로 풀면 깨지거나 실패할 수 있어
+# 해시는 바이트에 대해 계산한다. _git과 같이 timeout=30, check=True라 실패하면 예외가 난다.
+def _git_bytes(args: list[str], root: Path) -> bytes:
+    done = subprocess.run(["git", *args], cwd=root, capture_output=True, timeout=30, check=True)
+    return done.stdout
+
+
+# 봉인 테스트를 읽는 순간의 작업 트리 상태. git_commit의 "+dirty"는 무엇이 바뀌었는지 말하지 않는다. 이 장부의
+# "+dirty"는 대부분 앞 실행이 남기고 아직 커밋하지 않은 장부 줄·리포트 때문이지만 그것을 증명할 기록이 없었다.
+# 그래서 record_test_access가 이 값을 장부 줄의 tree로 남긴다(docs/experiments.md 공통 규칙 '봉인 테스트').
+# - porcelain: `git status --porcelain --untracked-files=normal` 줄 목록. 앞 두 글자가 상태(" M" 수정, "??"
+#   추적하지 않는 파일 등)이고 경로는 저장소 루트 기준이다. 추적 변경이 경로 순으로 먼저, 추적하지 않는 파일이
+#   뒤에 온다(추적하지 않는 폴더는 "?? 폴더/" 한 줄). .gitignore에 든 파일(data/, outputs/, 잠금 파일 등)은
+#   나오지 않는다. 장부는 공개 저장소에 커밋되므로 여기 실리는 것은 경로 이름뿐이고 내용은 아니다.
+# - diff_sha256: 위 _TREE_DIFF(`git diff --binary HEAD`) 출력 바이트의 SHA-256. 같은 커밋에서 이 값이 같으면
+#   커밋하지 않은 추적 파일 변경이 똑같았다는 뜻이다. 변경이 없으면 빈 출력의 SHA-256(e3b0c442…)이다. 추적하지
+#   않는 파일의 내용은 들어가지 않는다(목록에 이름만 남는다).
+# 실패: git이 없거나, 저장소가 아니거나, 커밋이 아직 없거나(diff HEAD 실패), 30초 안에 끝나지 않으면 None이다.
+# 측정 실행을 멈추지 않는 것은 git_commit의 "unknown"과 같은 처리다.
+def git_tree(root: Path | None = None) -> dict | None:
+    """작업 트리 상태 {"porcelain": [...], "diff_sha256": "..."}, git으로 읽지 못하면 None.
+
+    `porcelain`은 `git status --porcelain` 줄 목록(깨끗하면 빈 목록), `diff_sha256`은 커밋하지 않은 추적 파일
+    변경(`git diff --binary HEAD`) 출력의 SHA-256이다. `root`가 없으면 이 저장소 루트(paths.ROOT)를 본다.
+    """
+    # paths를 늦게 가져오는 이유는 git_commit과 같다(테스트가 임시 저장소를 넘기거나 paths.ROOT를 바꿀 수
+    # 있게).
+    if root is None:
+        from defect_inspect import paths
+
+        root = paths.ROOT
+    try:
+        status = _git_bytes([*_TREE_GIT, "status", "--porcelain", "--untracked-files=normal"], Path(root))
+        diff = _git_bytes([*_TREE_GIT, *_TREE_DIFF], Path(root))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # core.quotePath=true라 출력은 ASCII다. 그래도 바이트를 잃지 않게 errors="replace"로 푼다. strip을 하지
+    # 않는 것은 첫 줄 상태 칸의 앞 공백(" M")을 지우지 않기 위해서다.
+    porcelain = status.decode("utf-8", errors="replace").splitlines()
+    return {"porcelain": porcelain, "diff_sha256": hashlib.sha256(diff).hexdigest()}
+
+
+# 장부 줄에 적을 작업 트리 상태. 장부가 이 저장소(paths.ROOT)에 커밋되는 파일일 때만 적는다: 저장소 안에 있고
+# .gitignore로 무시되지 않는 경로(실제 장부 reports/test_ledger.jsonl). 테스트가 쓰는 임시 장부(저장소
+# 밖이거나 무시되는 .pytest-tmp* 아래)는 이 저장소의 커밋되는 기록이 아니므로 적지 않는다. 그런 장부의 줄은
+# tree 없는 옛 형식 그대로라, 장부 줄 전체를 비교하는 기존 테스트도 그대로 맞는다.
+# 판정: `git check-ignore -q`는 무시되는 경로면 0, 아니면 1, 판정할 수 없으면(저장소가 아님 등) 128로 끝난다.
+# 경로가 아직 없어도 규칙으로 판정하고, 추적 중인 파일은 무시되지 않는 것으로 본다.
+# 출력: git_tree의 dict, 적지 않을 때와 git으로 읽지 못할 때는 None(record_test_access가 tree 키를 빼고 쓴다).
+def ledger_tree(ledger: Path) -> dict | None:
+    """`ledger`가 이 저장소에 커밋되는 장부면 그 작업 트리 상태(git_tree), 아니면 None."""
+    from defect_inspect import paths
+
+    root = Path(paths.ROOT)
+    try:
+        rel = Path(ledger).resolve().relative_to(root.resolve())
+    except ValueError:
+        return None  # 저장소 밖의 장부
+    try:
+        done = subprocess.run(
+            ["git", *_TREE_GIT, "check-ignore", "-q", "--", rel.as_posix()],
+            cwd=root,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 1:
+        return None  # 무시되는 경로(0)이거나 판정할 수 없음(128)
+    return git_tree(root)
 
 
 # 경로는 예를 들어 test_ledger.jsonl.lock이다. 테스트(tests/test_ledger.py)가 기록 뒤 잠금 파일이 남지
@@ -150,9 +236,14 @@ def _append_line(ledger: Path, line: bytes) -> None:
 
 
 # 입력: 단계 이름(stage, 예: "1", "6", "7-m2ad", "cache"), 구성 이름(config), 메모(note), 커밋(없으면
-# git_commit()), 시각(없으면 현재 UTC).
+# git_commit()), 시각(없으면 현재 UTC). 작업 트리 상태(tree)는 인자로 받지 않고 언제나 ledger_tree()로 이
+# 순간의 것을 읽는다. 실행이 시작할 때 잡은 commit과 달리, 테스트를 읽기 바로 전의 트리다(그사이 실행이 쓴
+# 리포트도 목록에 나온다).
 # 왜 이 방식인가: 실행 스크립트는 테스트 이미지를 읽기 전에 이 함수를 부른다. 시각을 인자로 받는 것은
 # tests/test_ledger.py가 정해진 시각을 넣어 기록 형식을 확인하기 위해서다.
+# 형식: 한 줄의 키는 time, commit, stage, config, note, tree 순서다. tree는 2026-10-29에 맨 뒤에 더했고, 그 전
+# 줄에는 없다(덧붙이기만 하는 장부라 옛 줄은 그대로 둔다). 이 저장소에 커밋되는 장부가 아니거나(테스트의 임시
+# 장부) git으로 트리를 읽지 못하면 tree 키 없이 앞의 다섯 키만 쓴다(ledger_tree).
 def record_test_access(
     ledger: Path,
     *,
@@ -172,7 +263,8 @@ def record_test_access(
     elif now.tzinfo is None:
         now = now.replace(tzinfo=UTC)  # 시간대가 없는 시각은 UTC로 본다
     # 실패할 수 있거나 작업 트리를 들여다보는 일(git 호출, JSON 직렬화)은 잠금 파일을 만들기 전에 끝내, 잠금을
-    # 쥐는 시간을 짧게 하고 잠금 중 실패할 일을 줄인다.
+    # 쥐는 시간을 짧게 하고 잠금 중 실패할 일을 줄인다. 잠금 파일은 장부 옆(저장소 안)에 생기므로, 트리를 그
+    # 뒤에 읽으면 잠금 파일이 목록에 잡힌다.
     entry = {
         "time": now.astimezone(UTC).isoformat(timespec="seconds"),
         "commit": git_commit() if commit is None else commit,
@@ -180,6 +272,9 @@ def record_test_access(
         "config": config,
         "note": note,
     }
+    tree = ledger_tree(Path(ledger))
+    if tree is not None:
+        entry["tree"] = tree
     # ensure_ascii=False로 메모의 한글 등을 그대로 UTF-8로 남겨 장부를 사람이 읽기 쉽게 한다. JSONL 형식(한
     # 줄에 JSON 하나)이라 덧붙이기만으로 기록이 쌓인다.
     line = (json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8")

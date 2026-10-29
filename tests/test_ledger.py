@@ -5,12 +5,16 @@
 # 증거이므로, 줄이 빠지거나 두 줄이 섞이거나 커밋 표시가 틀리면 그 증거가 무너진다.
 # [주요 구성] (1) 기록 형식(키 순서, UTF-8, UTC 시각) (2) git_commit의 '+dirty' 판정과 실패 시 "unknown" (3)
 # 스레드·프로세스 동시 기록에서 줄이 하나도 빠지거나 겹치지 않는지 (4) 잠금 파일의 대기·시간 초과·오래된 잠금
-# 정리·실패 후 해제 (5) 직렬화 실패·끊긴 마지막 줄 같은 예외 상황.
+# 정리·실패 후 해제 (5) 직렬화 실패·끊긴 마지막 줄 같은 예외 상황 (6) 장부 줄의 tree(작업 트리 상태: git
+# status --porcelain 목록과 git diff HEAD의 SHA-256)를 임시 git 저장소에서 실제로 기록해 보는 것. tree는 이
+# 저장소에 커밋되는 장부에만 붙으므로, 저장소 밖 tmp_path에 쓰는 다른 테스트의 장부 줄은 앞의 다섯 키
+# 그대로다.
 # [주의] 동시 기록 테스트 두 개는 CPU가 아주 바쁠 때 10초 잠금 대기(LOCK_TIMEOUT_S)를 넘겨 실패한 적이
 # 있다(docs/experiments.md 서비스 모델 교체 점검의 2026-10-04 정정). 따로 돌리면 통과했다. 이 두 테스트가 보는
 # 것은 줄이 빠지거나 섞이지 않는지이고 대기 시간은 아니므로, 둘 다 대기 시간을 CONCURRENT_LOCK_TIMEOUT_S로
 # 늘려 돈다. 시간 초과 동작은 test_held_lock_times_out_and_nothing_is_written이 따로 본다.
 
+import hashlib
 import json
 import os
 import shutil
@@ -23,8 +27,9 @@ from pathlib import Path
 
 import pytest
 
-# 모듈째 가져와 LOCK_TIMEOUT_S, git_commit, subprocess 같은 모듈 속성을 monkeypatch로 바꿀 수 있게 한다.
-from defect_inspect import ledger
+# 모듈째 가져와 LOCK_TIMEOUT_S, git_commit, ledger_tree, subprocess 같은 모듈 속성을 monkeypatch로 바꿀 수
+# 있게 한다. paths는 '이 저장소'의 위치(paths.ROOT)를 임시 git 저장소로 바꾸려고 가져온다.
+from defect_inspect import ledger, paths
 
 # 여러 프로세스 동시 기록 테스트에서 각 자식 프로세스가 실행할 코드. 준비 파일(ready)을 만든 뒤 go 파일이 생길
 # 때까지 기다렸다가 기록을 시작하므로, 모든 자식이 같은 순간에 장부를 두드리게 된다. 프로세스 시작 시간 차이
@@ -48,6 +53,28 @@ for i in range(n):
 # 동시 기록 테스트 두 개의 잠금 대기 시간(초). 이 테스트들은 줄이 빠지지 않는지를 보지, 기록자가 얼마나
 # 기다리는지를 보지 않는다. 기본 10초는 CPU가 바쁠 때 모자란 적이 있어 넉넉히 늘린다.
 CONCURRENT_LOCK_TIMEOUT_S = 120.0
+
+# 이 저장소에 커밋되는 장부의 키 순서: 처음부터의 다섯 키 뒤에 2026-10-29에 더한 tree.
+TREE_KEYS = ["time", "commit", "stage", "config", "note", "tree"]
+# 가짜 ledger_tree가 돌려주는 트리 상태(실제 장부에서 가장 흔한 모양: 앞 실행이 남긴 장부 줄이 아직 커밋되지
+# 않음). 해시 값 자체는 의미 없는 자리표시자다.
+FAKE_TREE = {"porcelain": [" M reports/test_ledger.jsonl"], "diff_sha256": "0" * 64}
+
+
+# 테스트용 git 명령 도우미. 사용자 git 설정에 기대지 않도록 이름·메일과 서명 끄기를 명령마다 -c로 넘긴다(전역
+# 설정이 없는 CI에서도 커밋이 된다).
+def git_in(repo: Path, *args: str) -> bytes:
+    identity = ["-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false"]
+    return subprocess.run(["git", *identity, *args], cwd=repo, check=True, capture_output=True).stdout
+
+
+# 장부에 적는 diff_sha256의 정의를 테스트 쪽에서 따로 계산한다: `git diff --binary HEAD`(바이너리 변경도
+# 내용까지 담는 형식)의 출력 바이트 SHA-256. 색·외부 diff 도구·textconv·하위 폴더 한정(diff.relative)을 꺼서
+# 사용자 설정에 덜 흔들리는 출력으로 만든다. 나중에 장부 줄을 검증하는 사람도 이 명령으로 같은 값을 다시 낼 수
+# 있다.
+def diff_sha256(repo: Path) -> str:
+    args = ["-c", "core.quotePath=true", "diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv"]
+    return hashlib.sha256(git_in(repo, *args, "--no-relative", "HEAD")).hexdigest()
 
 
 # 장부 파일 전체가 온전한지 검사하는 공용 도우미. 줄바꿈이 LF로만 끝나고, 모든 줄이 JSON으로 읽히며(끊기거나
@@ -162,6 +189,91 @@ def test_git_commit_in_a_real_repository(tmp_path):
     assert ledger.git_commit(repo) == clean
     (repo / "a.txt").write_text("b\n", encoding="utf-8", newline="\n")
     assert ledger.git_commit(repo) == clean + "+dirty"
+
+
+# 임시 git 저장소를 '이 저장소'(paths.ROOT)로 삼아 장부를 실제로 기록해 tree 필드를 본다. 저장소는 이
+# 프로젝트와 같은 모양이다: 추적되는 장부 reports/test_ledger.jsonl, 추적 파일 a.txt, 바이너리 파일 b.bin,
+# scratch/를 무시하는 .gitignore. 확인하는 것:
+# (1) 커밋이 아직 없는 저장소는 git diff HEAD가 실패하므로 트리를 못 읽는다(None)
+# (2) 깨끗한 트리면 porcelain은 빈 목록이고 diff_sha256은 빈 출력의 SHA-256이며, tree는 맨 뒤 키다
+# (3) 트리는 덧붙이기 전에 읽는다: 둘째 기록에는 첫 줄만 커밋하지 않은 변경으로 잡히고(실제 장부의 '+dirty'는
+#     대부분 이것이다) 해시도 그 순간의 diff다. 잠금 파일(이 .gitignore에 없음)도 목록에 나오지 않는다
+# (4) 추적 파일 수정과 추적하지 않는 새 파일이 목록에 나오고(추적 변경이 먼저, ??가 뒤), 해시는 위 정의로 따로
+#     낸 값과 같으며 추적 파일 내용이 바뀌면 달라진다
+# (5) 바이너리 파일의 내용 변경도 해시를 바꾼다
+# (6) 추적하지 않는 파일은 이름만 남는다: 그 내용이 바뀌어도 기록은 같다(문서에 적은 한계)
+# (7) 저장소 밖의 장부와 .gitignore로 무시되는 곳의 장부(테스트의 임시 장부가 이렇다)에는 tree를 적지 않는다
+# git이 없으면 건너뛴다.
+def test_tree_is_recorded_for_the_ledger_of_the_repository(tmp_path, monkeypatch):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    (repo / "reports").mkdir(parents=True)
+    git_in(repo, "init", "-q")
+    assert ledger.git_tree(repo) is None  # (1) 아직 커밋이 없다
+    (repo / ".gitignore").write_text("scratch/\n", encoding="utf-8", newline="\n")
+    (repo / "a.txt").write_text("a\n", encoding="utf-8", newline="\n")
+    (repo / "b.bin").write_bytes(bytes(range(256)))
+    path = repo / "reports" / "test_ledger.jsonl"
+    path.write_bytes(b"")
+    git_in(repo, "add", ".gitignore", "a.txt", "b.bin", "reports/test_ledger.jsonl")
+    git_in(repo, "commit", "-q", "-m", "first")
+    monkeypatch.setattr(paths, "ROOT", repo)
+
+    clean = ledger.record_test_access(path, stage="1", config="c", commit="x")  # (2)
+    assert clean["tree"] == {"porcelain": [], "diff_sha256": hashlib.sha256(b"").hexdigest()}
+    assert list(clean) == TREE_KEYS
+    before_second = diff_sha256(repo)  # (3) 첫 줄만 있는 지금의 diff
+    second = ledger.record_test_access(path, stage="2", config="c", commit="x")
+    assert second["tree"]["porcelain"] == [" M reports/test_ledger.jsonl"]
+    assert second["tree"]["diff_sha256"] == before_second != clean["tree"]["diff_sha256"]
+    assert diff_sha256(repo) != before_second  # 두 번째 줄이 붙은 지금의 diff는 또 다르다
+    assert [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] == [clean, second]
+
+    (repo / "a.txt").write_text("b\n", encoding="utf-8", newline="\n")  # (4)
+    (repo / "new.txt").write_text("new\n", encoding="utf-8", newline="\n")
+    edited = ledger.git_tree(repo)
+    assert edited["porcelain"] == [" M a.txt", " M reports/test_ledger.jsonl", "?? new.txt"]
+    assert edited["diff_sha256"] == diff_sha256(repo) != second["tree"]["diff_sha256"]
+    assert ledger.ledger_tree(path) == edited == ledger.git_tree()  # 기본 저장소(paths.ROOT)도 같은 곳이다
+    (repo / "b.bin").write_bytes(bytes(range(255, -1, -1)))  # (5)
+    binary = ledger.git_tree(repo)
+    assert binary["porcelain"] == [" M a.txt", " M b.bin", " M reports/test_ledger.jsonl", "?? new.txt"]
+    assert binary["diff_sha256"] == diff_sha256(repo) != edited["diff_sha256"]
+    (repo / "new.txt").write_text("changed\n", encoding="utf-8", newline="\n")  # (6)
+    assert ledger.git_tree(repo) == binary
+
+    outside = ledger.record_test_access(tmp_path / "out" / "ledger.jsonl", stage="3", config="c", commit="x")
+    ignored = ledger.record_test_access(repo / "scratch" / "ledger.jsonl", stage="3", config="c", commit="x")
+    assert list(outside) == list(ignored) == TREE_KEYS[:-1]  # (7)
+    assert ledger.git_tree(repo) == binary  # 무시되는 곳의 장부는 목록에도 나오지 않는다
+
+
+# git이 없거나(FileNotFoundError) 명령이 실패하면(CalledProcessError) git_tree는 None이고, 저장소 안의
+# 장부라도 tree 없이 장부 줄을 그대로 쓰는지 본다. 트리를 못 읽었다는 이유로 측정 실행 전체가 멈추면 안
+# 된다(git_commit의 "unknown"과 같은 처리). 커밋이 아직 없는 진짜 저장소(git diff HEAD 실패)도 같다.
+def test_tree_is_left_out_when_git_cannot_read_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "ROOT", tmp_path)
+    path = tmp_path / "reports" / "test_ledger.jsonl"
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    def failing(cmd, **kwargs):
+        raise subprocess.CalledProcessError(128, cmd)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(ledger.subprocess, "run", missing)
+        assert ledger.git_tree(tmp_path) is None and ledger.ledger_tree(path) is None
+        entry = ledger.record_test_access(path, stage="1", config="c", commit="x")
+        patched.setattr(ledger.subprocess, "run", failing)
+        assert ledger.git_tree(tmp_path) is None and ledger.ledger_tree(path) is None
+    assert list(entry) == TREE_KEYS[:-1]
+    assert json.loads(path.read_text(encoding="utf-8")) == entry
+    if shutil.which("git") is not None:
+        git_in(tmp_path, "init", "-q")  # 무시되지 않는 장부지만 커밋이 없어 diff HEAD가 실패한다
+        assert ledger.ledger_tree(path) is None
+        assert "tree" not in ledger.record_test_access(path, stage="2", config="c", commit="x")
 
 
 # 스레드 8개가 Barrier로 동시에 출발해 50줄씩, 모두 400줄을 쓴 뒤 한 줄도 빠지거나 겹치지 않는지 본다.
@@ -303,18 +415,24 @@ def test_entry_is_not_glued_to_a_torn_last_line(tmp_path):
     assert lines[0] == '{"time": "cut off' and json.loads(lines[1]) == entry and len(lines) == 2
 
 
-# git_commit이 잠금 파일을 만들기 전에 불리는지 본다. 잠금 파일은 저장소 안 장부 옆에 생기므로, 그 뒤에 git
-# status를 보면 추적하지 않는 파일로 잡혀 깨끗한 코드도 '+dirty'로 잘못 기록된다. 가짜 git_commit이 불린 순간
-# 잠금 파일이 있었는지를 seen에 남겨 확인한다.
+# git_commit과 ledger_tree가 잠금 파일을 만들기 전에 불리는지 본다. 잠금 파일은 저장소 안 장부 옆에 생기므로,
+# 그 뒤에 git status를 보면 추적하지 않는 파일로 잡혀 깨끗한 코드도 '+dirty'로, 트리 목록에도 잠금 파일이
+# 잘못 기록된다. 가짜 함수가 불린 순간 잠금 파일이 있었는지를 seen에 남겨 확인한다.
 def test_git_state_is_read_before_the_lock_is_taken(tmp_path, monkeypatch):
     # 잠금 파일은 저장소 안 장부 옆에 생기므로 `git status`가 그것을 보면 안 된다.
     path = tmp_path / "ledger.jsonl"
     seen = []
 
     def fake_commit(root=None):
-        seen.append(ledger.lock_path(path).exists())
+        seen.append(("commit", ledger.lock_path(path).exists()))
         return "abc1234"
 
+    def fake_tree(where):
+        seen.append(("tree", ledger.lock_path(path).exists()))
+        return FAKE_TREE
+
     monkeypatch.setattr(ledger, "git_commit", fake_commit)
-    assert ledger.record_test_access(path, stage="1", config="c")["commit"] == "abc1234"
-    assert seen == [False]
+    monkeypatch.setattr(ledger, "ledger_tree", fake_tree)
+    entry = ledger.record_test_access(path, stage="1", config="c")
+    assert (entry["commit"], entry["tree"]) == ("abc1234", FAKE_TREE) and list(entry) == TREE_KEYS
+    assert seen == [("commit", False), ("tree", False)]
