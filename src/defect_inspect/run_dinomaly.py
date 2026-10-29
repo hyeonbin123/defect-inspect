@@ -832,6 +832,53 @@ def eval_category(
     }
 
 
+# 실행 환경 기록(train.json, run.json, 8-C의 모델 기록). 같은 seed로 다시 학습해도 결과가 비트 단위로 같다는
+# 보장이 없다: GPU 커널의 결정성을 강제하지 않았고(cudnn.deterministic·benchmark는 torch 기본값 그대로, 이
+# 코드는 바꾸지 않음) 6·8단계 학습은 fp16 autocast다(다시 학습해 비교한 적은 없다). 그래서 같은 구성이라도
+# 어느 torch·CUDA·cuDNN·GPU와 어느 anomalib·timm(모델 코드와 인코더 정의)에서 나온 결과인지를 함께 남긴다.
+# numpy는 배치 순서(batch_order의 Generator)를 정하고, Python은 프로젝트가 3.11로 고정한 것을 확인하려고
+# 적는다. 2026-10-29 전의 기록에는 이 값이 없다. 입력: 실행 장치(--device 값). CUDA면 그 장치의 GPU 이름,
+# 아니면 "cpu". 플래그는 부르는 순간의 값을 읽는다. 패키지 버전은 설치 메타데이터에서 읽는다(없으면 None).
+def runtime_env(device: str | torch.device) -> dict:
+    """실행 환경: Python·torch·CUDA·cuDNN 버전, 장치 이름, cuDNN 플래그, numpy·anomalib·timm 버전."""
+    import platform
+    from importlib import metadata
+
+    import torch
+
+    def version(package: str) -> str | None:
+        try:
+            return metadata.version(package)
+        except metadata.PackageNotFoundError:
+            return None
+
+    dev = torch.device(device)
+    cudnn = torch.backends.cudnn
+    return {
+        "python": platform.python_version(),
+        "torch": torch.__version__,
+        "cuda": torch.version.cuda,
+        "cudnn": cudnn.version() if cudnn.is_available() else None,
+        "device_name": torch.cuda.get_device_name(dev) if dev.type == "cuda" else "cpu",
+        "cudnn_deterministic": bool(cudnn.deterministic),
+        "cudnn_benchmark": bool(cudnn.benchmark),
+        "numpy": np.__version__,
+        "anomalib": version("anomalib"),
+        "timm": version("timm"),
+    }
+
+
+# 인코더(DINOv2) 가중치 지문. 고정 인코더는 model.pt에 저장하지 않고(trainable_state) 학습·채점·내보내기
+# 때마다 timm이 받은 사전학습 가중치에서 다시 만들어지므로, 학습 기록과 평가 기록(run.json) 모두에 남긴다.
+# 내용은 backbones.timm_weights(timm 버전, 허브 저장소, HF 캐시 파일의 리비전·sha256). 모델을 만든 뒤에
+# 부른다.
+def encoder_weights(encoder: str) -> dict:
+    """`encoder`(timm 구조 이름) 사전학습 가중치의 출처와 sha256(backbones.timm_weights)."""
+    from .backbones import timm_weights
+
+    return timm_weights(encoder)
+
+
 # JSON을 UTF-8·LF로 쓰는 도우미.
 def _write_json(path: Path, data: dict) -> None:
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -974,10 +1021,14 @@ def _train_command(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     }
     if gate_record is not None:
         config["gate"] = gate_record
+    # env·encoder_weights: 비트 단위 재현이 보장되지 않으므로 어느 환경과 어느 인코더 가중치 파일로 학습했는지
+    # 남긴다(runtime_env, encoder_weights). 모델을 만든 뒤라 가중치 파일이 캐시에 있다.
     info = {
         "method": "dinomaly",
         "commit": commit,
         "device": args.device,
+        "env": runtime_env(args.device),
+        "encoder_weights": encoder_weights(encoder),
         "config": config,
         "train_images": len(rows),
         "train_images_by_category": counts,
@@ -1081,11 +1132,14 @@ def _eval_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     }
     if "options" in saved:
         config["options"] = saved["options"]
+    # 채점 환경과 인코더 가중치 지문: 고정 인코더는 load_model이 사전학습 가중치에서 다시 만든 것이다.
     run = {
         "method": "dinomaly",
         "protocol": args.protocol,
         "commit": commit,
         "device": args.device,
+        "env": runtime_env(args.device),
+        "encoder_weights": encoder_weights(saved["encoder"]),
         "config": config,
         "categories": summaries,
         "total_s": round(time.perf_counter() - started, 1),

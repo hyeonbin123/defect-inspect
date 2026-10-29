@@ -101,7 +101,17 @@ def _write_json(path: Path, data: dict) -> None:
 def train_command(args) -> None:
     import torch
 
-    from .run_dinomaly import CONFIGS, OPTIMIZER, SCHEDULER, amp_applied, build_model, save_model, train
+    from .run_dinomaly import (
+        CONFIGS,
+        OPTIMIZER,
+        SCHEDULER,
+        amp_applied,
+        build_model,
+        encoder_weights,
+        runtime_env,
+        save_model,
+        train,
+    )
 
     cfg = CONFIGS[CONFIG]
     options = cfg.build_options()
@@ -143,12 +153,16 @@ def train_command(args) -> None:
             config=cfg.name,
             options=options,
         )
+        # env·encoder_weights: 같은 seed 0으로도 비트 단위 재현이 보장되지 않으므로(run_dinomaly.runtime_env
+        # 주석) 학습 환경과 인코더 가중치 파일을 남긴다. 2026-10-29 전에 학습한 8-C 모델 기록에는 없다.
         info = {
             "arm": args.arm,
             "model": model_name,
             "lights": list(arm_lights(args.arm)),
             "commit": git_commit(),
             "device": args.device,
+            "env": runtime_env(args.device),
+            "encoder_weights": encoder_weights(cfg.encoder),
             "config": {
                 "name": cfg.name,
                 "encoder": cfg.encoder,
@@ -234,7 +248,7 @@ def score_train_command(args) -> None:
 # 확인하고 장부에 한 줄 남긴 뒤 test를 읽는다. 저장: test/<팔>_<검사기>.npz(scores [10, n], labels [10, n],
 # 시편, 불량 여부).
 def test_command(args, parser) -> None:
-    from .run_dinomaly import CONFIGS, predict
+    from .run_dinomaly import CONFIGS, encoder_weights, predict, runtime_env
 
     if args.allow_test is not True or not args.stage:
         parser.error("test reads the M2AD test images: it needs --allow-test and --stage")
@@ -287,12 +301,15 @@ def test_command(args, parser) -> None:
                 labels=np.array([[r.label for r in test[light]] for light in ILLUMINATIONS], dtype=np.int8),
             )
         del model
+    # 채점 환경과 인코더 가중치 지문(고정 인코더는 _load가 사전학습 가중치에서 다시 만든다).
     _write_json(
         out_dir / "run.json",
         {
             "config": CONFIG,
             "commit": commit,
             "device": args.device,
+            "env": runtime_env(args.device),
+            "encoder_weights": encoder_weights(cfg.encoder),
             "arms": list(ARMS),
             "inspectors": [f"{c}_{v}" for c, v in INSPECTORS],
             "seconds": round(time.perf_counter() - started, 1),

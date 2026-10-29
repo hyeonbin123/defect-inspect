@@ -644,6 +644,139 @@ def test_real_model_builds_trains_and_predicts_without_pretrained_weights(monkey
         run_dinomaly.load_model(path)
 
 
+# ---------------------------------------------------------------- 실행 환경과 인코더 가중치 기록
+
+
+# 같은 seed로도 Dinomaly 학습은 비트 단위 재현이 보장되지 않으므로(GPU 커널 결정성을 강제하지 않음, fp16
+# autocast) 기록에 실행 환경을 남긴다: Python·torch·CUDA·cuDNN 버전, 장치 이름(CPU면 "cpu"), cuDNN
+# 결정성·benchmark 플래그(지금 값을 읽는다), numpy·anomalib·timm 버전. CUDA 장치 이름은 가짜
+# get_device_name으로 본다(이 테스트는 GPU를 쓰지 않는다).
+def test_runtime_env_names_the_versions_the_device_and_the_cudnn_flags(monkeypatch):
+    import platform
+    from importlib import metadata
+
+    env = run_dinomaly.runtime_env("cpu")
+    assert list(env) == [
+        "python",
+        "torch",
+        "cuda",
+        "cudnn",
+        "device_name",
+        "cudnn_deterministic",
+        "cudnn_benchmark",
+        "numpy",
+        "anomalib",
+        "timm",
+    ]
+    assert env["python"] == platform.python_version() and env["torch"] == torch.__version__
+    assert env["cuda"] == torch.version.cuda and env["device_name"] == "cpu"
+    cudnn = torch.backends.cudnn
+    assert env["cudnn"] == (cudnn.version() if cudnn.is_available() else None)
+    assert (env["cudnn_deterministic"], env["cudnn_benchmark"]) == (cudnn.deterministic, cudnn.benchmark)
+    assert env["numpy"] == np.__version__
+    assert (env["anomalib"], env["timm"]) == (metadata.version("anomalib"), metadata.version("timm"))
+    json.dumps(env)  # 기록 파일에 그대로 들어간다
+
+    asked = []
+
+    def fake_name(device=None):
+        asked.append(device)
+        return "Fake GPU"
+
+    monkeypatch.setattr(torch.cuda, "get_device_name", fake_name)
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", not cudnn.benchmark)
+    gpu = run_dinomaly.runtime_env("cuda")
+    assert gpu["device_name"] == "Fake GPU" and asked == [torch.device("cuda")]
+    assert gpu["cudnn_benchmark"] is torch.backends.cudnn.benchmark
+
+
+# 인코더 가중치 지문(backbones.timm_weights): timm 구조 이름에서 timm 설정의 허브 저장소(timm/<구조>.<태그>)를
+# 찾고, HF 캐시에 refs/main이 가리키는 스냅숏 파일이 있으면 그 리비전과 sha256을 적는다. safetensors가
+# 먼저이고(timm이 먼저 찾는 파일), 그것이 없고 pytorch_model.bin만 있으면 그 파일이다. 캐시에 없으면
+# 리비전·해시는 None이고, timm에 없는 구조 이름이면 허브 저장소도 None이다. 진짜 캐시 대신 같은 모양의 임시
+# 캐시를 쓰고 아무것도 내려받지 않는다.
+def test_timm_weights_reads_the_revision_and_the_hash_from_the_hf_cache(tmp_path):
+    import hashlib
+
+    timm = pytest.importorskip("timm")
+    pytest.importorskip("huggingface_hub")
+    from defect_inspect.backbones import timm_weights
+
+    def cached(hub_id, revision, files):
+        repo = tmp_path / "hub" / ("models--" + hub_id.replace("/", "--"))
+        (repo / "refs").mkdir(parents=True)
+        (repo / "refs" / "main").write_text(revision, encoding="utf-8")
+        (repo / "snapshots" / revision).mkdir(parents=True)
+        for name, data in files.items():
+            (repo / "snapshots" / revision / name).write_bytes(data)
+
+    small, base = "timm/vit_small_patch14_reg4_dinov2.lvd142m", "timm/vit_base_patch14_reg4_dinov2.lvd142m"
+    nothing = {"timm": timm.__version__, "hf_hub_id": small, "file": None, "revision": None, "sha256": None}
+    assert timm_weights("vit_small_patch14_reg4_dinov2", cache_dir=tmp_path / "hub") == nothing
+    cached(small, "1" * 40, {"model.safetensors": b"safe", "pytorch_model.bin": b"pickle"})
+    cached(base, "2" * 40, {"pytorch_model.bin": b"pickle"})
+    assert timm_weights("vit_small_patch14_reg4_dinov2", cache_dir=tmp_path / "hub") == dict(
+        nothing, file="model.safetensors", revision="1" * 40, sha256=hashlib.sha256(b"safe").hexdigest()
+    )
+    assert timm_weights("vit_base_patch14_reg4_dinov2", cache_dir=tmp_path / "hub") == dict(
+        nothing,
+        hf_hub_id=base,
+        file="pytorch_model.bin",
+        revision="2" * 40,
+        sha256=hashlib.sha256(b"pickle").hexdigest(),
+    )
+    unknown = timm_weights("no_such_architecture", cache_dir=tmp_path / "hub")
+    assert unknown == dict(nothing, hf_hub_id=None)
+
+
+# 8-C 학습 기록(run_m2ad_dinomaly train의 <모델>.json)에도 device 바로 뒤에 실행 환경(env)과 인코더 가중치
+# 지문(encoder_weights, 학습한 구성의 인코더 이름으로)이 남는지 본다. M2AD 메타데이터·캐시·학습 루프·모델은
+# 가짜로 바꿔 기록 형식만 본다.
+def test_m2ad_training_record_keeps_the_environment_and_the_encoder_weights(tmp_path, monkeypatch):
+    from defect_inspect import run_m2ad_dinomaly
+
+    class Images:
+        def images(self, rows):
+            return np.zeros((len(rows), SIZE, SIZE, 3), dtype=np.uint8)
+
+    asked = []
+
+    def fake_weights(encoder):
+        asked.append(encoder)
+        return {"timm": "0.0", "hf_hub_id": f"timm/{encoder}.fake"}
+
+    log = [{"step": 1, "loss": 0.5, "skipped": 0, "vram_mb": 0.0, "seconds": 0.1}]
+    monkeypatch.setattr(run_m2ad_dinomaly, "read_meta", lambda path: [])
+    monkeypatch.setattr(run_m2ad_dinomaly, "M2adCache", lambda root, size: Images())
+    monkeypatch.setattr(run_m2ad_dinomaly, "train_plan", lambda rows: {})
+    monkeypatch.setattr(run_m2ad_dinomaly, "training_rows", lambda plan, arm, model: ["a", "b"])
+    monkeypatch.setattr(run_m2ad_dinomaly, "git_commit", lambda: "abc1234")
+    monkeypatch.setattr(run_dinomaly, "build_model", lambda encoder, **options: TinyModel())
+    monkeypatch.setattr(run_dinomaly, "train", lambda model, images, **kwargs: log)
+    monkeypatch.setattr(run_dinomaly, "encoder_weights", fake_weights)
+    argv = [
+        "train",
+        "--arm",
+        "e0",
+        "--models",
+        "full",
+        "--out",
+        str(tmp_path),
+        "--device",
+        "cpu",
+        "--steps",
+        "1",
+    ]
+    run_m2ad_dinomaly.main(argv)
+    info = json.loads((tmp_path / "e0" / "full.json").read_text(encoding="utf-8"))
+    assert list(info)[:7] == ["arm", "model", "lights", "commit", "device", "env", "encoder_weights"]
+    assert info["env"] == run_dinomaly.runtime_env("cpu")
+    encoder = run_dinomaly.CONFIGS[run_m2ad_dinomaly.CONFIG].encoder
+    assert info["encoder_weights"] == {"timm": "0.0", "hf_hub_id": f"timm/{encoder}.fake"} and asked == [
+        encoder
+    ]
+
+
 # ---------------------------------------------------------------- 평가와 명령줄(CLI)
 
 
@@ -806,10 +939,22 @@ def toy_project(tmp_path, monkeypatch):
     initial = []
     sizes = []
     options = []
+    weights = []
 
     def fake_cache(root, size):
         sizes.append(size)
         return cache
+
+    # 인코더 가중치 지문은 진짜 HF 캐시의 수백 MB 파일을 해시하므로 가짜로 바꾸고, 어느 인코더 이름으로
+    # 불렸는지만 남긴다.
+    def fake_weights(encoder):
+        weights.append(encoder)
+        return {
+            "timm": "0.0",
+            "hf_hub_id": f"timm/{encoder}.fake",
+            "file": "model.safetensors",
+            "revision": "r",
+        }
 
     def fake_build(encoder_name=run_dinomaly.ENCODER, **build_options):
         built.append((encoder_name, TinyModel()))
@@ -824,6 +969,7 @@ def toy_project(tmp_path, monkeypatch):
     monkeypatch.setattr(run_dinomaly, "ImageCache", fake_cache)
     monkeypatch.setattr(run_dinomaly, "build_model", fake_build)
     monkeypatch.setattr(run_dinomaly, "git_commit", lambda: "abc1234")
+    monkeypatch.setattr(run_dinomaly, "encoder_weights", fake_weights)
     return {
         "cache": cache,
         "built": built,
@@ -832,6 +978,7 @@ def toy_project(tmp_path, monkeypatch):
         "outputs": tmp_path / "outputs",
         "sizes": sizes,
         "options": options,
+        "weights": weights,
     }
 
 
@@ -846,6 +993,9 @@ TOY = ["--categories", "toy"]
 # 실수로 덮어쓰지 않는다.
 # eval은 run.json에 모델 경로와 sha256, 학습·채점 정밀도를 남기고, 다시 만든 모델의 새 초기값이 아니라 저장된
 # 가중치로 채점해야 한다. dev는 장부를 쓰지 않고, 끝난 평가는 --overwrite 없이 다시 하지 않는다.
+# train.json과 run.json 모두 device 바로 뒤에 실행 환경(env)과 인코더 가중치 지문(encoder_weights)을 남긴다.
+# 고정 인코더는 model.pt에 없고 학습·채점 때마다 사전학습 가중치에서 다시 만들어지므로 두 기록 모두에
+# 필요하다.
 def test_cli_train_then_eval_dev(toy_project, capsys):
     outputs = toy_project["outputs"]
     torch.manual_seed(123)
@@ -864,6 +1014,10 @@ def test_cli_train_then_eval_dev(toy_project, capsys):
     assert info["config"]["batch_size"] == 4 and info["config"]["amp"] is False
     assert info["config"]["img_size"] == 392 and info["config"]["grad_clip_norm"] == 0.1
     assert info["train_images"] == 32 and info["train_images_by_category"] == {"toy": 32}
+    assert list(info)[:5] == ["method", "commit", "device", "env", "encoder_weights"]
+    assert info["env"] == run_dinomaly.runtime_env("cpu") and info["env"]["device_name"] == "cpu"
+    assert info["encoder_weights"]["hf_hub_id"] == f"timm/{run_dinomaly.ENCODER}.fake"
+    assert toy_project["weights"] == [run_dinomaly.ENCODER]
     log = [json.loads(line) for line in (train_dir / "train_log.jsonl").read_text("utf-8").splitlines()]
     assert [e["step"] for e in log] == [2, 4, 6] and info["final_loss"] == log[-1]["loss"]
     saved = torch.load(train_dir / "model.pt", map_location="cpu", weights_only=True)
@@ -884,7 +1038,19 @@ def test_cli_train_then_eval_dev(toy_project, capsys):
     assert [p["category"] for p in printed] == ["toy"]
     eval_dir = outputs / "dm-dev"
     run = json.loads((eval_dir / "run.json").read_text(encoding="utf-8"))
-    assert set(run) == {"method", "protocol", "commit", "device", "config", "categories", "total_s"}
+    assert list(run) == [
+        "method",
+        "protocol",
+        "commit",
+        "device",
+        "env",
+        "encoder_weights",
+        "config",
+        "categories",
+        "total_s",
+    ]
+    assert run["env"] == info["env"] and run["encoder_weights"] == info["encoder_weights"]
+    assert toy_project["weights"] == [run_dinomaly.ENCODER] * 2
     assert (run["method"], run["protocol"], run["commit"], run["device"]) == (
         "dinomaly",
         "dev",

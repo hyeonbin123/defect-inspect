@@ -15,13 +15,16 @@ fp32로 돌린다.
 # 층·풀링·정규화는 docs/experiments.md 1·2단계 규칙에 미리 적은 문헌 기본값 그대로다.
 # [연결] run_patchcore, run_grid, run_perturb, run_m2ad, run_m2ad_enrol, run_supervised, export(ONNX
 # 내보내기), bench(GPU 지연)가 make_extractor를 쓰고, patchcore.py와 run_dinomaly.py가 to_tensor를 쓴다.
+# run_dinomaly(학습·평가 기록)가 timm_weights로 DINOv2 인코더 가중치의 출처를 남긴다.
 # torch가 필요한 모듈이라 서빙 쪽(inspector.py)은 이 파일을 쓰지 않고 같은 정규화를 numpy로 따로 한다.
 
 from __future__ import annotations
 
 # os는 TORCH_HOME 환경 변수 확인에, numpy는 입력 배열 검사에, torchvision은 WideResNet-50-2 구조와 ImageNet
-# 가중치에 쓴다. timm(DINOv2)은 DinoV2Patches 안에서만 불러온다. paths는 가중치를 받을 data/ 폴더 위치를 준다.
+# 가중치에 쓴다. timm(DINOv2)은 DinoV2Patches와 timm_weights 안에서만 불러온다. paths는 가중치를 받을 data/
+# 폴더 위치를 주고, sha256_file은 가중치 파일의 지문을 낸다.
 import os
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -29,6 +32,7 @@ import torch.nn.functional as F
 from torchvision.models import Wide_ResNet50_2_Weights, wide_resnet50_2
 
 from defect_inspect import paths
+from defect_inspect.download import sha256_file
 
 # ImageNet 채널 평균·표준편차. 두 백본 모두 ImageNet 정규화로 사전학습되어 입력도 같은 방식으로
 # 맞춘다(docs/experiments.md 공통 규칙 "전처리").
@@ -166,6 +170,47 @@ class DinoV2Patches(_FrozenExtractor):
             raise ValueError(f"expected {h * w} patch tokens, got {tokens.shape[1]}")
         tokens = F.normalize(tokens.float(), dim=-1)
         return tokens.reshape(x.shape[0], h, w, tokens.shape[-1])
+
+
+# timm 사전학습 가중치의 출처 기록. torchvision 가중치는 파일 해시를 확인하며 받지만(WideResNetPatches의
+# check_hash), timm은 DINOv2 가중치를 Hugging Face 허브의 timm/<구조>.<태그> 저장소에서 리비전을 고정하지 않고
+# (main) 받아 HF 캐시에 둔다(timm 1.0.30 _builder._resolve_pretrained_source가 hf_hub_id가 있으면 허브를
+# 고르고, _hub.load_state_dict_from_hf가 safetensors가 있으면 model.safetensors를 먼저 찾는다). 허브의 main이
+# 바뀌면 다른 가중치를 받을 수 있으므로, 실행 기록에 timm 버전, 허브 저장소, 캐시에 있는 그 파일의 스냅숏
+# 리비전과 sha256을 남긴다. 리비전을 고정하지 않는 것은 고정하면 지금까지의 결과와 다른 파일을 쓰게 될 수
+# 있어서다. 모델을 만든 뒤에 부른다: 그때 캐시의 refs/main이 방금 쓴 파일을 가리킨다(처음 받는 실행이면 그때
+# 생긴다). 출력: {"timm", "hf_hub_id", "file", "revision", "sha256"}. timm 설정에 허브 저장소가 없으면
+# hf_hub_id부터 None이고, 캐시에 파일이 없으면(받지 않았거나 다른 cache_dir) file·revision·sha256이 None이다.
+# 해시는 파일 전체를 읽는다(ViT-S 약 88MB, ViT-B 약 350MB).
+# 주의: timm의 옛 torch hub 캐시를 켜는 환경 변수(TIMM_USE_OLD_CACHE)를 쓰면 timm은 이 파일 대신 그쪽을 읽을
+# 수 있다. 이 프로젝트는 그 변수를 쓰지 않는다.
+def timm_weights(arch: str, *, cache_dir: str | Path | None = None) -> dict:
+    """timm 구조 `arch`의 기본 사전학습 가중치 출처: timm 버전, 허브 저장소, 캐시 파일의 리비전·sha256.
+
+    `cache_dir`이 없으면 huggingface_hub의 기본 캐시(HF_HUB_CACHE, 이 PC는 HF_HOME 아래 hub)를 본다.
+    """
+    import timm
+    from huggingface_hub import try_to_load_from_cache
+    from timm.models import get_pretrained_cfg
+
+    # 태그 없는 구조 이름은 timm이 기본 태그(DINOv2는 lvd142m)의 설정을 돌려준다. timm에 없는 이름이면 None.
+    cfg = get_pretrained_cfg(arch)
+    hub_id = getattr(cfg, "hf_hub_id", None) or None
+    record = {"timm": timm.__version__, "hf_hub_id": hub_id, "file": None, "revision": None, "sha256": None}
+    if hub_id is None:
+        return record
+    # timm이 찾는 순서: 설정이 파일 이름을 정하면 그 파일, 아니면 safetensors(설치돼 있으면 먼저) 다음
+    # pytorch_model.bin.
+    override = getattr(cfg, "hf_hub_filename", None)
+    for name in (override,) if override else ("model.safetensors", "pytorch_model.bin"):
+        found = try_to_load_from_cache(hub_id, name, cache_dir=cache_dir)
+        if isinstance(found, str):  # 경로 문자열만 '캐시에 있음'이다(없다고 기록된 경우는 다른 값)
+            # 캐시 경로는 <캐시>/models--…/snapshots/<리비전>/<파일 이름>이다.
+            path = Path(found)
+            revision = path.parents[len(Path(name).parts) - 1].name
+            record.update(file=name, revision=revision, sha256=sha256_file(path))
+            break
+    return record
 
 
 # 이미지 전체에 고르게 걸린 밝기 이동을 지우려는 것이고, 제품 전체 색이 바뀌는 결함도 같이 지울 수

@@ -133,6 +133,21 @@ def write_zips(zip_dir, rows, *, reverse=False, skip=()):
                 z.writestr(name, png_bytes(name))
 
 
+# main은 캐시를 새로 만들 때 zip 세 개의 SHA-256을 기록한 값(m2ad.ZIP_SHA256)과 대조한다. 가짜 zip으로 정상
+# 경로를 돌리려면 기대 지문을 그 가짜 파일들의 것으로 바꿔야 하므로, 지금 디스크에 있는 가짜 파일의 해시를
+# 계산해 그 자리에 넣는다. 돌려준 dict는 테스트가 일부를 틀린 값으로 바꿔 불일치를 만들 때 쓴다.
+def pin_zip_hashes(monkeypatch, zip_dir, jsons) -> dict:
+    def digest(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    pinned = {
+        "jsons.zip": digest(jsons),
+        **{f"{c}.zip": digest(zip_dir / f"{c}.zip") for c in m2ad.CATEGORIES},
+    }
+    monkeypatch.setattr(m2ad, "ZIP_SHA256", pinned)
+    return pinned
+
+
 # 조명 2개(01, 02)만 있는 작은 행 목록. 캐시 테스트를 빨리 돌리려는 것이다.
 def small_rows(tmp_path):
     meta = make_meta(lights=("01", "02"))
@@ -340,6 +355,18 @@ def test_constants_are_the_registered_ones():
     assert m2ad.REFERENCE == "01" and m2ad.N_FOLDS == 5 and m2ad.RECAL_SIZES == (8, 30)
 
 
+# 캐시를 만들 때 대조하는 zip 지문(experiments.md 공통 규칙 '데이터'에 적은 값)을 고정한다. 2026-10-29에 이
+# PC의 data/raw/m2ad에서 계산했고 Hugging Face 데이터셋 파일 목록의 LFS sha256과 같았다. 대조하는 파일은
+# jsons.zip과 실험에 쓰는 두 범주의 zip뿐이다.
+def test_zip_hashes_are_the_recorded_ones():
+    assert m2ad.ZIP_SHA256 == {
+        "jsons.zip": "bbeaa75c231c981e443c818859a701fcc0daf1769065abd91631f7e676725980",
+        "Motor.zip": "eeffdb29450b5ffc5cb9bbc85afa5010ee633eefb87c4515c0f20b74f93e3e0f",
+        "Bird.zip": "b5bb22a976440d8739e84724eb864b290f23eee053511ab47f8a4c200fabace7",
+    }
+    assert set(m2ad.ZIP_SHA256) == {"jsons.zip", *(f"{c}.zip" for c in m2ad.CATEGORIES)}
+
+
 # 캐시 만들기의 핵심 성질을 본다. zipfile.ZipFile.read를 감시해, 각 zip을 놓인 순서(header_offset
 # 오름차순)대로 앞에서 뒤로 읽는지(HDD 순차 읽기), 원하는 멤버만 한 번씩 읽는지, 그 순서가 이름 순서와 다른지
 # 확인한다. zip 안 순서를 정방향·역방향으로 바꿔도 캐시 배열과 색인은 행 순서대로 똑같아야 하고, .part 파일이
@@ -481,35 +508,94 @@ def ledger_entries(path) -> list[dict]:
 # 장부 줄 수를 기록해 '기록 → 빌드' 순서를 확인한다. 이미 완성된 캐시는 아무것도 읽지 않으므로 줄이 늘지 않고,
 # --force로 다시 만들면 두 번째 줄이 생겨야 한다. 장부는 봉인 테스트 이미지를 읽을 때마다 남긴다는
 # 규칙을 캐시 빌드에도 적용한 것이다(docs/experiments.md 봉인 테스트 절의 예외).
+# zip 지문은 가짜 파일의 것으로 맞춰 두고(pin_zip_hashes) sha256_file 호출을 센다: 캐시를 만들 때마다 세
+# 파일을 한 번씩 대조하고, 이미 완성된 캐시는 zip을 해시하지 않아야 한다(실제 zip은 30GB라 매번 읽지 않는다).
 def test_main_records_the_read_before_it_builds(tmp_path, capsys, monkeypatch, temporary_ledger):
     jsons = write_jsons(tmp_path, make_meta(lights=("01", "02")))
     rows = read_meta(jsons)
     write_zips(tmp_path / "zips", rows)
+    pin_zip_hashes(monkeypatch, tmp_path / "zips", jsons)
     argv = ["--size", str(SIZE), "--zips", str(tmp_path / "zips"), "--jsons", str(jsons)]
     argv += ["--out", str(tmp_path / "cache"), "--workers", "2"]
-    real_build = m2ad.build_cache
+    real_build, real_sha256 = m2ad.build_cache, m2ad.sha256_file
     recorded_before_build = []
+    hashed = []
 
     def watching_build(*args, **kwargs):
         recorded_before_build.append(len(ledger_entries(temporary_ledger)))
         return real_build(*args, **kwargs)
 
+    def counting_sha256(path, *args, **kwargs):
+        hashed.append(path.name)
+        return real_sha256(path, *args, **kwargs)
+
     monkeypatch.setattr(m2ad, "build_cache", watching_build)
+    monkeypatch.setattr(m2ad, "sha256_file", counting_sha256)
     assert m2ad.main(argv) == 0
     entries = ledger_entries(temporary_ledger)
     assert len(entries) == 1 and recorded_before_build == [1]
     assert (entries[0]["stage"], entries[0]["config"]) == ("cache", f"m2ad-cache-{SIZE}")
     assert entries[0]["commit"] == "abc1234"
+    assert entries[0]["note"] == "M2AD resize cache build: pixels copied into arrays, no scores or metrics"
+    assert sorted(hashed) == ["Bird.zip", "Motor.zip", "jsons.zip"]
     out = capsys.readouterr().out
     assert str(temporary_ledger) in out and f"({len(rows)}, {SIZE}, {SIZE}, 3)" in out
     assert m2ad.cache_is_complete(tmp_path / "cache", SIZE, rows)
 
-    # 완성된 캐시는 건너뛴다: 아무것도 읽지 않고 기록도 하지 않는다.
+    # 완성된 캐시는 건너뛴다: 아무것도 읽지 않고(zip 해시도 하지 않고) 기록도 하지 않는다.
     assert m2ad.main(argv) == 0
-    assert len(ledger_entries(temporary_ledger)) == 1 and recorded_before_build == [1]
-    # --force는 이미지를 다시 읽으므로 두 번째 줄이 생긴다.
+    assert len(ledger_entries(temporary_ledger)) == 1 and recorded_before_build == [1] and len(hashed) == 3
+    # --force는 이미지를 다시 읽으므로 zip을 다시 대조하고 두 번째 줄이 생긴다.
     assert m2ad.main([*argv, "--force"]) == 0
-    assert len(ledger_entries(temporary_ledger)) == 2 and recorded_before_build == [1, 2]
+    assert len(ledger_entries(temporary_ledger)) == 2 and recorded_before_build == [1, 2] and len(hashed) == 6
+
+
+# 캐시를 새로 만들 때 zip 하나의 지문이 기록과 다르면(다른 판의 파일, 내려받기 손상) 장부에 줄을 쓰기 전에,
+# 이미지를 하나도 디코딩하기 전에 ValueError로 멈추는지 본다. 메시지에는 파일, 기대·실제 해시, 우회 옵션이
+# 들어간다. --skip-hash-check는 대조를 건너뛰고 캐시를 만들되, 장부 메모에 '지문을 대조하지 않았다'를 남겨
+# 나중에 그 캐시가 검증되지 않은 zip에서 나왔음을 알 수 있게 한다. jsons.zip이 다르면 큰 zip을 해시하기 전에
+# 멈춘다(맨 먼저 대조한다).
+def test_main_stops_before_the_ledger_when_a_zip_hash_differs(tmp_path, monkeypatch, temporary_ledger):
+    jsons = write_jsons(tmp_path, make_meta(lights=("01", "02")))
+    rows = read_meta(jsons)
+    write_zips(tmp_path / "zips", rows)
+    pinned = pin_zip_hashes(monkeypatch, tmp_path / "zips", jsons)
+    argv = ["--size", str(SIZE), "--zips", str(tmp_path / "zips"), "--jsons", str(jsons)]
+    argv += ["--out", str(tmp_path / "cache"), "--workers", "2"]
+
+    def no_decoding(data, size):
+        raise AssertionError("nothing may be decoded")
+
+    monkeypatch.setattr(cache, "_decode_image", no_decoding)
+    monkeypatch.setattr(m2ad, "ZIP_SHA256", {**pinned, "Bird.zip": "0" * 64})
+    with pytest.raises(ValueError, match="Bird.zip") as raised:
+        m2ad.main(argv)
+    message = str(raised.value)
+    assert "0" * 64 in message and pinned["Bird.zip"] in message and "--skip-hash-check" in message
+    assert not temporary_ledger.exists()
+    assert not (tmp_path / "cache").exists() or not list((tmp_path / "cache").iterdir())
+
+    real_sha256 = m2ad.sha256_file
+    hashed = []
+
+    def counting_sha256(path, *args, **kwargs):
+        hashed.append(path.name)
+        return real_sha256(path, *args, **kwargs)
+
+    monkeypatch.setattr(m2ad, "sha256_file", counting_sha256)
+    monkeypatch.setattr(m2ad, "ZIP_SHA256", {**pinned, "jsons.zip": "f" * 64})
+    with pytest.raises(ValueError, match="jsons.zip"):
+        m2ad.main(argv)
+    assert hashed == ["jsons.zip"] and not temporary_ledger.exists()
+
+    # 대조를 건너뛰면 만들고, 장부 메모에 남긴다.
+    hashed.clear()
+    monkeypatch.setattr(cache, "_decode_image", lambda data, size: np.zeros((size, size, 3), dtype=np.uint8))
+    assert m2ad.main([*argv, "--skip-hash-check"]) == 0
+    entries = ledger_entries(temporary_ledger)
+    assert len(entries) == 1 and hashed == []
+    assert "zip sha256 not checked (--skip-hash-check)" in entries[0]["note"]
+    assert m2ad.cache_is_complete(tmp_path / "cache", SIZE, rows)
 
 
 # 반대로 이미지를 읽지 못하고 실패하는 빌드(zip 없음, 멤버 누락)는 장부에 줄을 남기지 않아야 한다. 읽지 않은
@@ -536,8 +622,10 @@ def test_main_records_nothing_when_the_zips_cannot_be_read(tmp_path, monkeypatch
         m2ad.main([*argv, "--zips", str(tmp_path / "zips")])
     assert not temporary_ledger.exists()
     assert not (tmp_path / "cache").exists() or not list((tmp_path / "cache").iterdir())
-    # 멤버를 되돌리면 같은 명령이 캐시를 만들고 읽기를 한 번 기록한다.
+    # 멤버를 되돌리면 같은 명령이 캐시를 만들고 읽기를 한 번 기록한다(지문은 다시 쓴 가짜 zip의 것으로
+    # 맞춘다).
     write_zips(tmp_path / "zips", rows)
+    pin_zip_hashes(monkeypatch, tmp_path / "zips", jsons)
     monkeypatch.setattr(cache, "_decode_image", lambda data, size: np.zeros((size, size, 3), dtype=np.uint8))
     assert m2ad.main([*argv, "--zips", str(tmp_path / "zips")]) == 0
     assert len(ledger_entries(temporary_ledger)) == 1

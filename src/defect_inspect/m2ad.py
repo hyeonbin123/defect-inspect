@@ -30,10 +30,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # cache: VisA 리사이즈 캐시의 쓰기·읽기 도구(같은 BICUBIC 리사이즈, .part 파일 후 교체, 메모리 맵 읽기)를
-# 재사용한다. path_key: 문자열의 SHA-256 정렬 키(VisA 분할과 같은 결정적 순서).
+# 재사용한다. sha256_file: zip 지문 대조(VisA tar 검증과 같은 함수). path_key: 문자열의 SHA-256 정렬 키(VisA
+# 분할과 같은 결정적 순서).
 import numpy as np
 
 from . import cache as _cache
+from .download import sha256_file
 from .splits import path_key
 
 # 실험에 쓰는 M2AD 범주 둘. 내려받는 파일이 가장 작은 두 범주로 골랐고 성능을 보고 고르지
@@ -54,6 +56,16 @@ RECAL_SIZES = (8, 30)
 # 설정 메타데이터 파일 이름.
 SPLITS = ("train", "test")
 META_MEMBER = "meta_unsupervised.json"
+# 캐시를 만들 때 대조하는 zip 세 개의 SHA-256(docs/experiments.md 공통 규칙 '데이터'). 2026-10-29에 이 PC의
+# data/raw/m2ad(2026-09-30에 받은 파일)에서 계산했고, Hugging Face 데이터셋 ChengYuQi99/M2AD(리비전 05abc5d…)
+# 파일 목록의 LFS sha256과 셋 다 같았다. VisA tar에는 처음부터 지문이 있었지만(download.VISA_SHA256) M2AD에는
+# 없어서, 다른 판의 파일이나 내려받다 손상된 파일로 캐시를 만들어도 알 수 없었다. 키는 역할 이름(jsons.zip과
+# <범주>.zip)이고, --jsons로 다른 경로를 주어도 jsons.zip의 값과 대조한다.
+ZIP_SHA256 = {
+    "jsons.zip": "bbeaa75c231c981e443c818859a701fcc0daf1769065abd91631f7e676725980",
+    "Motor.zip": "eeffdb29450b5ffc5cb9bbc85afa5010ee633eefb87c4515c0f20b74f93e3e0f",
+    "Bird.zip": "b5bb22a976440d8739e84724eb864b290f23eee053511ab47f8a4c200fabace7",
+}
 
 
 # M2AD 이미지 한 장의 메타데이터 행. specimen(object_name)은 물리적 물체 하나이고, object_anomaly는 그 시편이
@@ -407,8 +419,28 @@ class M2adCache:
         self._images = None
 
 
+# zip 지문 대조: 각 파일의 SHA-256을 ZIP_SHA256의 기록과 비교하고, 다르면 ValueError로
+# 멈춘다(download.download의 해시 불일치와 같은 처리). 첫 불일치에서 바로 멈추므로 jsons.zip(1MB)을 맨 앞에
+# 두면 다른 판의 메타데이터를 큰 zip(15GB씩)을 읽기 전에 알아챈다. HDD에서 두 범주 zip을 다 읽는 데 5~13분
+# 걸린다(2026-10-29 실측: Bird 304초, Motor 479초, 다른 작업이 디스크를 같이 쓰던 때). 그래서 main은 캐시를
+# 새로 만들 때만 부른다. 입력: (역할 이름, 파일 경로) 쌍의 목록. 역할 이름은 ZIP_SHA256의 키다.
+def check_zip_hashes(files: Sequence[tuple[str, Path]]) -> None:
+    """`files`의 (역할 이름, 경로)마다 SHA-256이 ZIP_SHA256의 기록과 같은지 확인한다(다르면 ValueError)."""
+    for role, path in files:
+        expected = ZIP_SHA256[role]
+        print(f"checking the sha256 of {path} ({Path(path).stat().st_size:,} bytes)", flush=True)
+        actual = sha256_file(Path(path))
+        if actual != expected:
+            raise ValueError(
+                f"sha256 mismatch for {path} ({role}): expected {expected}, got {actual}. This is not "
+                "the M2AD file the recorded results were built from; pass --skip-hash-check to build "
+                "from it anyway"
+            )
+
+
 # 명령줄 진입점: `python -m defect_inspect.m2ad --size 256`(README 3단계). data/raw/m2ad의 <범주>.zip과
-# jsons.zip에서 캐시를 만든다. 이미 완성됐으면 --force 없이는 다시 만들지 않는다.
+# jsons.zip에서 캐시를 만든다. 이미 완성됐으면 --force 없이는 다시 만들지 않는다. 새로 만들 때는 zip 지문을
+# 먼저 대조한다(--skip-hash-check로 건너뛰면 장부 메모에 그렇게 남는다).
 def main(argv: list[str] | None = None) -> int:
     from . import ledger, paths
 
@@ -419,18 +451,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--zips", type=Path, default=None, help="<범주>.zip이 있는 폴더(data/raw/m2ad)")
     parser.add_argument("--jsons", type=Path, default=None, help="jsons.zip(기본값: zip 폴더 안)")
     parser.add_argument("--out", type=Path, default=None, help="캐시 폴더(data/cache)")
+    parser.add_argument(
+        "--skip-hash-check",
+        action="store_true",
+        help=(
+            "캐시를 새로 만들 때 하는 zip 세 개의 SHA-256 대조(기록한 지문, HDD에서 5~13분)를 "
+            "건너뛴다. 다른 판의 M2AD 파일로 일부러 만들 때만 쓴다. 건너뛰면 장부 메모에 대조하지 "
+            "않았다고 남는다"
+        ),
+    )
     args = parser.parse_args(argv)
     zip_dir = args.zips or paths.RAW / "m2ad"
     out_dir = args.out or paths.CACHE
+    jsons = args.jsons or zip_dir / "jsons.zip"
 
-    rows = read_meta(args.jsons or zip_dir / "jsons.zip")
+    rows = read_meta(jsons)
     print(count_table(rows))
     if not args.force and cache_is_complete(out_dir, args.size, rows):
         print(f"M2AD cache for size {args.size} is already complete in {out_dir} (use --force to rebuild)")
     else:
-        # 이미지를 읽지 않고도 실패할 수 있는 점검(zip·멤버 누락, 옛 파일 교체 가능 여부)을 장부 기록 전에
-        # 모두 해서, 실패한 빌드가 장부에 줄을 남기지 않게 한다.
-        _plan(zip_dir, rows)
+        # 이미지를 읽지 않고도 실패할 수 있는 점검(zip·멤버 누락, zip 지문, 옛 파일 교체 가능 여부)을 장부
+        # 기록 전에 모두 해서, 실패한 빌드가 장부에 줄을 남기지 않게 한다. 지문은 _plan이 zip이 있는지 본 뒤에
+        # 대조하고(없는 파일은 FileNotFoundError가 먼저), 교체 가능 여부는 오래 걸리는 해시 뒤에 본다(빌드
+        # 직전의 상태를 보도록).
+        plan = _plan(zip_dir, rows)
+        note = "M2AD resize cache build: pixels copied into arrays, no scores or metrics"
+        if args.skip_hash_check:
+            print("skipping the zip sha256 check (--skip-hash-check)")
+            note += "; zip sha256 not checked (--skip-hash-check)"
+        else:
+            # 대조하는 것은 이번 빌드가 실제로 읽는 파일: 메타데이터와 계획에 든 범주 zip(파일 순서는 계획
+            # 순서).
+            check_zip_hashes([("jsons.zip", jsons), *((Path(p).name, p) for p, _, _ in plan)])
         _cache._check_replaceable([(images_path(out_dir, args.size), index_path(out_dir, args.size))])
         # 캐시는 test 이미지도 배열로 옮기므로 봉인 규칙의 예외(점수·지표를 내지 않음)로 돌리되, 읽기 전에
         # 장부에 stage "cache"로 남긴다(experiments.md 공통 규칙 '봉인 테스트', 규칙 변경 1과 같은 처리).
@@ -440,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
                 paths.TEST_LEDGER,
                 stage="cache",
                 config=f"m2ad-cache-{args.size}",
-                note="M2AD resize cache build: pixels copied into arrays, no scores or metrics",
+                note=note,
             )
             print(f"recorded the read of the M2AD test images in {paths.TEST_LEDGER}")
         build_cache(zip_dir, rows, args.size, out_dir, workers=args.workers, progress=True)
