@@ -40,6 +40,19 @@ services:
     tmpfs:
       - /tmp:size=768m
     mem_limit: 2g
+    # 서비스는 Linux capability를 하나도 쓰지 않는다(uid 10001로 1024보다 큰 8000번 포트를 듣고, 파일은 /tmp에만
+    # 쓴다). 그래서 모두 떼어 내고(cap_drop), setuid 실행 파일 같은 것으로 새 권한을 얻지 못하게 한다
+    # (no-new-privileges). 컨테이너 안 코드가 뚫려도 쓸 수 있는 권한이 늘지 않는다.
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    # 프로세스·스레드 수 상한(pids cgroup은 스레드도 하나로 센다). 포크 폭탄 같은 폭주를 컨테이너 안에 가둔다. 서비스
+    # 스레드는 대략 onnxruntime 연산 스레드(DEFECT_INSPECT_THREADS를 비우면 호스트 코어 수만큼) + anyio 스레드 풀(최대
+    # 40) + 작업자(DEFECT_INSPECT_WORKERS, 기본 2) + 몇 개다. 128로 잡으면 코어가 80개쯤 넘는 큰 호스트에서 스레드를
+    # 만들지 못해 시작이 실패할 수 있어 256으로 둔다. 2026-10-29 이 PC(논리 CPU 12, 물리 코어 6)에서 작은 시험
+    # 아티팩트로 띄운 컨테이너는 쉴 때 35~37개, 동시 업로드 80개를 세 번 보내는 동안 최고 43개였다.
+    pids_limit: 256
     restart: unless-stopped
     # 상태 점검: 이미지 안의 Python으로 /healthz를 부른다(curl이 이미지에 없다). start_period: 서비스는 시작할 때 모델
     # 지문 대조(134MB 파일의 SHA-256), 세션 생성, 세션마다 회색 이미지 예열 추론을 마친 뒤에야 응답하므로, 그동안의

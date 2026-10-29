@@ -11,16 +11,17 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /app
 
-# uv 실행 파일과 그 내려받기 캐시는 빌드 단계에만 마운트하므로 이미지에 남지 않는다. uv 버전은 태그로 고정한다.
+# uv 실행 파일과 그 내려받기 캐시는 빌드 단계에만 마운트하므로 이미지에 남지 않는다. uv 버전은 태그로 고정한다
+# (두 RUN 줄을 함께 바꾼다. 갱신 절차와 마지막 확인 날짜는 .github/workflows/ci.yml 머리 주석).
 # 의존성을 먼저 설치해, 소스만 바뀌었을 때 이 층을 다시 만들지 않게 한다. --frozen은 uv.lock을 그대로 쓰고,
 # --no-dev --group serve는 기본 패키지와 서비스 그룹만 넣는다(CI의 audit 작업이 같은 집합을 취약점 대조한다).
 COPY pyproject.toml uv.lock README.md ./
-RUN --mount=from=ghcr.io/astral-sh/uv:0.12.12,source=/uv,target=/usr/local/bin/uv \
+RUN --mount=from=ghcr.io/astral-sh/uv:0.13.6,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --group serve --no-install-project
 
 COPY src ./src
-RUN --mount=from=ghcr.io/astral-sh/uv:0.12.12,source=/uv,target=/usr/local/bin/uv \
+RUN --mount=from=ghcr.io/astral-sh/uv:0.13.6,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --group serve
 
