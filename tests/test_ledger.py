@@ -415,11 +415,12 @@ def test_entry_is_not_glued_to_a_torn_last_line(tmp_path):
     assert lines[0] == '{"time": "cut off' and json.loads(lines[1]) == entry and len(lines) == 2
 
 
-# git_commit과 ledger_tree가 잠금 파일을 만들기 전에 불리는지 본다. 잠금 파일은 저장소 안 장부 옆에 생기므로,
-# 그 뒤에 git status를 보면 추적하지 않는 파일로 잡혀 깨끗한 코드도 '+dirty'로, 트리 목록에도 잠금 파일이
-# 잘못 기록된다. 가짜 함수가 불린 순간 잠금 파일이 있었는지를 seen에 남겨 확인한다.
+# git_commit과 ledger_tree가 잠금 파일을 만들기 전에 불리는지 본다. 잠금을 쥐는 시간을 짧게 하려는 순서다(git
+# 호출은 저마다 30초까지 기다릴 수 있고, 그동안 다른 기록자는 잠금을 기다린다). 실제 장부의 잠금 파일
+# (`*.jsonl.lock`)은 .gitignore에 있어 git status 목록에 나오지 않지만, 그 규칙에 걸리지 않는 이름의 장부라도
+# 이 순서면 잠금 파일이 '+dirty'나 트리 목록에 잡히지 않는다. 가짜 함수가 불린 순간 잠금 파일이 있었는지를
+# seen에 남겨 확인한다.
 def test_git_state_is_read_before_the_lock_is_taken(tmp_path, monkeypatch):
-    # 잠금 파일은 저장소 안 장부 옆에 생기므로 `git status`가 그것을 보면 안 된다.
     path = tmp_path / "ledger.jsonl"
     seen = []
 

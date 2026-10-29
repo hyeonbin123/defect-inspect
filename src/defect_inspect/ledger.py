@@ -274,8 +274,10 @@ def record_test_access(
     elif now.tzinfo is None:
         now = now.replace(tzinfo=UTC)  # 시간대가 없는 시각은 UTC로 본다
     # 실패할 수 있거나 작업 트리를 들여다보는 일(git 호출, JSON 직렬화)은 잠금 파일을 만들기 전에 끝내, 잠금을
-    # 쥐는 시간을 짧게 하고 잠금 중 실패할 일을 줄인다. 잠금 파일은 장부 옆(저장소 안)에 생기므로, 트리를 그
-    # 뒤에 읽으면 잠금 파일이 목록에 잡힌다.
+    # 쥐는 시간을 짧게 하고 잠금 중 실패할 일을 줄인다(git 호출은 저마다 30초까지 기다릴 수 있고, 그동안 다른
+    # 기록자는 잠금을 기다린다). 실제 장부(reports/test_ledger.jsonl)의 잠금 파일은 .gitignore의
+    # `*.jsonl.lock`에 걸려 git status 목록에 나오지 않으므로, 트리 기록이 잠금 파일 때문에 달라지지는 않는다.
+    # 그 규칙에 걸리지 않는 이름의 장부를 저장소 안에 두더라도 이 순서면 잠금 파일이 목록에 잡히지 않는다.
     entry = {
         "time": now.astimezone(UTC).isoformat(timespec="seconds"),
         "commit": git_commit() if commit is None else commit,
