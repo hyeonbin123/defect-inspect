@@ -19,6 +19,7 @@ fp32로 대조하고(장치 무관), 뒤의 것은 fp16 학습을 fp32 학습과
 # anomalib 것을 쓰되 학습 루프는 직접 써서(모듈 docstring), 배치 순서·정밀도·관문 검사를 직접 통제하고,
 # 옵티마이저·스케줄러·클리핑은 anomalib Lightning 모듈의 설정과 맞춘다.
 # [주요 구성] 구성 표(DinomalyConfig, CONFIGS) → 결정적 배치 순서(batch_order) → 모델 만들기(build_model) →
+# 학습 일정(optimizer_settings: 기본은 anomalib 일정, 8-D 미세조정은 FINETUNE_SCHEDULE) →
 # 학습(train)·채점(predict) → 저장·불러오기(save_model, load_model) → 관문 검사(attention_parity,
 # gate_verdict, run_gate) → 범주 평가(eval_category) → 명령 처리(_train_command 등, main).
 # [연결] 모델 수정(인코더 자르기, 패치 어텐션)은 dinomaly_model.py, ONNX 서빙은
@@ -71,6 +72,13 @@ BATCH = 16
 OPTIMIZER = {"lr": 2e-3, "betas": (0.9, 0.999), "weight_decay": 1e-4, "amsgrad": True, "eps": 1e-8}
 SCHEDULER = {"base_value": 2e-3, "final_value": 2e-4, "warmup_iters": 100}
 GRAD_CLIP = 0.1
+# 8-D 미세조정 일정(docs/experiments.md 8단계 8-D): 저장된 8-C E0 모델에서 이어 학습할 때
+# train(schedule=...)에 넘긴다. 원래 일정(SCHEDULER)이 끝나는 학습률 2e-4를 상수로 쓰고(base_value =
+# final_value라 cosine 구간이 평평하다), 앞 10스텝만 0에서 2e-4로 선형 warmup한다. 처음부터 학습할 때의
+# 2e-3에서 다시 시작하지 않는 이유는 이미 수렴한 디코더를 큰 학습률로 흔들지 않으려는 것이고, 값은 측정 전에
+# 하나로 정했다(결과를 보고 바꾸지 않는다). 옵티마이저는 새 상태로 만들고 나머지
+# 설정(betas·weight_decay·amsgrad·eps)과 클리핑은 그대로다.
+FINETUNE_SCHEDULE = {"base_value": 2e-4, "final_value": 2e-4, "warmup_iters": 10}
 PRO_BINS = 2000
 # 2단계 구성 이름이자 장부의 config 값. ATTENTION_MODES: 디코더 선형 어텐션 방식. original(anomalib 그대로),
 # scaled(키를 토큰 수 N으로 나누는 fp16용 패치), fp32(어텐션만 fp32로 계산하는 대안).
@@ -290,13 +298,51 @@ def _autocast(device: torch.device, amp: bool) -> contextlib.AbstractContextMana
     return contextlib.nullcontext()
 
 
+# 학습 일정 하나를 (StableAdamW 키워드 인자, WarmCosineScheduler 키워드 인자)로 바꾼다. 스케줄러 인자에는
+# total_iters가 없다(train이 스텝 수로 채운다).
+# schedule이 None이면 anomalib 설정 그대로(OPTIMIZER, SCHEDULER의 복사본)다. 2·6·8-C단계 학습이 쓴 값이고,
+# train을 일정 인자 없이 부르면 이 길을 타므로 그 학습들을 같은 코드로 다시 돌릴 수 있다(테스트가 설정·로그가
+# 같은지 확인한다). 복사본을 주는 것은 받은 쪽이 dict를 고쳐도 모듈 상수가 바뀌지 않게 하려는 것이다.
+# schedule을 주면(8-D의 FINETUNE_SCHEDULE) SCHEDULER와 같은 세 키(base_value, final_value, warmup_iters)만
+# 받는다. 학습률은 0보다 큰 유한한 실수, warmup은 0 이상의 정수(bool 제외)여야 하고, 어긋나면 ValueError다.
+# 옵티마이저의 lr은 base_value로 맞춘다. WarmCosineScheduler가 첫 스텝 전에 학습률을 일정의 첫 값으로
+# 덮어쓰므로 계산은 lr 값과 무관하지만, 학습 기록에 실제 일정과 다른 2e-3이 남지 않게 하려는 것이다.
+# 주의: warmup이 스텝 수보다 길어도 거절하지 않는다(기본 일정의 warmup 100은 짧은 점검 학습에서도 그대로
+# 쓰인다). 그때는 warmup 도중의 학습률로 끝난다.
+def optimizer_settings(schedule: dict | None = None) -> tuple[dict, dict]:
+    """(StableAdamW 키워드 인자, total_iters를 뺀 WarmCosineScheduler 키워드 인자).
+
+    `schedule`이 None이면 anomalib 설정(`OPTIMIZER`, `SCHEDULER`)의 복사본이다. 주면 `SCHEDULER`와 같은 세
+    키만 받고, 옵티마이저의 학습률을 `base_value`로 맞춘다. 값이 맞지 않으면 ValueError를 낸다.
+    """
+    if schedule is None:
+        return dict(OPTIMIZER), dict(SCHEDULER)
+    if set(schedule) != set(SCHEDULER):
+        raise ValueError(f"a schedule needs exactly the keys {sorted(SCHEDULER)}, got {sorted(schedule)}")
+    rates = {}
+    for key in ("base_value", "final_value"):
+        value = schedule[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{key} must be a real number, got {value!r}")
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{key} must be finite and above 0, got {value!r}")
+        rates[key] = float(value)
+    warmup = schedule["warmup_iters"]
+    if isinstance(warmup, bool) or not isinstance(warmup, int) or warmup < 0:
+        raise ValueError(f"warmup_iters must be an integer of at least 0, got {warmup!r}")
+    return {**OPTIMIZER, "lr": rates["base_value"]}, {**rates, "warmup_iters": warmup}
+
+
 # 학습 가능한 파라미터를 uint8 이미지로 학습한다. anomalib Lightning 모듈을 따른다: 학습 모드에서 손실 =
 # model(batch, global_step=step), StableAdamW, 매 반복마다 warmup + cosine 스케줄, gradient norm 0.1로 자르기.
 # amp(CUDA)면 fp16 autocast와 GradScaler를 쓴다.
 # 손실이 유한하지 않으면 FloatingPointError로 멈춘다(2단계 DM은 fp16에서 15번째 스텝에 NaN, experiments.md).
 # log_every 스텝마다(그리고 마지막 스텝) 기록을 남기고, log_path가 있으면 JSON 줄로 하나씩 flush해 오래 걸리는
 # 학습의 진행을 밖에서 볼 수 있게 한다.
-# 호출 위치: _train_command, attention_parity, _gate_run.
+# schedule: 학습 일정(optimizer_settings). None(기본값)이면 anomalib 일정 그대로라 2·6·8-C단계와 같은
+# 학습이고, 8-D 미세조정은 FINETUNE_SCHEDULE을 넘긴다. 어느 쪽이든 옵티마이저는 이 호출에서 새로 만든다(이전
+# 학습의 옵티마이저 상태를 이어받지 않는다). 잘못된 일정은 모델을 건드리기 전에 ValueError로 거절한다.
+# 호출 위치: _train_command, attention_parity, _gate_run, run_m2ad_dinomaly(8-C 학습과 8-D 미세조정).
 def train(
     model: torch.nn.Module,
     images: np.ndarray,
@@ -308,6 +354,7 @@ def train(
     seed: int = 0,
     log_every: int = 50,
     log_path: Path | None = None,
+    schedule: dict | None = None,
 ) -> list[dict]:
     """`model`에서 기울기가 필요한 파라미터를 uint8 이미지 [N, S, S, 3]로 학습한다.
 
@@ -315,7 +362,8 @@ def train(
     매 반복마다 한 칸씩 나아가는 warm-up + cosine 스케줄, gradient norm 0.1로 자르기. `amp`(CUDA 전용)면
     순전파를 fp16 autocast와 GradScaler로 돌린다. 손실이 유한하지 않으면 FloatingPointError를 낸다.
     `log_every` 스텝마다(그리고 마지막 스텝) 기록 하나씩을 돌려주고, `log_path`가 있으면 같은 기록을 JSON
-    줄로 하나씩 flush하며 덧붙인다.
+    줄로 하나씩 flush하며 덧붙인다. `schedule`을 주면 anomalib 일정 대신 그 일정(`optimizer_settings`)으로
+    학습한다(None이면 anomalib 설정 그대로).
     """
     import torch
     from anomalib.models.image.dinomaly.components import StableAdamW, WarmCosineScheduler
@@ -325,6 +373,8 @@ def train(
     _check_images(images, batch_size)
     if steps < 1 or log_every < 1:
         raise ValueError(f"steps and log_every must be at least 1, got {steps} and {log_every}")
+    # 일정 검사를 장치 이동·난수 고정보다 먼저 해, 잘못된 일정이면 모델을 한 번도 부르지 않고 멈춘다.
+    optimizer_kwargs, scheduler_kwargs = optimizer_settings(schedule)
     dev = torch.device(device)
     use_amp = amp_applied(amp, dev)
     # 배치 순서는 학습 전에 한 번에 정한다. 병목 dropout 마스크는 torch 난수라 seed로 따로 고정한다.
@@ -336,10 +386,10 @@ def train(
     params = [p for p in model.parameters() if p.requires_grad]
     if not params:
         raise ValueError("the model has no trainable parameters")
-    # anomalib Lightning 모듈과 같은 옵티마이저(StableAdamW)와 스케줄러(warmup 100 뒤 cosine, total_iters =
-    # 전체 스텝)를 쓴다.
-    optimizer = StableAdamW([{"params": params}], **OPTIMIZER)
-    scheduler = WarmCosineScheduler(optimizer, total_iters=steps, **SCHEDULER)
+    # anomalib Lightning 모듈과 같은 옵티마이저(StableAdamW)와 스케줄러(기본: warmup 100 뒤 cosine,
+    # total_iters = 전체 스텝)를 쓴다. schedule을 줬으면 그 일정의 값이다(위 optimizer_settings).
+    optimizer = StableAdamW([{"params": params}], **optimizer_kwargs)
+    scheduler = WarmCosineScheduler(optimizer, total_iters=steps, **scheduler_kwargs)
     # GradScaler는 fp16에서 작은 기울기가 0으로 사라지지 않게 손실을 키웠다가 되돌린다. amp가 아니면
     # enabled=False라 아무 일도 하지 않는다.
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)

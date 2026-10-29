@@ -1,12 +1,13 @@
-"""8단계 표와 판정: 임계값만 다시 잡기(8-A), 폐루프 원인 분해(8-B), 서빙 모델 구성의 M2AD(8-C).
+"""8단계 표와 판정: 임계값만 다시 잡기(8-A), 폐루프 원인 분해(8-B), 서빙 모델 구성의 M2AD(8-C), 한 조명
+재등록 미세조정(8-D).
 
-`python -m defect_inspect.analyze_stage8 calibrate|loop|dms-train|dms-test` → `reports/stage8/<이름>.json`.
-비율은 검사기 6개를 합쳐 내고, 구간은 3-B와 같은 시편 단위 군집 부트스트랩(2,000번, seed 0)이다. 비교하는
-수치는 모두 같은 추출을 쓴다. 규칙은 docs/experiments.md 8단계.
+`python -m defect_inspect.analyze_stage8 calibrate|loop|dms-train|dms-test|dms-ft-train|dms-ft` →
+`reports/stage8/<이름>.json`. 비율은 검사기 6개를 합쳐 내고, 구간은 3-B와 같은 시편 단위 군집 부트스트랩
+(2,000번, seed 0)이다. 비교하는 수치는 모두 같은 추출을 쓴다. 규칙은 docs/experiments.md 8단계.
 """
 
 # [파일 역할] 8단계 분석 모듈이다. 세 실행기(run_m2ad_threshold, run_m2ad_loop, run_m2ad_dinomaly)의 저장물을
-# 읽어 표를 만들고 H23·H24·H25를 등록한 규칙대로 판정한다.
+# 읽어 표를 만들고 H23·H24·H25·H28을 등록한 규칙대로 판정한다.
 # [설계 이유] M2AD의 독립 표본은 시편이므로 3-B의 ClusterBootstrap을 그대로 쓴다. 같은 seed·같은 검사기 순서로
 # 만들면 3-B 표와 같은 재표집이 나와, 3-B 사람 재보정 행과의 차이도 같은 추출로 낼 수 있다. 임계값을 정하는
 # 규칙(conformal, 목표 5%)은 calibrate.conformal_threshold 하나만 쓴다.
@@ -15,6 +16,8 @@
 # loop: 3-B 실행 + 7단계 폐루프 + 8-B 실행 → 재현 관문 → 팔별 표 → H25와 차이.
 # dms-train: 8-C 학습 기록과 학습 시편 교차 적합 점수 → 팔별 등록·못 본 조명 오검출률(판정 없음).
 # dms-test: 8-C test 점수 → 7단계와 같은 표 → H24, 임계값만 다시 잡기, 폐루프(판정 없음).
+# dms-ft-train: 8-D 미세조정 기록과 학습 시편 교차 적합 점수 → 조명별 임계값과 학습 시편 오검출률(판정 없음).
+# dms-ft: 8-D test 점수 + 8-C E0 비교 팔(저장된 8-C 점수로 다시 만들고 기록과 대조) → H28과 망각 가드.
 # [연결] analyze_m2ad(ClusterBootstrap, load, strict_json), analyze_m2ad_enrol(비율 도우미, H18과 같은
 # 판정선), m2ad(조명 묶음, 앞 n개 시편), calibrate(conformal 임계값).
 
@@ -34,12 +37,16 @@ from .m2ad import ILLUMINATIONS, REFERENCE, illumination_groups, recal_specimens
 from .splits import path_key
 
 # 판정 상수(규칙). H23: T30 − 뱅크+임계값 n = 30 검출률 차이의 기준선 −20%p. H24: E2 − E0 못 본 조명
-# 오검출률의 기준선 −50%p와 I01 검출률 가드 −10%p(H18과 같다). H25·H12형 상한 10%.
+# 오검출률의 기준선 −50%p와 I01 검출률 가드 −10%p(H18과 같다). H25·H12형 상한 10%. H28(8-D): 미세조정 −
+# 8-C E0 임계값만 T30 검출률 차이의 기준선 +20%p(오검출률 상한 10%와 함께), 망각 가드는 H24와 같은 −10%p.
+# FT_DIR: 8-D 실행기 출력의 하위 폴더(outputs/m2ad-dms/ft).
 N_BOOT = 2000
 SEED = 0
 ALPHA = 0.05
 H23_MARGIN = -0.20
 H24_MARGIN = -0.50
+H28_MARGIN = 0.20
+FT_DIR = "ft"
 GUARD = -0.10
 LIMIT = 0.10
 JUDGED_METHOD = "p0"
@@ -451,9 +458,10 @@ def dms_train_report(out_dir: Path | None = None) -> dict:
 
 
 # test 저장물을 3-B 실행의 검사기 순서로 읽는다. 시편 목록이 3-B와 같아야 같은 부트스트랩을 쓸 수 있다.
-def load_dms_test(out_dir: Path, ref: dict) -> dict:
+# arms: 읽을 팔(기본값 세 팔 모두). 8-D 분석은 비교 팔에 쓰는 e0만 읽는다.
+def load_dms_test(out_dir: Path, ref: dict, arms: tuple[str, ...] = DMS_ARMS) -> dict:
     test = {}
-    for arm in DMS_ARMS:
+    for arm in arms:
         test[arm] = {}
         for name, b in ref["inspectors"].items():
             with np.load(Path(out_dir) / "test" / f"{arm}_{name}.npz") as z:
@@ -520,8 +528,13 @@ def _candidate(test, train, boot, names, candidate: str) -> dict:
     }
 
 
-# 임계값만 다시 잡기(판정 없음): 못 본 조명 L마다 L 학습 시편 앞 n개의 교차 적합 점수로 임계값.
+# 임계값만 다시 잡기(판정 없음): 못 본 조명 L마다 L 학습 시편 앞 n개의 교차 적합 점수로 임계값. 칸 목록만
+# 만드는 _dms_recal_cells를 8-D 분석이 비교 팔(E0 T30)로도 쓴다(같은 칸이라 8-C 표의 값이 그대로 다시 나온다).
 def _dms_recal(test, train, boot, names, candidate: str, n: int) -> dict:
+    return _rates(boot, _dms_recal_cells(test, train, names, candidate, n))
+
+
+def _dms_recal_cells(test, train, names, candidate: str, n: int) -> list:
     cells = []
     for light in NEW_LIGHTS:
         arm = "e0" if candidate == "e0" else _e2_arms(light, False)[0]
@@ -533,7 +546,7 @@ def _dms_recal(test, train, boot, names, candidate: str, n: int) -> dict:
             idx = [specimens.index(s) for s in recal_specimens(specimens, n)]
             thresholds[name] = float(conformal_threshold(tr["scores"][i, li, idx], ALPHA).value)
         cells.append(_cell(test, train, arm, light, names, thresholds))
-    return _rates(boot, cells)
+    return cells
 
 
 # 폐루프(E0, 임계값만, 판정 없음): 무라벨 20장 = 학습 시편 앞 20 − k개의 교차 적합 점수 + 결함이 보이는 test
@@ -654,25 +667,338 @@ def dms_test_report(out_dir: Path | None = None, n_boot: int | None = None, seed
     }
 
 
+# ---------------------------------------------------------------- 8-D
+
+
+# 임계값 하나를 리포트용 dict로(값, 순위, 보정 점수 수, 보장 여부).
+def _threshold_record(t) -> dict:
+    return {"value": float(t.value), "rank": int(t.rank), "n": int(t.n), "guaranteed": bool(t.guaranteed)}
+
+
+# 학습 시편 오검출 수: scores [검사기, 이미지]에서 검사기마다 자기 임계값을 넘는(score > threshold) 이미지
+# 수와 전체 이미지 수를 더한다. 출력 {false_positives, n, fpr}.
+def _train_fp(scores: np.ndarray, thresholds: list) -> dict:
+    fp = sum(int((row > t.value).sum()) for row, t in zip(scores, thresholds, strict=True))
+    n = int(scores.size)
+    return {"false_positives": fp, "n": n, "fpr": fp / n if n else math.nan}
+
+
+# 조명 L의 미세조정 학습 시편 점수(scores [검사기 6, (I01, L), 시편 30])와 검사기별 임계값 세 가지(목표 5%
+# conformal, calibrate.conformal_threshold): light = L 학습 이미지 30장의 교차 적합 점수(30번째 = 최댓값, H28
+# 판정에 쓰는 조건별 임계값), reference = I01 학습 이미지 30장(I01 검출률과 망각 가드에 쓰는 조건별 임계값),
+# mixed = 둘을 합친 60장(58번째, 판정 없이 싣는 혼합 임계값). 저장된 조명 이름이 (I01, L)이 아니면 다른 조명의
+# 파일이므로 멈춘다.
+def dms_ft_train_scores(ft_dir: Path, light: str) -> dict:
+    with np.load(Path(ft_dir) / light / "train_scores.npz") as z:
+        data = {k: z[k] for k in z.files}
+    if data["lights"].tolist() != [REFERENCE, light]:
+        raise ValueError(f"{Path(ft_dir) / light}: scores are for lights {data['lights'].tolist()}")
+    scores = data["scores"]
+    n = len(data["inspectors"])
+    data["thresholds"] = {
+        "light": [conformal_threshold(scores[i, 1], ALPHA) for i in range(n)],
+        "reference": [conformal_threshold(scores[i, 0], ALPHA) for i in range(n)],
+        "mixed": [conformal_threshold(scores[i].reshape(-1), ALPHA) for i in range(n)],
+    }
+    return data
+
+
+# 8-D 학습 시편 기록(판정 없음, test를 읽기 전에 커밋한다). 조명마다: 모델 6개의 미세조정 기록(이미지 수,
+# 마지막 손실, 건너뛴 스텝, 최대 VRAM, 시간, 출발 모델 sha256), 검사기별 임계값 세 가지, 교차 적합 오검출률.
+# (가) light_at_reference: 미세조정 모델의 I01 임계값으로 본 L 학습 이미지(L을 따로 보정하지 않았다면). 같은
+# 양을 8-C E0 겹 모델과 E0의 I01 임계값으로 낸 e0_light_at_reference를 나란히 둔다(8-C 학습 시편 기록의 E0 못
+# 본 조명 오검출률과 같은 정의라, 미세조정이 L 점수를 I01 쪽으로 얼마나 옮겼는지 test 전에 보인다).
+# (나) mixed_light, mixed_reference: 혼합 임계값으로 본 L·I01 학습 이미지.
+# 조건별 임계값으로 본 자기 조건의 오검출률은 임계값이 그 30장의 최댓값이라 원리상 0이므로 싣지 않는다. 학습
+# 시편의 이름·겹·검사기 순서가 8-C E0 기록과 같아야 한다(같은 시편 겹이어야 교차 적합이 성립한다).
+def dms_ft_train_report(out_dir: Path | None = None) -> dict:
+    out_dir = Path(out_dir or _dms_dir())
+    ft_dir = out_dir / FT_DIR
+    e0 = dms_train_scores(out_dir, "e0")
+    keys = ("light_at_reference", "e0_light_at_reference", "mixed_light", "mixed_reference")
+    totals = {key: [0, 0] for key in keys}
+    report: dict = {"lights": {}}
+    every_model = []
+    for light in NEW_LIGHTS:
+        data = dms_ft_train_scores(ft_dir, light)
+        for key in ("inspectors", "specimens", "folds"):
+            if not np.array_equal(data[key], e0[key]):
+                raise ValueError(f"{light}: training {key} differ from the stage 8-C e0 record")
+        models = {}
+        for path in sorted((ft_dir / light).glob("*.json")):
+            if path.name == "train_scores.json":
+                continue
+            info = _read_json(path)
+            models[info["model"]] = {
+                k: info[k] for k in ("train_images", "final_loss", "skipped_steps", "peak_vram_mb", "train_s")
+            } | {"start_sha256": info["start"]["sha256"]}
+        every_model += list(models.values())
+        thr = data["thresholds"]
+        li = e0["lights"].tolist().index(light)
+        rates = {
+            "light_at_reference": _train_fp(data["scores"][:, 1], thr["reference"]),
+            "e0_light_at_reference": _train_fp(e0["scores"][:, li], e0["thresholds"]),
+            "mixed_light": _train_fp(data["scores"][:, 1], thr["mixed"]),
+            "mixed_reference": _train_fp(data["scores"][:, 0], thr["mixed"]),
+        }
+        for key in keys:
+            totals[key][0] += rates[key]["false_positives"]
+            totals[key][1] += rates[key]["n"]
+        report["lights"][light] = {
+            "models": models,
+            "thresholds": [
+                {"inspector": str(name)} | {kind: _threshold_record(thr[kind][i]) for kind in thr}
+                for i, name in enumerate(data["inspectors"])
+            ],
+            **rates,
+        }
+    report["total"] = {
+        key: {"false_positives": fp, "n": n, "fpr": fp / n if n else math.nan}
+        for key, (fp, n) in totals.items()
+    }
+    report["training"] = {
+        "models": len(every_model),
+        "skipped_steps": int(sum(m["skipped_steps"] for m in every_model)),
+        "peak_vram_mb": max((m["peak_vram_mb"] for m in every_model), default=math.nan),
+        "train_s": round(sum(m["train_s"] for m in every_model), 1),
+        "final_loss_range": [
+            min((m["final_loss"] for m in every_model), default=math.nan),
+            max((m["final_loss"] for m in every_model), default=math.nan),
+        ],
+    }
+    return report
+
+
+# 8-D test 저장물을 3-B 실행의 검사기 순서로 읽는다: 조명 L마다 검사기별 scores [2, n], labels [2, n](첫 행
+# I01, 둘째 행 L). 시편 목록이 3-B와 같아야 같은 부트스트랩을 쓸 수 있고, 조명 이름이 (I01, L)이어야 한다.
+def load_dms_ft_test(ft_dir: Path, ref: dict) -> dict:
+    test: dict = {}
+    for light in NEW_LIGHTS:
+        test[light] = {}
+        for name, b in ref["inspectors"].items():
+            with np.load(Path(ft_dir) / "test" / f"{light}_{name}.npz") as z:
+                arr = {k: z[k] for k in z.files}
+            if arr["specimens"].tolist() != b["specimens"].tolist():
+                raise ValueError(f"{light} {name}: test specimens differ from stage 3-B")
+            if arr["lights"].tolist() != [REFERENCE, light]:
+                raise ValueError(f"{light} {name}: test scores are for lights {arr['lights'].tolist()}")
+            test[light][name] = arr
+    return test
+
+
+# 미세조정 모델 L의 칸 하나(Cell): 검사기마다 (row 행의 test 점수, 라벨, kind 임계값). row 0 = I01, 1 = L.
+# kind는 dms_ft_train_scores의 세 임계값(light, reference, mixed) 가운데 하나다.
+def _ft_cell(test: dict, train: dict, light: str, names: list[str], row: int, kind: str) -> list:
+    thresholds = train[light]["thresholds"][kind]
+    return [
+        (test[light][name]["scores"][row], test[light][name]["labels"][row], float(thresholds[i].value))
+        for i, name in enumerate(names)
+    ]
+
+
+# H28 판정(차이가 클수록 좋은 쪽, docs/experiments.md 8-D): FT − E0 T30 검출률 차이의 95% 하한이 +20%p보다
+# 크고 FT 합산 오검출률의 95% 상한이 10% 이하이면 지지, 차이의 95% 상한이 +20%p보다 작으면 기각, 나머지는 판정
+# 불가. 경계와 같은 구간 끝은 넘지 않은 것으로 본다(_TOL, 합산 비율은 정수의 비라 부동소수 오차만 막는다).
+def _verdict_h28(lo: float, hi: float, fpr_hi: float) -> str:
+    if lo > H28_MARGIN + _TOL and fpr_hi <= LIMIT + _TOL:
+        return "지지"
+    if hi < H28_MARGIN - _TOL:
+        return "기각"
+    return "판정 불가"
+
+
+# 망각 가드: 같은 추출의 I01 검출률 차이(FT − E0 전체 모델) 점 추정이 −10%p보다 낮으면 '망각'(H18·H24 가드와
+# 같은 선, 그 선 그대로는 망각이 아니다). 판정(H28)과 따로 적는다.
+def _forgetting(d_reference_tpr: float) -> bool:
+    return bool(d_reference_tpr < GUARD - _TOL)
+
+
+# AUROC 묶음(_mean_auroc의 출력)을 리포트용으로(관측값과 구간).
+def _auroc_public(a: dict) -> dict:
+    return {"auroc": a["auroc"], "auroc_ci": _ci(a["auroc_samples"])}
+
+
+# 기록된 8-C 리포트(reports/stage8/dms-test.json)와 다시 만든 비교 팔을 대조한다: E0 임계값만 T30과 E0 I01의
+# 개수 네 가지(오검출·정상·검출·결함)가 같고 E0 못 본 조명 AUROC 평균이 상대 1e-6 안이어야 한다. 하나라도
+# 다르면 비교 팔이 8-C의 그 팔이 아니므로 결과를 내지 않고 ValueError로 멈춘다(규칙의 멈춤 조건). 기록이
+# 없으면(합성 자료 테스트 등) 대조하지 않고 None을 돌려준다.
+def _recorded_e0_check(t30: dict, reference: dict, auroc: float) -> dict | None:
+    path = paths.REPORTS / "stage8" / "dms-test.json"
+    if not path.exists():
+        return None
+    recorded = _read_json(path)
+    keys = ("false_positives", "n_normal", "detected", "n_defect")
+    pairs = {
+        "e0:T30": (recorded["threshold_only"]["e0:T30"], t30),
+        "e0:reference": (recorded["candidates"]["e0"]["reference"], reference),
+    }
+    mismatches = [
+        f"{arm} {k}: recorded {old[k]}, recomputed {new[k]}"
+        for arm, (old, new) in pairs.items()
+        for k in keys
+        if int(old[k]) != int(new[k])
+    ]
+    recorded_auroc = float(recorded["candidates"]["e0"]["unseen_auroc_mean"])
+    if not math.isclose(recorded_auroc, auroc, rel_tol=REL_TOL, abs_tol=0.0):
+        mismatches.append(f"e0 unseen AUROC mean: recorded {recorded_auroc}, recomputed {auroc}")
+    if mismatches:
+        raise ValueError(
+            "the stage 8-C comparison arms do not reproduce reports/stage8/dms-test.json: "
+            + "; ".join(mismatches)
+        )
+    return {
+        "report": "reports/stage8/dms-test.json",
+        "ok": True,
+        **{arm: {k: int(new[k]) for k in keys} for arm, (_, new) in pairs.items()},
+        "unseen_auroc_mean": auroc,
+    }
+
+
+# 8-D의 비교 팔 두 개를 저장된 8-C 점수로 다시 만든다(새 측정 없음, 봉인 이미지를 다시 읽지 않음): E0 임계값만
+# T30(아홉 조명의 L test, E0 전체 모델 점수, 임계값은 L 학습 시편 30개의 E0 겹 모델 점수 최댓값 — 8-C 표의 "E0
+# n = 30" 칸과 같은 칸)과 E0 전체 모델의 I01(임계값은 I01 교차 적합 30장 최댓값, 8-C의 E0 I01 검출률). AUROC
+# 평균은 임계값과 무관해 8-C E0의 못 본 조명 AUROC 평균과 같은 값이다. 기록과 대조한 결과를 함께 돌려준다.
+def _e0_arms(out_dir: Path, ref: dict, names: list[str], boot: ClusterBootstrap) -> dict:
+    train = {"e0": dms_train_scores(out_dir, "e0")}
+    if train["e0"]["inspectors"].tolist() != names:
+        raise ValueError("e0: inspector order differs from stage 3-B")
+    test = load_dms_test(out_dir, ref, arms=("e0",))
+    t30_cells = _dms_recal_cells(test, train, names, "e0", 30)
+    t30 = _rates(boot, t30_cells)
+    reference = _rates(boot, [_cell(test, train, "e0", REFERENCE, names)])
+    auroc = _mean_auroc(boot, t30_cells)
+    return {
+        "t30_cells": t30_cells,
+        "t30": t30,
+        "reference": reference,
+        "auroc": auroc,
+        "check": _recorded_e0_check(t30, reference, auroc["auroc"]),
+    }
+
+
+# GPU 실행 전 점검용(측정 스크립트가 부른다): 저장된 8-C 점수로 비교 팔을 다시 만들어 기록된 8-C 리포트와
+# 대조한다. 다르면 ValueError, 기록이 없으면 FileNotFoundError. 개수와 AUROC 점 추정만 보므로 부트스트랩은
+# 한 번만 뽑는다. 미세조정 출력은 읽지 않는다.
+def check_e0_comparison(out_dir: Path | None = None) -> dict:
+    out_dir = Path(out_dir or _dms_dir())
+    ref = load_3b(paths.OUTPUTS / "m2ad-p0")
+    arms = _e0_arms(out_dir, ref, list(ref["inspectors"]), ClusterBootstrap(ref, 1, SEED))
+    if arms["check"] is None:
+        raise FileNotFoundError(
+            f"{paths.REPORTS / 'stage8' / 'dms-test.json'} is missing: nothing to compare with"
+        )
+    return arms["check"]
+
+
+# 8-D test 리포트: H28(FT − 8-C E0 임계값만 T30 합산 검출률, 같은 L test 이미지·같은 추출, FT 오검출률 상한과
+# 함께)과 망각 가드(I01 검출률 FT − E0), 판정 없는 수치(오검출률 차이, AUROC 평균과 차이, 혼합 임계값, 조명별
+# 표, 임계값 요약, P0 뱅크+임계값 n = 30과 DMS E2 못 본 조명을 나란히). FT 칸의 임계값은 검사기마다 그 조건의
+# 학습 시편 30장 교차 적합 점수로 정한 조건별 임계값이다(L test에는 L 임계값, I01 test에는 I01 임계값). I01
+# 검출률은 아홉 FT 모델이 같은 I01 test 이미지를 각자 채점한 것을 합친다. 부트스트랩은 3-B 실행과 같은
+# 추출이다.
+def dms_ft_report(out_dir: Path | None = None, n_boot: int | None = None, seed: int = SEED) -> dict:
+    out_dir = Path(out_dir or _dms_dir())
+    ft_dir = out_dir / FT_DIR
+    ref = load_3b(paths.OUTPUTS / "m2ad-p0")
+    names = list(ref["inspectors"])
+    boot = ClusterBootstrap(ref, n_boot, seed)
+    e0 = _e0_arms(out_dir, ref, names, boot)
+    train = {light: dms_ft_train_scores(ft_dir, light) for light in NEW_LIGHTS}
+    for light, data in train.items():
+        if data["inspectors"].tolist() != names:
+            raise ValueError(f"{light}: inspector order differs from stage 3-B")
+    test = load_dms_ft_test(ft_dir, ref)
+    cells = {light: _ft_cell(test, train, light, names, 1, "light") for light in NEW_LIGHTS}
+    ref_cells = {light: _ft_cell(test, train, light, names, 0, "reference") for light in NEW_LIGHTS}
+    mixed = {light: _ft_cell(test, train, light, names, 1, "mixed") for light in NEW_LIGHTS}
+    mixed_ref = {light: _ft_cell(test, train, light, names, 0, "mixed") for light in NEW_LIGHTS}
+    ft = _rates(boot, list(cells.values()))
+    ft_ref = _rates(boot, list(ref_cells.values()))
+    ft_auroc = _mean_auroc(boot, list(cells.values()))
+    d_tpr = _diff(ft, e0["t30"], "tpr")
+    lo, hi = d_tpr["ci"]
+    ft_fpr_ci = _ci(ft["fpr_samples"])
+    verdict = _verdict_h28(lo, hi, ft_fpr_ci[1])
+    d_ref = _diff(ft_ref, e0["reference"], "tpr")
+    per_light = {}
+    for light, e0_cell in zip(NEW_LIGHTS, e0["t30_cells"], strict=True):
+        per_light[light] = {
+            "ft": _public(_rates(boot, [cells[light]])) | {"auroc": boot.auroc(cells[light])[0]},
+            "e0_t30": _public(_rates(boot, [e0_cell])) | {"auroc": boot.auroc(e0_cell)[0]},
+            "ft_reference": _public(_rates(boot, [ref_cells[light]])),
+            "ft_mixed": _public(_rates(boot, [mixed[light]])),
+        }
+    recorded = paths.REPORTS / "stage8" / "dms-test.json"
+    e2 = _read_json(recorded)["candidates"]["e2"]["unseen"] if recorded.exists() else None
+    return {
+        "n_boot": int(n_boot or N_BOOT),
+        "seed": seed,
+        "ft": _public(ft) | _auroc_public(ft_auroc),
+        "e0_t30": _public(e0["t30"]) | _auroc_public(e0["auroc"]),
+        "ft_reference": _public(ft_ref),
+        "e0_reference": _public(e0["reference"]),
+        "ft_mixed": {
+            "light": _public(_rates(boot, list(mixed.values()))),
+            "reference": _public(_rates(boot, list(mixed_ref.values()))),
+        },
+        "h28": {
+            "d_tpr": d_tpr["diff"],
+            "d_tpr_ci": d_tpr["ci"],
+            "margin": H28_MARGIN,
+            "ft_fpr": ft["fpr"],
+            "ft_fpr_ci": ft_fpr_ci,
+            "fpr_limit": LIMIT,
+            "ft_fpr_upper_at_most_10pct": bool(ft_fpr_ci[1] <= LIMIT + _TOL),
+            "verdict": verdict,
+            "d_reference_tpr": d_ref["diff"],
+            "d_reference_tpr_ci": d_ref["ci"],
+            "guard": GUARD,
+            "forgetting": _forgetting(d_ref["diff"]),
+            "d_fpr": _diff(ft, e0["t30"], "fpr"),
+            "d_auroc": _diff(ft_auroc, e0["auroc"], "auroc"),
+        },
+        "per_light": per_light,
+        "thresholds": {
+            kind: _threshold_summary([t for light in NEW_LIGHTS for t in train[light]["thresholds"][kind]])
+            for kind in ("light", "reference", "mixed")
+        },
+        "side_by_side": {
+            "p0_bank30": _public(_rates(boot, [recal_cell(ref, f"{light}:30") for light in NEW_LIGHTS])),
+            "dms_e2_unseen": e2,
+        },
+        "recorded_check": e0["check"],
+        "hypotheses": {"H28": verdict},
+    }
+
+
 # 명령줄 진입점. 하위 명령마다 저장물을 읽어 reports/stage8/<이름>.json을 쓰고 판정을 출력한다.
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="8단계 표와 판정(8-A calibrate, 8-B loop, 8-C dms-train·dms-test)."
+        description=(
+            "8단계 표와 판정(8-A calibrate, 8-B loop, 8-C dms-train·dms-test, "
+            "8-D dms-ft-train·dms-ft). dms-ft-train은 봉인 test를 읽기 전에 커밋하는 학습 시편 기록이다."
+        )
     )
-    parser.add_argument("command", choices=("calibrate", "loop", "dms-train", "dms-test"))
+    parser.add_argument(
+        "command", choices=("calibrate", "loop", "dms-train", "dms-test", "dms-ft-train", "dms-ft")
+    )
     parser.add_argument("--methods", nargs="+", default=["p0", "d-s"], help="calibrate에서 볼 방법")
     parser.add_argument("--out", type=Path, default=None, help="기본값: reports/stage8/<이름>.json")
     args = parser.parse_args(argv)
-    names = {"calibrate": "calibrate", "loop": "loop", "dms-train": "dms-train", "dms-test": "dms-test"}
     if args.command == "calibrate":
         report = calibrate_report(args.methods)
     elif args.command == "loop":
         report = loop_report()
     elif args.command == "dms-train":
         report = dms_train_report()
-    else:
+    elif args.command == "dms-test":
         report = dms_test_report()
-    out = args.out or paths.REPORTS / "stage8" / f"{names[args.command]}.json"
+    elif args.command == "dms-ft-train":
+        report = dms_ft_train_report()
+    else:
+        report = dms_ft_report()
+    # 리포트 파일 이름은 하위 명령 이름 그대로다(reports/stage8/dms-ft.json 등).
+    out = args.out or paths.REPORTS / "stage8" / f"{args.command}.json"
     _write(out, report)
     print(json.dumps(strict_json(report.get("hypotheses", {})), ensure_ascii=False), flush=True)
 

@@ -102,20 +102,36 @@ def _images(n: int, seed: int = 0, size: int = SIZE) -> np.ndarray:
 # fp32 학습을 한 스텝씩 풀어 쓴 것이다. run_dinomaly.train과는 배치 순서 외에 코드를 공유하지 않으므로, 두
 # 결과가 비트 단위로 같으면 직접 쓴 루프가 Lightning 모듈의 학습과 같다는 근거가 된다. 순서는 zero_grad → 손실
 # → backward → 클리핑 → 옵티마이저 → 스케줄러다.
-def _reference_train(model, images, *, steps: int, batch_size: int, seed: int) -> list[float]:
+# optimizer_kwargs·scheduler_kwargs를 주면 TRAINING_CONFIG 대신 그 키워드 인자를 쓴다(스케줄러의 total_iters는
+# 늘 steps). 8-D 미세조정 일정을 train에 넘겼을 때도 같은 부품으로 같은 학습이 되는지 대조하려고 둔 것이고,
+# 주지 않으면 원래 식 그대로라 기존 대조 테스트는 바뀌지 않는다.
+def _reference_train(
+    model,
+    images,
+    *,
+    steps: int,
+    batch_size: int,
+    seed: int,
+    optimizer_kwargs: dict | None = None,
+    scheduler_kwargs: dict | None = None,
+) -> list[float]:
     """anomalib Lightning 모듈의 fp32 학습을 한 스텝씩 풀어 쓴 것. 손실 목록을 돌려준다.
 
     anomalib의 TRAINING_CONFIG와 부품만으로 만들어, 배치 순서 말고는 `run_dinomaly.train`과 공유하는
-    코드가 없다.
+    코드가 없다. `optimizer_kwargs`·`scheduler_kwargs`(total_iters 제외)를 주면 그 설정으로 만든다.
     """
     from anomalib.models.image.dinomaly.lightning_model import TRAINING_CONFIG
 
     order = batch_order(len(images), steps, batch_size, seed)
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = components.StableAdamW([{"params": params}], **TRAINING_CONFIG["optimizer"])
-    scheduler = components.WarmCosineScheduler(
-        optimizer, **{**TRAINING_CONFIG["scheduler"], "total_iters": steps}
-    )
+    if optimizer_kwargs is None:
+        optimizer_kwargs = TRAINING_CONFIG["optimizer"]
+    if scheduler_kwargs is None:
+        scheduler_kwargs = {**TRAINING_CONFIG["scheduler"], "total_iters": steps}
+    else:
+        scheduler_kwargs = {**scheduler_kwargs, "total_iters": steps}
+    optimizer = components.StableAdamW([{"params": params}], **optimizer_kwargs)
+    scheduler = components.WarmCosineScheduler(optimizer, **scheduler_kwargs)
     torch.manual_seed(seed)
     model.train()
     losses = []
@@ -496,6 +512,135 @@ def test_train_rejects_bad_input():
         param.requires_grad = False
     with pytest.raises(ValueError, match="no trainable"):
         train(frozen, _images(8), steps=2, batch_size=4, device="cpu")
+
+
+# ---------------------------------------------------------------- 학습 일정 인자(8-D 미세조정)
+
+
+# 감시용 옵티마이저·스케줄러로 바꿔 train이 넘긴 키워드 인자를 학습 한 번마다 {"optimizer", "scheduler"} 한
+# 묶음으로 모은다(아래 테스트들이 같이 쓴다). train은 부품을 부를 때마다 anomalib 모듈에서 가져오므로
+# monkeypatch가 먹힌다. 기준 루프(_reference_train)도 같은 모듈의 부품을 쓰므로 그 호출도 한 묶음으로 쌓인다.
+def _spy_components(monkeypatch) -> list[dict]:
+    made: list[dict] = []
+
+    class SpyOptimizer(components.StableAdamW):
+        def __init__(self, params, **kwargs):
+            made.append({"optimizer": dict(kwargs)})
+            super().__init__(params, **kwargs)
+
+    class SpyScheduler(components.WarmCosineScheduler):
+        def __init__(self, optimizer, **kwargs):
+            made[-1]["scheduler"] = dict(kwargs)
+            super().__init__(optimizer, **kwargs)
+
+    monkeypatch.setattr(components, "StableAdamW", SpyOptimizer)
+    monkeypatch.setattr(components, "WarmCosineScheduler", SpyScheduler)
+    return made
+
+
+# 로그에서 실행마다 다른 경과 시간(seconds)만 뺀 것. 같은 학습인지 비교할 때 쓴다.
+def _without_seconds(log: list[dict]) -> list[dict]:
+    return [{k: v for k, v in entry.items() if k != "seconds"} for entry in log]
+
+
+# 일정 인자 없이 부른 train(2·6·8-C 단계 학습이 쓴 길)이 schedule=None과 옵티마이저·스케줄러 설정, 로그(손실·
+# 학습률·건너뛴 스텝), 가중치까지 같고, 그 설정이 anomalib 값(OPTIMIZER, SCHEDULER) 그대로인지 본다. 8-D
+# 미세조정 인자를 더하면서 기본 길이 조금이라도 바뀌면 6단계·8-C 모델을 같은 코드로 다시 만들 수 없게 된다.
+# optimizer_settings()도 같은 값을 복사본으로 돌려줘, 돌려받은 dict를 고쳐도 모듈 상수가 바뀌지 않아야 한다.
+def test_train_without_a_schedule_keeps_the_anomalib_settings_and_log(monkeypatch):
+    made = _spy_components(monkeypatch)
+    images = _images(10, seed=6)
+    torch.manual_seed(0)
+    first = DropoutModel()
+    second = copy.deepcopy(first)
+    log_a = train(first, images, steps=8, batch_size=4, device="cpu", seed=3, log_every=1)
+    log_b = train(second, images, steps=8, batch_size=4, device="cpu", seed=3, log_every=1, schedule=None)
+
+    expected = {
+        "optimizer": run_dinomaly.OPTIMIZER,
+        "scheduler": {"total_iters": 8, **run_dinomaly.SCHEDULER},
+    }
+    assert made == [expected, expected]
+    assert _without_seconds(log_a) == _without_seconds(log_b)
+    assert torch.equal(first.decoder.weight, second.decoder.weight)
+    assert torch.equal(first.decoder.bias, second.decoder.bias)
+    # 기준 루프(anomalib 부품, TRAINING_CONFIG)와도 손실이 비트 단위로 같다.
+    torch.manual_seed(0)
+    reference = DropoutModel()
+    assert _reference_train(reference, images, steps=8, batch_size=4, seed=3) == [e["loss"] for e in log_a]
+
+    optimizer, scheduler = run_dinomaly.optimizer_settings()
+    assert optimizer == run_dinomaly.OPTIMIZER and scheduler == run_dinomaly.SCHEDULER
+    optimizer["lr"], scheduler["warmup_iters"] = 1.0, 0
+    assert run_dinomaly.OPTIMIZER["lr"] == 2e-3 and run_dinomaly.SCHEDULER["warmup_iters"] == 100
+
+
+# 8-D 미세조정 일정(FINETUNE_SCHEDULE: 2e-4 상수, 앞 10스텝 선형 warmup)을 주면 그 학습률이 실제로 쓰이는지
+# 본다. 기록된 학습률은 warmup 10스텝 동안 0 → 2e-4 직선(np.linspace라 10번째 스텝이 정확히 2e-4), 그 뒤는
+# 2e-4 그대로여야 한다. 옵티마이저는 lr만 2e-4로 바뀐 anomalib 설정, 스케줄러는 같은 세 값과 total_iters =
+# 스텝 수로 만들어진다. 같은 출발 가중치에서 anomalib 부품만으로 풀어 쓴 기준 루프에 같은 일정을 주면
+# 손실·가중치가 비트 단위로 같고, 기본 일정으로 학습한 것과는 가중치가 달라야 한다(인자가 실제로 쓰였다는 뜻).
+# 일정 값은 원래 일정(SCHEDULER)이 끝나는 학습률이다.
+def test_train_follows_the_fine_tuning_schedule(monkeypatch):
+    schedule = run_dinomaly.FINETUNE_SCHEDULE
+    assert schedule == {"base_value": 2e-4, "final_value": 2e-4, "warmup_iters": 10}
+    assert schedule["base_value"] == schedule["final_value"] == run_dinomaly.SCHEDULER["final_value"]
+    made = _spy_components(monkeypatch)
+    images = _images(10, seed=7)
+    torch.manual_seed(0)
+    ours = DropoutModel()
+    reference = copy.deepcopy(ours)
+    default = copy.deepcopy(ours)
+    steps = 30
+    log = train(ours, images, steps=steps, batch_size=4, device="cpu", seed=3, log_every=1, schedule=schedule)
+
+    expected = np.concatenate([np.linspace(0.0, 2e-4, 10), np.full(steps - 10, 2e-4)])
+    assert np.allclose([e["lr"] for e in log], expected, rtol=1e-12, atol=0)
+    assert log[0]["lr"] == 0.0 and log[9]["lr"] == log[-1]["lr"] == 2e-4
+    optimizer = {**run_dinomaly.OPTIMIZER, "lr": 2e-4}
+    scheduler = {"base_value": 2e-4, "final_value": 2e-4, "warmup_iters": 10}
+    assert made == [{"optimizer": optimizer, "scheduler": {"total_iters": steps, **scheduler}}]
+    assert run_dinomaly.optimizer_settings(schedule) == (optimizer, scheduler)
+
+    losses = _reference_train(
+        reference,
+        images,
+        steps=steps,
+        batch_size=4,
+        seed=3,
+        optimizer_kwargs=optimizer,
+        scheduler_kwargs=scheduler,
+    )
+    assert [e["loss"] for e in log] == losses
+    assert torch.equal(ours.decoder.weight, reference.decoder.weight)
+    train(default, images, steps=steps, batch_size=4, device="cpu", seed=3)
+    assert not torch.equal(ours.decoder.weight, default.decoder.weight)
+
+
+# 일정 인자 검사: 키가 SCHEDULER와 다르거나(빠짐·더함), 학습률이 실수가 아니거나 0 이하·유한하지 않거나,
+# warmup이 음수·정수가 아니면(bool 포함) ValueError다. train은 모델을 한 번도 부르기 전에 거절한다(잘못된
+# 일정으로 몇 스텝 학습된 모델이 남지 않게).
+def test_train_rejects_a_bad_schedule():
+    good = dict(run_dinomaly.FINETUNE_SCHEDULE)
+    bad = [
+        {k: v for k, v in good.items() if k != "warmup_iters"},
+        {**good, "start_warmup_value": 0.0},
+        {**good, "base_value": 0.0},
+        {**good, "final_value": -1e-4},
+        {**good, "base_value": float("nan")},
+        {**good, "final_value": float("inf")},
+        {**good, "base_value": "2e-4"},
+        {**good, "warmup_iters": -1},
+        {**good, "warmup_iters": 2.5},
+        {**good, "warmup_iters": True},
+    ]
+    for schedule in bad:
+        with pytest.raises(ValueError):
+            run_dinomaly.optimizer_settings(schedule)
+        model = TinyModel()
+        with pytest.raises(ValueError):
+            train(model, _images(8), steps=2, batch_size=4, device="cpu", schedule=schedule)
+        assert model.calls == []
 
 
 # ---------------------------------------------------------------- predict(추론)
