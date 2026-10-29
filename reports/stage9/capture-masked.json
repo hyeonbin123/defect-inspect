@@ -1,0 +1,4416 @@
+{
+  "features": [
+    "mean_r",
+    "mean_g",
+    "mean_b",
+    "y_std",
+    "y_p01",
+    "y_p99",
+    "log_laplacian_var",
+    "log_gradient_mean",
+    "saturated_share",
+    "foreground_share",
+    "foreground_y_mean"
+  ],
+  "floors": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.01,
+    0.01,
+    0.001,
+    0.001,
+    0.5
+  ],
+  "shrink": 0.2,
+  "alpha_gate": 0.01,
+  "size": 280,
+  "dilation": 4,
+  "control_max_gate": 0.03,
+  "stage9_check": {
+    "ok": true,
+    "mismatched": []
+  },
+  "gate": {
+    "unmasked": {
+      "normal": {
+        "gated": 13,
+        "n": 1158,
+        "rate": 0.011226252158894647
+      },
+      "defect": {
+        "gated": 48,
+        "n": 240,
+        "rate": 0.2
+      },
+      "per_category": {
+        "candle": {
+          "normal": [
+            3,
+            120
+          ],
+          "defect": [
+            2,
+            20
+          ]
+        },
+        "capsules": {
+          "normal": [
+            0,
+            73
+          ],
+          "defect": [
+            2,
+            20
+          ]
+        },
+        "cashew": {
+          "normal": [
+            1,
+            60
+          ],
+          "defect": [
+            6,
+            20
+          ]
+        },
+        "chewinggum": {
+          "normal": [
+            0,
+            61
+          ],
+          "defect": [
+            0,
+            20
+          ]
+        },
+        "fryum": {
+          "normal": [
+            1,
+            60
+          ],
+          "defect": [
+            3,
+            20
+          ]
+        },
+        "macaroni1": {
+          "normal": [
+            0,
+            120
+          ],
+          "defect": [
+            0,
+            20
+          ]
+        },
+        "macaroni2": {
+          "normal": [
+            1,
+            120
+          ],
+          "defect": [
+            0,
+            20
+          ]
+        },
+        "pcb1": {
+          "normal": [
+            0,
+            121
+          ],
+          "defect": [
+            6,
+            20
+          ]
+        },
+        "pcb2": {
+          "normal": [
+            4,
+            121
+          ],
+          "defect": [
+            14,
+            20
+          ]
+        },
+        "pcb3": {
+          "normal": [
+            1,
+            121
+          ],
+          "defect": [
+            0,
+            20
+          ]
+        },
+        "pcb4": {
+          "normal": [
+            0,
+            121
+          ],
+          "defect": [
+            0,
+            20
+          ]
+        },
+        "pipe_fryum": {
+          "normal": [
+            2,
+            60
+          ],
+          "defect": [
+            15,
+            20
+          ]
+        }
+      },
+      "thresholds": {
+        "candle": {
+          "value": 4.551077738587654,
+          "rank": 477,
+          "n": 480,
+          "guaranteed": true
+        },
+        "capsules": {
+          "value": 5.571610522799234,
+          "rank": 287,
+          "n": 288,
+          "guaranteed": true
+        },
+        "cashew": {
+          "value": 6.2207261705605434,
+          "rank": 239,
+          "n": 240,
+          "guaranteed": true
+        },
+        "chewinggum": {
+          "value": 5.86036111228188,
+          "rank": 240,
+          "n": 241,
+          "guaranteed": true
+        },
+        "fryum": {
+          "value": 5.054935789962337,
+          "rank": 239,
+          "n": 240,
+          "guaranteed": true
+        },
+        "macaroni1": {
+          "value": 4.572431396707662,
+          "rank": 477,
+          "n": 480,
+          "guaranteed": true
+        },
+        "macaroni2": {
+          "value": 5.0653045869627595,
+          "rank": 477,
+          "n": 480,
+          "guaranteed": true
+        },
+        "pcb1": {
+          "value": 4.597846193850025,
+          "rank": 478,
+          "n": 481,
+          "guaranteed": true
+        },
+        "pcb2": {
+          "value": 4.546922436615914,
+          "rank": 477,
+          "n": 480,
+          "guaranteed": true
+        },
+        "pcb3": {
+          "value": 6.351376185451613,
+          "rank": 480,
+          "n": 483,
+          "guaranteed": true
+        },
+        "pcb4": {
+          "value": 5.7095767954241206,
+          "rank": 479,
+          "n": 482,
+          "guaranteed": true
+        },
+        "pipe_fryum": {
+          "value": 4.415327567701797,
+          "rank": 239,
+          "n": 240,
+          "guaranteed": true
+        }
+      }
+    },
+    "masked": {
+      "defect": {
+        "gated": 44,
+        "n": 240,
+        "rate": 0.18333333333333332
+      },
+      "control": {
+        "gated": 15,
+        "n": 1158,
+        "rate": 0.012953367875647668
+      },
+      "per_category": {
+        "candle": {
+          "defect": [
+            2,
+            20
+          ],
+          "control": [
+            3,
+            120
+          ],
+          "pool": 480,
+          "gates_guaranteed": 20
+        },
+        "capsules": {
+          "defect": [
+            1,
+            20
+          ],
+          "control": [
+            0,
+            73
+          ],
+          "pool": 288,
+          "gates_guaranteed": 20
+        },
+        "cashew": {
+          "defect": [
+            3,
+            20
+          ],
+          "control": [
+            1,
+            60
+          ],
+          "pool": 240,
+          "gates_guaranteed": 20
+        },
+        "chewinggum": {
+          "defect": [
+            0,
+            20
+          ],
+          "control": [
+            0,
+            61
+          ],
+          "pool": 241,
+          "gates_guaranteed": 20
+        },
+        "fryum": {
+          "defect": [
+            2,
+            20
+          ],
+          "control": [
+            1,
+            60
+          ],
+          "pool": 240,
+          "gates_guaranteed": 20
+        },
+        "macaroni1": {
+          "defect": [
+            0,
+            20
+          ],
+          "control": [
+            0,
+            120
+          ],
+          "pool": 480,
+          "gates_guaranteed": 20
+        },
+        "macaroni2": {
+          "defect": [
+            0,
+            20
+          ],
+          "control": [
+            2,
+            120
+          ],
+          "pool": 480,
+          "gates_guaranteed": 20
+        },
+        "pcb1": {
+          "defect": [
+            6,
+            20
+          ],
+          "control": [
+            0,
+            121
+          ],
+          "pool": 481,
+          "gates_guaranteed": 20
+        },
+        "pcb2": {
+          "defect": [
+            14,
+            20
+          ],
+          "control": [
+            4,
+            121
+          ],
+          "pool": 480,
+          "gates_guaranteed": 20
+        },
+        "pcb3": {
+          "defect": [
+            0,
+            20
+          ],
+          "control": [
+            2,
+            121
+          ],
+          "pool": 483,
+          "gates_guaranteed": 20
+        },
+        "pcb4": {
+          "defect": [
+            0,
+            20
+          ],
+          "control": [
+            0,
+            121
+          ],
+          "pool": 482,
+          "gates_guaranteed": 20
+        },
+        "pipe_fryum": {
+          "defect": [
+            16,
+            20
+          ],
+          "control": [
+            2,
+            60
+          ],
+          "pool": 240,
+          "gates_guaranteed": 20
+        }
+      }
+    }
+  },
+  "z_mean": {
+    "candle": {
+      "masked": {
+        "mean_r": -0.5805196720984673,
+        "mean_g": -0.05419642123930751,
+        "mean_b": 0.8022775638364971,
+        "y_std": -0.8202138132277588,
+        "y_p01": 0.18594497665229542,
+        "y_p99": -0.16697541648366565,
+        "log_laplacian_var": -0.5763951869852231,
+        "log_gradient_mean": -0.1890300005256764,
+        "saturated_share": -1.3678738831830803,
+        "foreground_share": 0.7989471320166776,
+        "foreground_y_mean": -0.43787059741377365
+      },
+      "unmasked": {
+        "mean_r": -0.5983715476216748,
+        "mean_g": -0.08306620841307318,
+        "mean_b": 0.779628034718364,
+        "y_std": -0.8996729449214543,
+        "y_p01": 0.14824242094991438,
+        "y_p99": -0.168773097453141,
+        "log_laplacian_var": -0.4916066882148494,
+        "log_gradient_mean": 0.12916998922844217,
+        "saturated_share": -1.394412341491606,
+        "foreground_share": 0.7931311591929094,
+        "foreground_y_mean": -0.47257752543846276
+      }
+    },
+    "capsules": {
+      "masked": {
+        "mean_r": -0.8679863057841105,
+        "mean_g": -0.9957101063164613,
+        "mean_b": -0.6107377908317143,
+        "y_std": 1.2063744200414357,
+        "y_p01": -0.7486990117880521,
+        "y_p99": 0.14892575653000223,
+        "log_laplacian_var": 1.2160607886616406,
+        "log_gradient_mean": 1.2107911389229986,
+        "saturated_share": 0.05273932656823353,
+        "foreground_share": -0.0038440515976567724,
+        "foreground_y_mean": -0.9267696459180579
+      },
+      "unmasked": {
+        "mean_r": -0.8993454436241365,
+        "mean_g": -0.9877042361144527,
+        "mean_b": -0.6912880502444587,
+        "y_std": 1.2708532386842086,
+        "y_p01": -0.8518007000111515,
+        "y_p99": 0.2350994071697711,
+        "log_laplacian_var": 1.2977063580686061,
+        "log_gradient_mean": 1.3740087071414526,
+        "saturated_share": 0.2932449589409582,
+        "foreground_share": -0.00382653061224425,
+        "foreground_y_mean": -0.9384650501631893
+      }
+    },
+    "cashew": {
+      "masked": {
+        "mean_r": 3.0245678425272557,
+        "mean_g": 2.7838531777348265,
+        "mean_b": 2.4448050036608273,
+        "y_std": 0.9654531592138456,
+        "y_p01": 0.8627132668139179,
+        "y_p99": 1.205026721376881,
+        "log_laplacian_var": 2.7185158274958754,
+        "log_gradient_mean": 2.6024456354663084,
+        "saturated_share": 2.9006449846667204,
+        "foreground_share": 2.254869111095105,
+        "foreground_y_mean": 2.4585052998410775
+      },
+      "unmasked": {
+        "mean_r": 4.02535729821833,
+        "mean_g": 3.597940225878247,
+        "mean_b": 2.7905766054530345,
+        "y_std": 1.71138759260403,
+        "y_p01": 0.7960579435030624,
+        "y_p99": 1.627247581725003,
+        "log_laplacian_var": 2.5116549369451455,
+        "log_gradient_mean": 2.410504290279938,
+        "saturated_share": 3.297746526916169,
+        "foreground_share": 2.313534571403972,
+        "foreground_y_mean": 3.5759481826841375
+      }
+    },
+    "chewinggum": {
+      "masked": {
+        "mean_r": 0.9569511562802557,
+        "mean_g": 1.0392853456659974,
+        "mean_b": 1.0545924719439763,
+        "y_std": 0.18846668573846515,
+        "y_p01": 0.9638567979899679,
+        "y_p99": 0.45826622042722365,
+        "log_laplacian_var": 0.3875028530989274,
+        "log_gradient_mean": 0.30278462096816705,
+        "saturated_share": 0.1849372020331863,
+        "foreground_share": 0.8208825091861479,
+        "foreground_y_mean": -0.19574288051491134
+      },
+      "unmasked": {
+        "mean_r": 0.7981232572810516,
+        "mean_g": 0.8379772790195865,
+        "mean_b": 0.8219702785139923,
+        "y_std": -0.13381096519000588,
+        "y_p01": 0.8981445882330295,
+        "y_p99": 0.4343848021525705,
+        "log_laplacian_var": 0.4584146535600033,
+        "log_gradient_mean": 0.5129995209762377,
+        "saturated_share": -0.001929920993399381,
+        "foreground_share": 0.8172310524492128,
+        "foreground_y_mean": -0.3646498344164875
+      }
+    },
+    "fryum": {
+      "masked": {
+        "mean_r": -1.0286787718775106,
+        "mean_g": -1.5240290585901224,
+        "mean_b": -1.132758349862046,
+        "y_std": 0.9077988376293172,
+        "y_p01": -1.9704635766001044,
+        "y_p99": -0.5104719377904642,
+        "log_laplacian_var": 0.794769895280331,
+        "log_gradient_mean": 0.3478568995382011,
+        "saturated_share": -1.4051169760541158,
+        "foreground_share": 0.0,
+        "foreground_y_mean": -1.4249877280850252
+      },
+      "unmasked": {
+        "mean_r": -1.0190199927753387,
+        "mean_g": -1.499173213843262,
+        "mean_b": -1.0940891983248309,
+        "y_std": 1.1286038103879164,
+        "y_p01": -1.891829137694301,
+        "y_p99": -0.056643247229519765,
+        "log_laplacian_var": 1.0209440980074782,
+        "log_gradient_mean": 0.4923208186217896,
+        "saturated_share": -1.5541892719888526,
+        "foreground_share": 0.0,
+        "foreground_y_mean": -1.4022689650832714
+      }
+    },
+    "macaroni1": {
+      "masked": {
+        "mean_r": 0.5505952830988903,
+        "mean_g": 1.4128130814220783,
+        "mean_b": 1.4470412779711739,
+        "y_std": 0.24932334618142535,
+        "y_p01": 1.3600905473759837,
+        "y_p99": 1.4608074550347758,
+        "log_laplacian_var": 0.4573800394395314,
+        "log_gradient_mean": 0.5415547964018542,
+        "saturated_share": 0.006124493291917955,
+        "foreground_share": 0.0015251133683780171,
+        "foreground_y_mean": 1.2405300570149902
+      },
+      "unmasked": {
+        "mean_r": 0.5907177741516181,
+        "mean_g": 1.4392686293602452,
+        "mean_b": 1.4791498317419969,
+        "y_std": 0.3319833463024282,
+        "y_p01": 1.3654689783212703,
+        "y_p99": 1.5491358030219977,
+        "log_laplacian_var": 0.4864829196074976,
+        "log_gradient_mean": 0.5664330596493641,
+        "saturated_share": 0.13770195578231292,
+        "foreground_share": 0.0015146683672861982,
+        "foreground_y_mean": 1.2744249140802482
+      }
+    },
+    "macaroni2": {
+      "masked": {
+        "mean_r": -0.47985502668098634,
+        "mean_g": -0.21179532707755272,
+        "mean_b": 0.013294080542308642,
+        "y_std": -0.32207677366000925,
+        "y_p01": 0.8652861218715046,
+        "y_p99": -0.14186607624739067,
+        "log_laplacian_var": 0.14944287012875873,
+        "log_gradient_mean": 0.05077290622641891,
+        "saturated_share": -5.346316399729077e-05,
+        "foreground_share": 0.8183621398921822,
+        "foreground_y_mean": -0.32483781604420414
+      },
+      "unmasked": {
+        "mean_r": -0.13704079309163314,
+        "mean_g": -0.05107178604814026,
+        "mean_b": 0.11541938035477,
+        "y_std": 0.00951218663263779,
+        "y_p01": 0.885762169540685,
+        "y_p99": -0.00495203722351949,
+        "log_laplacian_var": 0.21751863263249388,
+        "log_gradient_mean": 0.1103376509418101,
+        "saturated_share": 0.056069302721088454,
+        "foreground_share": 0.823531221929891,
+        "foreground_y_mean": -0.10411759301645662
+      }
+    },
+    "pcb1": {
+      "masked": {
+        "mean_r": -0.03660870285596424,
+        "mean_g": -0.07195337065439027,
+        "mean_b": -0.04120854577910129,
+        "y_std": -0.46140789756132483,
+        "y_p01": 1.3375333259863482,
+        "y_p99": 0.2143455977786802,
+        "log_laplacian_var": -0.6815376536654747,
+        "log_gradient_mean": -0.5240900049704538,
+        "saturated_share": 0.055031963759636926,
+        "foreground_share": 0.11359200032195482,
+        "foreground_y_mean": -0.06203361095841055
+      },
+      "unmasked": {
+        "mean_r": 0.0792414392306551,
+        "mean_g": 0.05314805888641118,
+        "mean_b": 0.08361810873213511,
+        "y_std": -0.04047879681109997,
+        "y_p01": 1.1769495961423226,
+        "y_p99": 0.19848255308153284,
+        "log_laplacian_var": -0.7262210779524998,
+        "log_gradient_mean": -0.4336312354817905,
+        "saturated_share": 0.6409779759031629,
+        "foreground_share": 0.11632865204276865,
+        "foreground_y_mean": 0.060337324819143445
+      }
+    },
+    "pcb2": {
+      "masked": {
+        "mean_r": 3.7707491947945186,
+        "mean_g": 4.26610680888705,
+        "mean_b": 4.074123863708039,
+        "y_std": -1.0899169034555318,
+        "y_p01": 3.9712650772279985,
+        "y_p99": 1.6403940157714185,
+        "log_laplacian_var": -0.1282346417684389,
+        "log_gradient_mean": 0.9882878374524239,
+        "saturated_share": 2.2692932145207267,
+        "foreground_share": 0.009576019800783264,
+        "foreground_y_mean": 4.119181883292589
+      },
+      "unmasked": {
+        "mean_r": 3.926231797965876,
+        "mean_g": 4.40690889935225,
+        "mean_b": 4.1913545019246525,
+        "y_std": -0.6562550987168179,
+        "y_p01": 4.03818228520533,
+        "y_p99": 2.066901886534799,
+        "log_laplacian_var": -0.06263580315109885,
+        "log_gradient_mean": 1.1603645984025337,
+        "saturated_share": 2.964338840251526,
+        "foreground_share": 0.009938350337368451,
+        "foreground_y_mean": 4.262748653902614
+      }
+    },
+    "pcb3": {
+      "masked": {
+        "mean_r": 0.7802830329519106,
+        "mean_g": 1.1466771550606487,
+        "mean_b": 0.8361813215385453,
+        "y_std": -0.07345540784942314,
+        "y_p01": -0.10237283441285734,
+        "y_p99": 0.3664773911752137,
+        "log_laplacian_var": -0.062470947655808906,
+        "log_gradient_mean": 0.37745583459560283,
+        "saturated_share": 0.3529887842712597,
+        "foreground_share": -0.08464417885537495,
+        "foreground_y_mean": 1.2241579718229585
+      },
+      "unmasked": {
+        "mean_r": 0.7810666478140957,
+        "mean_g": 1.1393438741131612,
+        "mean_b": 0.8130849080691689,
+        "y_std": -0.0906480774116252,
+        "y_p01": -0.10249326044531895,
+        "y_p99": 0.3593436477424018,
+        "log_laplacian_var": 0.08308366757210062,
+        "log_gradient_mean": 0.43420733992670507,
+        "saturated_share": 0.1105018103729722,
+        "foreground_share": -0.06882931002965106,
+        "foreground_y_mean": 1.2142791545020928
+      }
+    },
+    "pcb4": {
+      "masked": {
+        "mean_r": -0.730632001216578,
+        "mean_g": -0.8023554073580872,
+        "mean_b": -0.819355836297448,
+        "y_std": -1.1976585441036975,
+        "y_p01": -0.4405786509107169,
+        "y_p99": -1.2760225397194407,
+        "log_laplacian_var": 0.8665827173380635,
+        "log_gradient_mean": -0.6704233021130945,
+        "saturated_share": -0.5016508341907794,
+        "foreground_share": 0.048692509736943626,
+        "foreground_y_mean": -0.9306071996522862
+      },
+      "unmasked": {
+        "mean_r": -0.7110879334163578,
+        "mean_g": -0.7916008564636922,
+        "mean_b": -0.8128269018012751,
+        "y_std": -1.1005737033024683,
+        "y_p01": -0.4442559577362353,
+        "y_p99": -1.242135996145229,
+        "log_laplacian_var": 0.9813883169733272,
+        "log_gradient_mean": -0.3048555314221086,
+        "saturated_share": -0.3756562791091539,
+        "foreground_share": 0.05263842912412109,
+        "foreground_y_mean": -0.923068799647293
+      }
+    },
+    "pipe_fryum": {
+      "masked": {
+        "mean_r": -0.10375441089286408,
+        "mean_g": 0.23213525837360152,
+        "mean_b": 0.6398787485379577,
+        "y_std": -1.0865712432675174,
+        "y_p01": 1.3192043884595241,
+        "y_p99": -0.9952248843173492,
+        "log_laplacian_var": -0.7028723784558173,
+        "log_gradient_mean": 0.07854269789848689,
+        "saturated_share": 0.0,
+        "foreground_share": 4.004227463975679,
+        "foreground_y_mean": -3.307928307419698
+      },
+      "unmasked": {
+        "mean_r": -0.07633404518221734,
+        "mean_g": 0.24388321643224878,
+        "mean_b": 0.6261385086984732,
+        "y_std": -0.8208275369615731,
+        "y_p01": 1.308097863197326,
+        "y_p99": -0.16785112250788356,
+        "log_laplacian_var": 0.06679151434537862,
+        "log_gradient_mean": 0.6030177413402533,
+        "saturated_share": 0.0,
+        "foreground_share": 4.025092521113738,
+        "foreground_y_mean": -3.267813667905736
+      }
+    }
+  },
+  "kept_share": {
+    "candle": {
+      "median": 0.9902295918367348,
+      "min": 0.9785969387755102
+    },
+    "capsules": {
+      "median": 0.9926594387755102,
+      "min": 0.971390306122449
+    },
+    "cashew": {
+      "median": 0.9903954081632653,
+      "min": 0.6309566326530612
+    },
+    "chewinggum": {
+      "median": 0.9831760204081632,
+      "min": 0.939375
+    },
+    "fryum": {
+      "median": 0.9908418367346938,
+      "min": 0.8079336734693877
+    },
+    "macaroni1": {
+      "median": 0.993890306122449,
+      "min": 0.9814030612244898
+    },
+    "macaroni2": {
+      "median": 0.9953380102040816,
+      "min": 0.9853571428571428
+    },
+    "pcb1": {
+      "median": 0.9891772959183673,
+      "min": 0.9175255102040817
+    },
+    "pcb2": {
+      "median": 0.986670918367347,
+      "min": 0.9633290816326531
+    },
+    "pcb3": {
+      "median": 0.9892091836734693,
+      "min": 0.9671428571428572
+    },
+    "pcb4": {
+      "median": 0.9623852040816328,
+      "min": 0.9409311224489796
+    },
+    "pipe_fryum": {
+      "median": 0.9937372448979591,
+      "min": 0.8817984693877551
+    }
+  },
+  "reading": {
+    "counts": {
+      "pcb2": [
+        14,
+        20
+      ],
+      "pipe_fryum": [
+        16,
+        20
+      ]
+    },
+    "control_rate": 0.012953367875647668,
+    "control_max": 0.03,
+    "stage9_ok": true,
+    "per_category": {
+      "pcb2": "결함 밖도 다름",
+      "pipe_fryum": "결함 밖도 다름"
+    },
+    "overall": "결함 밖 영역도 정상과 촬영 통계가 다르다(촬영 조건 차이 가능성)"
+  },
+  "defects": [
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/005.JPG",
+      "defect_types": "chunk of wax missing|foreign particals on candle",
+      "kept_share": 0.9856887755102041,
+      "unmasked": {
+        "score": 4.650771043872994,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.636049737896819,
+        "gate": 4.542616188192302,
+        "gated": true
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/006.JPG",
+      "defect_types": "chunk of wax missing|different colour spot",
+      "kept_share": 0.9875765306122449,
+      "unmasked": {
+        "score": 3.489038383330398,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.447840887599431,
+        "gate": 4.648691665875146,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/009.JPG",
+      "defect_types": "chunk of wax missing",
+      "kept_share": 0.9915178571428571,
+      "unmasked": {
+        "score": 3.9502788120512076,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.958739573631373,
+        "gate": 4.604439876241373,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/010.JPG",
+      "defect_types": "damaged corner of packaging",
+      "kept_share": 0.9873852040816327,
+      "unmasked": {
+        "score": 3.1575197298343887,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.13927632350232,
+        "gate": 4.542118416292328,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/019.JPG",
+      "defect_types": "damaged corner of packaging",
+      "kept_share": 0.9933418367346939,
+      "unmasked": {
+        "score": 2.7753938514435132,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.6006838012215563,
+        "gate": 4.5317630514419,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/020.JPG",
+      "defect_types": "damaged corner of packaging",
+      "kept_share": 0.9965561224489796,
+      "unmasked": {
+        "score": 4.375154905116743,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.472935663756421,
+        "gate": 4.545348498438179,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/021.JPG",
+      "defect_types": "damaged corner of packaging",
+      "kept_share": 0.9934821428571429,
+      "unmasked": {
+        "score": 3.9654284382470135,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.9006776936285212,
+        "gate": 4.573449142417344,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/030.JPG",
+      "defect_types": "weird candle wick",
+      "kept_share": 0.9851275510204082,
+      "unmasked": {
+        "score": 5.015047286441588,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.7796552667350625,
+        "gate": 4.572126715606943,
+        "gated": true
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/037.JPG",
+      "defect_types": "weird candle wick",
+      "kept_share": 0.9951658163265306,
+      "unmasked": {
+        "score": 3.8768744298948774,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.891862909368219,
+        "gate": 4.539313860747823,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/043.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9981632653061224,
+      "unmasked": {
+        "score": 2.3463540517025607,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.4101453393184635,
+        "gate": 4.533072444907762,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/045.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9982397959183673,
+      "unmasked": {
+        "score": 2.1715613129426066,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.1095698595041394,
+        "gate": 4.558790859401802,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/051.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9984566326530612,
+      "unmasked": {
+        "score": 2.2248331803181225,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.2307899972085488,
+        "gate": 4.5559997209406875,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/058.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9983673469387755,
+      "unmasked": {
+        "score": 2.5756856447874985,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.606171653003065,
+        "gate": 4.562307779725389,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/065.JPG",
+      "defect_types": "extra wax in candle",
+      "kept_share": 0.9885714285714285,
+      "unmasked": {
+        "score": 4.4363152338040415,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.315261592240416,
+        "gate": 4.6056435058189376,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/066.JPG",
+      "defect_types": "extra wax in candle",
+      "kept_share": 0.9827423469387755,
+      "unmasked": {
+        "score": 4.40292589010731,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.468459937618341,
+        "gate": 4.510713744697504,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/067.JPG",
+      "defect_types": "extra wax in candle",
+      "kept_share": 0.9785969387755102,
+      "unmasked": {
+        "score": 4.526424235111242,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.445534118194755,
+        "gate": 4.616337890152783,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/071.JPG",
+      "defect_types": "foreign particals on candle",
+      "kept_share": 0.9839668367346939,
+      "unmasked": {
+        "score": 3.2008231166464487,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.012664252445846,
+        "gate": 4.619301301838007,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/081.JPG",
+      "defect_types": "damaged corner of packaging|foreign particals on candle",
+      "kept_share": 0.9829464285714286,
+      "unmasked": {
+        "score": 3.5445405909163052,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.3590606618214554,
+        "gate": 4.570346832378321,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/095.JPG",
+      "defect_types": "wax melded out of the candle",
+      "kept_share": 0.9925382653061224,
+      "unmasked": {
+        "score": 3.279239149792518,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.2955341145287593,
+        "gate": 4.592586404235993,
+        "gated": false
+      }
+    },
+    {
+      "category": "candle",
+      "image": "candle/Data/Images/Anomaly/099.JPG",
+      "defect_types": "wax melded out of the candle",
+      "kept_share": 0.9889413265306123,
+      "unmasked": {
+        "score": 1.7892515930104886,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.7419617480081748,
+        "gate": 4.543743234041765,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/004.JPG",
+      "defect_types": "bubble",
+      "kept_share": 0.9963137755102041,
+      "unmasked": {
+        "score": 1.8925292486414513,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.6459995666667662,
+        "gate": 5.551048423099267,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/007.JPG",
+      "defect_types": "bubble",
+      "kept_share": 0.9964668367346938,
+      "unmasked": {
+        "score": 2.102757867590147,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.1137087337742617,
+        "gate": 5.658434375574687,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/011.JPG",
+      "defect_types": "bubble",
+      "kept_share": 0.9939413265306123,
+      "unmasked": {
+        "score": 1.5368640801186666,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.6714718774317838,
+        "gate": 5.557319553836401,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/025.JPG",
+      "defect_types": "bubble",
+      "kept_share": 0.9913775510204081,
+      "unmasked": {
+        "score": 6.247858447023448,
+        "gated": true
+      },
+      "masked": {
+        "score": 6.198155380134683,
+        "gate": 5.6252376868998795,
+        "gated": true
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/030.JPG",
+      "defect_types": "bubble|discolor",
+      "kept_share": 0.998061224489796,
+      "unmasked": {
+        "score": 3.4872941312614065,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.510197092997306,
+        "gate": 5.576900274150776,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/031.JPG",
+      "defect_types": "bubble|discolor",
+      "kept_share": 0.9982015306122449,
+      "unmasked": {
+        "score": 3.8037686556410186,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.784367974757282,
+        "gate": 5.563363774511106,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/037.JPG",
+      "defect_types": "bubble|discolor",
+      "kept_share": 0.9977678571428571,
+      "unmasked": {
+        "score": 3.705389289626413,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.739683992092191,
+        "gate": 5.574099762546991,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/038.JPG",
+      "defect_types": "bubble|discolor",
+      "kept_share": 0.9980994897959183,
+      "unmasked": {
+        "score": 3.6050870638205255,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.57478803433747,
+        "gate": 5.561262762202016,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/042.JPG",
+      "defect_types": "bubble|discolor",
+      "kept_share": 0.9978188775510204,
+      "unmasked": {
+        "score": 3.055214438019838,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.041856756068992,
+        "gate": 5.565450756192019,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/047.JPG",
+      "defect_types": "bubble|discolor|leak|misshape|scratch",
+      "kept_share": 0.9815433673469388,
+      "unmasked": {
+        "score": 2.7652365242883774,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.607552782880889,
+        "gate": 5.68414851113596,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/051.JPG",
+      "defect_types": "bubble|discolor|leak|scratch",
+      "kept_share": 0.9873724489795919,
+      "unmasked": {
+        "score": 1.809251403899105,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.6762232359136964,
+        "gate": 5.522010588352579,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/052.JPG",
+      "defect_types": "bubble|discolor|leak|scratch",
+      "kept_share": 0.9798724489795918,
+      "unmasked": {
+        "score": 2.7196884968716972,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.432671793615324,
+        "gate": 5.578729002016035,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/061.JPG",
+      "defect_types": "bubble|discolor|leak|scratch",
+      "kept_share": 0.9841836734693877,
+      "unmasked": {
+        "score": 3.1009492625680997,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.976030011464886,
+        "gate": 5.6141777322678115,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/066.JPG",
+      "defect_types": "bubble|discolor|leak|misshape|scratch",
+      "kept_share": 0.9753954081632653,
+      "unmasked": {
+        "score": 2.626724948146361,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.634552403581509,
+        "gate": 5.4985006890014825,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/068.JPG",
+      "defect_types": "bubble|discolor|leak|misshape|scratch",
+      "kept_share": 0.971390306122449,
+      "unmasked": {
+        "score": 5.727593052292006,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.394336597144662,
+        "gate": 5.5154866452952085,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/070.JPG",
+      "defect_types": "bubble|discolor|leak|misshape|scratch",
+      "kept_share": 0.972640306122449,
+      "unmasked": {
+        "score": 3.600856317459007,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.515740659117554,
+        "gate": 5.55678674649583,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/079.JPG",
+      "defect_types": "bubble|discolor|leak|misshape|scratch",
+      "kept_share": 0.9724489795918367,
+      "unmasked": {
+        "score": 2.9130057535832203,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.8117771363464397,
+        "gate": 5.542962276692017,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/080.JPG",
+      "defect_types": "bubble|discolor|leak|misshape|scratch",
+      "kept_share": 0.9729974489795918,
+      "unmasked": {
+        "score": 3.7376444636701343,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.683604194545556,
+        "gate": 5.5573164925319025,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/094.JPG",
+      "defect_types": "bubble|discolor|scratch",
+      "kept_share": 0.9955994897959184,
+      "unmasked": {
+        "score": 4.1941605977689305,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.23462168840963,
+        "gate": 5.616567665683941,
+        "gated": false
+      }
+    },
+    {
+      "category": "capsules",
+      "image": "capsules/Data/Images/Anomaly/095.JPG",
+      "defect_types": "bubble|discolor|scratch",
+      "kept_share": 0.994655612244898,
+      "unmasked": {
+        "score": 1.563079708113797,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.6604510675819326,
+        "gate": 5.564497994648198,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/006.JPG",
+      "defect_types": "burnt",
+      "kept_share": 0.9889285714285714,
+      "unmasked": {
+        "score": 4.6807394723742926,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.807903659530559,
+        "gate": 6.097741843761324,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/018.JPG",
+      "defect_types": "corner or edge breakage",
+      "kept_share": 0.9868877551020409,
+      "unmasked": {
+        "score": 4.414370701681297,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.324533717851464,
+        "gate": 6.488748966440531,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/020.JPG",
+      "defect_types": "corner or edge breakage",
+      "kept_share": 0.9947066326530613,
+      "unmasked": {
+        "score": 5.3489285134044255,
+        "gated": false
+      },
+      "masked": {
+        "score": 5.312220303570549,
+        "gate": 6.2184585122979605,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/021.JPG",
+      "defect_types": "corner or edge breakage",
+      "kept_share": 0.9911479591836735,
+      "unmasked": {
+        "score": 3.346427348778734,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.3006712246146286,
+        "gate": 6.521855191865689,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/024.JPG",
+      "defect_types": "corner or edge breakage",
+      "kept_share": 0.9921301020408163,
+      "unmasked": {
+        "score": 4.521007169876856,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.600967966155427,
+        "gate": 6.149121435848893,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/031.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.993890306122449,
+      "unmasked": {
+        "score": 4.196790445373007,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.1160602453055395,
+        "gate": 6.23026656089538,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/036.JPG",
+      "defect_types": "middle breakage",
+      "kept_share": 0.98125,
+      "unmasked": {
+        "score": 4.565291793416668,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.336125266340806,
+        "gate": 6.025974429813489,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/041.JPG",
+      "defect_types": "middle breakage",
+      "kept_share": 0.9888647959183674,
+      "unmasked": {
+        "score": 4.77470402068111,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.8028818128214565,
+        "gate": 6.172429905404645,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/052.JPG",
+      "defect_types": "burnt",
+      "kept_share": 0.9952678571428571,
+      "unmasked": {
+        "score": 6.546657657631127,
+        "gated": true
+      },
+      "masked": {
+        "score": 6.565245184045088,
+        "gate": 6.104894951387611,
+        "gated": true
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/061.JPG",
+      "defect_types": "small holes",
+      "kept_share": 0.9946811224489795,
+      "unmasked": {
+        "score": 6.325444779126409,
+        "gated": true
+      },
+      "masked": {
+        "score": 6.396244858953466,
+        "gate": 6.1419533450104895,
+        "gated": true
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/068.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9962372448979592,
+      "unmasked": {
+        "score": 6.496807522345024,
+        "gated": true
+      },
+      "masked": {
+        "score": 6.5167917413685785,
+        "gate": 6.172740824936259,
+        "gated": true
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/071.JPG",
+      "defect_types": "small holes",
+      "kept_share": 0.9963647959183674,
+      "unmasked": {
+        "score": 5.435995604770176,
+        "gated": false
+      },
+      "masked": {
+        "score": 5.504091488051684,
+        "gate": 6.216497758399034,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/073.JPG",
+      "defect_types": "small holes",
+      "kept_share": 0.9965178571428571,
+      "unmasked": {
+        "score": 4.93859716071877,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.832783204992698,
+        "gate": 6.207573261562244,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/080.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9935204081632653,
+      "unmasked": {
+        "score": 5.362386132782438,
+        "gated": false
+      },
+      "masked": {
+        "score": 5.349936312134446,
+        "gate": 6.113989262159577,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/084.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9896428571428572,
+      "unmasked": {
+        "score": 4.950180395933505,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.812538452292958,
+        "gate": 6.177381432197562,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/087.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9884566326530613,
+      "unmasked": {
+        "score": 3.8857155665913417,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.8974778378120583,
+        "gate": 6.095536516575748,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/090.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9886607142857143,
+      "unmasked": {
+        "score": 5.092754507702214,
+        "gated": false
+      },
+      "masked": {
+        "score": 5.040903528032534,
+        "gate": 6.084999678834417,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/094.JPG",
+      "defect_types": "stuck together",
+      "kept_share": 0.6309566326530612,
+      "unmasked": {
+        "score": 23.626653251066077,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.766252995973828,
+        "gate": 10.21665142013263,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/096.JPG",
+      "defect_types": "stuck together",
+      "kept_share": 0.7368367346938776,
+      "unmasked": {
+        "score": 9.617320386482634,
+        "gated": true
+      },
+      "masked": {
+        "score": 3.777693701859428,
+        "gate": 8.666910016037958,
+        "gated": false
+      }
+    },
+    {
+      "category": "cashew",
+      "image": "cashew/Data/Images/Anomaly/099.JPG",
+      "defect_types": "stuck together",
+      "kept_share": 0.7019770408163265,
+      "unmasked": {
+        "score": 16.781079806399717,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.536957198495473,
+        "gate": 9.074502497299283,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/011.JPG",
+      "defect_types": "chunk of gum missing|corner missing|small cracks",
+      "kept_share": 0.9494005102040817,
+      "unmasked": {
+        "score": 2.475488686139235,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.817357535575076,
+        "gate": 5.58703215533112,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/016.JPG",
+      "defect_types": "chunk of gum missing",
+      "kept_share": 0.9817729591836735,
+      "unmasked": {
+        "score": 2.86039123184066,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.832682977141246,
+        "gate": 5.917782624231513,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/018.JPG",
+      "defect_types": "chunk of gum missing|small cracks",
+      "kept_share": 0.9676020408163265,
+      "unmasked": {
+        "score": 3.0579388630844484,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.9058035665635433,
+        "gate": 5.962922211508188,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/030.JPG",
+      "defect_types": "chunk of gum missing|corner missing",
+      "kept_share": 0.9836734693877551,
+      "unmasked": {
+        "score": 2.6166117271829488,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.3175130407358133,
+        "gate": 5.759045760316343,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/033.JPG",
+      "defect_types": "corner missing",
+      "kept_share": 0.9931887755102041,
+      "unmasked": {
+        "score": 1.7795150181721493,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.7540990785354609,
+        "gate": 5.860076644311931,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/039.JPG",
+      "defect_types": "corner missing",
+      "kept_share": 0.9826785714285714,
+      "unmasked": {
+        "score": 2.5004703448179413,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.87708166975173,
+        "gate": 5.7806562553470435,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/042.JPG",
+      "defect_types": "chunk of gum missing|corner missing",
+      "kept_share": 0.9634948979591836,
+      "unmasked": {
+        "score": 3.480643263020493,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.2827346058338405,
+        "gate": 5.648276127317315,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/044.JPG",
+      "defect_types": "chunk of gum missing|corner missing",
+      "kept_share": 0.939375,
+      "unmasked": {
+        "score": 2.4359471489414646,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.9040730432330186,
+        "gate": 5.392011423173039,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/051.JPG",
+      "defect_types": "chunk of gum missing|small cracks",
+      "kept_share": 0.9589158163265306,
+      "unmasked": {
+        "score": 1.9212792593035024,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.3076882008534754,
+        "gate": 5.880164780597309,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/052.JPG",
+      "defect_types": "chunk of gum missing",
+      "kept_share": 0.9586224489795918,
+      "unmasked": {
+        "score": 1.8859097526816175,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.1436584066556645,
+        "gate": 5.779476463630486,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/059.JPG",
+      "defect_types": "chunk of gum missing|scratches",
+      "kept_share": 0.9750637755102041,
+      "unmasked": {
+        "score": 3.010989497531172,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.0055503671903763,
+        "gate": 5.659915207150765,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/064.JPG",
+      "defect_types": "chunk of gum missing|small cracks",
+      "kept_share": 0.967920918367347,
+      "unmasked": {
+        "score": 2.5611676209798855,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.599756207659441,
+        "gate": 5.491420679610062,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/066.JPG",
+      "defect_types": "scratches",
+      "kept_share": 0.9845790816326531,
+      "unmasked": {
+        "score": 1.7237471564837112,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.5718427329150582,
+        "gate": 5.643237756015592,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/071.JPG",
+      "defect_types": "scratches",
+      "kept_share": 0.987079081632653,
+      "unmasked": {
+        "score": 1.9546277447925955,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.899057482999385,
+        "gate": 5.609259249682294,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/078.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.992920918367347,
+      "unmasked": {
+        "score": 3.4120796240661426,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.4427427060214812,
+        "gate": 5.7663988485661575,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/079.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.991313775510204,
+      "unmasked": {
+        "score": 2.157301975831881,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.15681208486716,
+        "gate": 5.836950825819264,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/080.JPG",
+      "defect_types": "corner missing|similar colour spot|small cracks",
+      "kept_share": 0.9840688775510205,
+      "unmasked": {
+        "score": 1.955854953969175,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.222586636793198,
+        "gate": 5.803643329002572,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/087.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9925765306122449,
+      "unmasked": {
+        "score": 2.2018164206270976,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.2280344628804523,
+        "gate": 5.79583917824405,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/094.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9934693877551021,
+      "unmasked": {
+        "score": 2.550372629666566,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.6966090629160346,
+        "gate": 5.759515675192587,
+        "gated": false
+      }
+    },
+    {
+      "category": "chewinggum",
+      "image": "chewinggum/Data/Images/Anomaly/095.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9937244897959183,
+      "unmasked": {
+        "score": 3.276271392012417,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.2707073208400717,
+        "gate": 5.791563224079941,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/004.JPG",
+      "defect_types": "burnt",
+      "kept_share": 0.9875382653061224,
+      "unmasked": {
+        "score": 3.1749197011439834,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.0430739180634707,
+        "gate": 5.247829830820643,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/005.JPG",
+      "defect_types": "burnt",
+      "kept_share": 0.964719387755102,
+      "unmasked": {
+        "score": 5.679956376951355,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.897372708314534,
+        "gate": 4.966051289940247,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/006.JPG",
+      "defect_types": "burnt",
+      "kept_share": 0.9722321428571429,
+      "unmasked": {
+        "score": 5.420335744439237,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.0350850322693885,
+        "gate": 5.294583838413105,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/011.JPG",
+      "defect_types": "corner or edge breakage",
+      "kept_share": 0.9916964285714286,
+      "unmasked": {
+        "score": 4.658381628831956,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.259509172962426,
+        "gate": 4.81255237870255,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/019.JPG",
+      "defect_types": "corner or edge breakage",
+      "kept_share": 0.9930229591836734,
+      "unmasked": {
+        "score": 4.14602961593495,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.1353620410999365,
+        "gate": 4.925424517555976,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/020.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9974489795918368,
+      "unmasked": {
+        "score": 1.8446650189225144,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.8858545581765833,
+        "gate": 5.115821996679741,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/031.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9980867346938775,
+      "unmasked": {
+        "score": 3.135949936449058,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.105327912381231,
+        "gate": 5.015116166033905,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/036.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9982015306122449,
+      "unmasked": {
+        "score": 5.041655020854741,
+        "gated": false
+      },
+      "masked": {
+        "score": 5.027966357301662,
+        "gate": 5.016231293049011,
+        "gated": true
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/037.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.996938775510204,
+      "unmasked": {
+        "score": 4.543576881435788,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.4905241646804335,
+        "gate": 4.997980050942904,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/038.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9981887755102041,
+      "unmasked": {
+        "score": 3.2036196264834795,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.21806181909797,
+        "gate": 5.051289787645927,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/051.JPG",
+      "defect_types": "fryum stuck together",
+      "kept_share": 0.8079336734693877,
+      "unmasked": {
+        "score": 4.4950932953733265,
+        "gated": false
+      },
+      "masked": {
+        "score": 7.556188066772213,
+        "gate": 7.7400723187957325,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/066.JPG",
+      "defect_types": "middle breakage|small scratches",
+      "kept_share": 0.9916326530612245,
+      "unmasked": {
+        "score": 5.615240351087126,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.602058098332475,
+        "gate": 5.246159889482694,
+        "gated": true
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/067.JPG",
+      "defect_types": "middle breakage",
+      "kept_share": 0.989375,
+      "unmasked": {
+        "score": 3.4246407621811383,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.2931647820195553,
+        "gate": 5.004442539976579,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/070.JPG",
+      "defect_types": "middle breakage",
+      "kept_share": 0.9898086734693877,
+      "unmasked": {
+        "score": 4.139129290097981,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.9343099210902728,
+        "gate": 5.0350149494357685,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/073.JPG",
+      "defect_types": "middle breakage",
+      "kept_share": 0.9904081632653061,
+      "unmasked": {
+        "score": 3.733601661232542,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.7215894876305167,
+        "gate": 5.034350033243056,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/076.JPG",
+      "defect_types": "middle breakage",
+      "kept_share": 0.9837117346938775,
+      "unmasked": {
+        "score": 4.127799636824228,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.037355186518201,
+        "gate": 5.180489357073796,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/078.JPG",
+      "defect_types": "middle breakage",
+      "kept_share": 0.9912755102040817,
+      "unmasked": {
+        "score": 2.2901263904183042,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.287487326122091,
+        "gate": 5.149511578405917,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/086.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9765688775510204,
+      "unmasked": {
+        "score": 2.7598031877596068,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.069404798234941,
+        "gate": 5.166616935230801,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/087.JPG",
+      "defect_types": "other|similar colour spot",
+      "kept_share": 0.994859693877551,
+      "unmasked": {
+        "score": 4.29121411313572,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.384591388976824,
+        "gate": 5.056622972658754,
+        "gated": false
+      }
+    },
+    {
+      "category": "fryum",
+      "image": "fryum/Data/Images/Anomaly/095.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9840178571428572,
+      "unmasked": {
+        "score": 2.6997059928077767,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.2805355477681117,
+        "gate": 5.0606189953813425,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/006.JPG",
+      "defect_types": "chip around edge and corner|small scratches",
+      "kept_share": 0.9947576530612245,
+      "unmasked": {
+        "score": 2.2188109771677915,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.282627932896335,
+        "gate": 4.584801780361029,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/009.JPG",
+      "defect_types": "chip around edge and corner|small scratches",
+      "kept_share": 0.9898214285714285,
+      "unmasked": {
+        "score": 2.823892571706211,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.878855757928474,
+        "gate": 4.598556790310174,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/010.JPG",
+      "defect_types": "chip around edge and corner",
+      "kept_share": 0.9926913265306122,
+      "unmasked": {
+        "score": 2.2386976403758996,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.156601194519214,
+        "gate": 4.565668733476513,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/011.JPG",
+      "defect_types": "chip around edge and corner",
+      "kept_share": 0.9931377551020408,
+      "unmasked": {
+        "score": 1.6561515236300413,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.607612993056349,
+        "gate": 4.6198399802362555,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/016.JPG",
+      "defect_types": "chip around edge and corner",
+      "kept_share": 0.995765306122449,
+      "unmasked": {
+        "score": 1.9600790111048225,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.9730651107369175,
+        "gate": 4.594837571279782,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/020.JPG",
+      "defect_types": "chip around edge and corner",
+      "kept_share": 0.9932270408163265,
+      "unmasked": {
+        "score": 2.496280824849112,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.5218356190828035,
+        "gate": 4.5924671908789945,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/021.JPG",
+      "defect_types": "chip around edge and corner",
+      "kept_share": 0.9946428571428572,
+      "unmasked": {
+        "score": 2.8664887693550387,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.7746077931102833,
+        "gate": 4.56391841540432,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/024.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9969897959183673,
+      "unmasked": {
+        "score": 2.830418378731876,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.827836971797769,
+        "gate": 4.572029242652266,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/030.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9974489795918368,
+      "unmasked": {
+        "score": 3.2024082699124072,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.230348970034799,
+        "gate": 4.567777049051397,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/038.JPG",
+      "defect_types": "middle breakage|small scratches",
+      "kept_share": 0.993890306122449,
+      "unmasked": {
+        "score": 2.7076459005641276,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.594006224818607,
+        "gate": 4.588336486377673,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/052.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9959311224489796,
+      "unmasked": {
+        "score": 2.0330226167724734,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.6160564355239473,
+        "gate": 4.575625820529427,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/058.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9949617346938775,
+      "unmasked": {
+        "score": 2.9505113792594897,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.0365273156938444,
+        "gate": 4.555435674252539,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/064.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9967474489795919,
+      "unmasked": {
+        "score": 1.9192214567590198,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.8519546356214738,
+        "gate": 4.5996195299147375,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/070.JPG",
+      "defect_types": "chip around edge and corner|small scratches",
+      "kept_share": 0.9950255102040816,
+      "unmasked": {
+        "score": 1.5575077037788827,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.552195435716624,
+        "gate": 4.570751132138335,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/071.JPG",
+      "defect_types": "small cracks",
+      "kept_share": 0.9927040816326531,
+      "unmasked": {
+        "score": 2.5437002665066593,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.4869941513733957,
+        "gate": 4.558006514360376,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/078.JPG",
+      "defect_types": "small cracks|small scratches",
+      "kept_share": 0.9844897959183674,
+      "unmasked": {
+        "score": 2.5375030952813504,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.3759425251590693,
+        "gate": 4.5920050349028285,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/079.JPG",
+      "defect_types": "small cracks",
+      "kept_share": 0.9814030612244898,
+      "unmasked": {
+        "score": 2.361508122974543,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.1323123679278115,
+        "gate": 4.599814042231145,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/080.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9925255102040816,
+      "unmasked": {
+        "score": 2.7817017430886786,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.7434464857737555,
+        "gate": 4.602667007421345,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/087.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9932780612244898,
+      "unmasked": {
+        "score": 2.5682038945593737,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.6213034631972794,
+        "gate": 4.5754103299149085,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni1",
+      "image": "macaroni1/Data/Images/Anomaly/091.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.993890306122449,
+      "unmasked": {
+        "score": 2.5060145548938797,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.4856381896121733,
+        "gate": 4.6034127891723715,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/004.JPG",
+      "defect_types": "breakage down the middle",
+      "kept_share": 0.9956760204081633,
+      "unmasked": {
+        "score": 1.6903111072440586,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.6522930731877905,
+        "gate": 5.107271220749841,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/006.JPG",
+      "defect_types": "breakage down the middle|small scratches",
+      "kept_share": 0.9951530612244898,
+      "unmasked": {
+        "score": 1.781004886986171,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.810421554627653,
+        "gate": 5.185326185009483,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/011.JPG",
+      "defect_types": "color spot similar to the object",
+      "kept_share": 0.9967474489795919,
+      "unmasked": {
+        "score": 1.919054504217191,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.8551925646594258,
+        "gate": 5.064681161518227,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/019.JPG",
+      "defect_types": "color spot similar to the object",
+      "kept_share": 0.9967219387755102,
+      "unmasked": {
+        "score": 1.7263989499095431,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.7842172224017376,
+        "gate": 5.077221228200801,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/021.JPG",
+      "defect_types": "color spot similar to the object",
+      "kept_share": 0.9975892857142857,
+      "unmasked": {
+        "score": 2.081798813833915,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.1392323715930686,
+        "gate": 5.075163048389314,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/030.JPG",
+      "defect_types": "different color spot",
+      "kept_share": 0.9979336734693878,
+      "unmasked": {
+        "score": 2.2034349155306834,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.224835869681056,
+        "gate": 5.081349410032962,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/042.JPG",
+      "defect_types": "color spot similar to the object",
+      "kept_share": 0.9955229591836735,
+      "unmasked": {
+        "score": 2.8225199870411886,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.7735858741496724,
+        "gate": 4.949402358013728,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/047.JPG",
+      "defect_types": "small chip around edge",
+      "kept_share": 0.9960459183673469,
+      "unmasked": {
+        "score": 2.318129248266439,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.34156816433956,
+        "gate": 4.932097251341997,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/053.JPG",
+      "defect_types": "small chip around edge",
+      "kept_share": 0.9959183673469387,
+      "unmasked": {
+        "score": 2.514009761170105,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.5531515337417092,
+        "gate": 5.135923224014674,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/059.JPG",
+      "defect_types": "small chip around edge",
+      "kept_share": 0.9962882653061225,
+      "unmasked": {
+        "score": 1.9208777426917367,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.9916193981843926,
+        "gate": 5.083354866178318,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/065.JPG",
+      "defect_types": "small chip around edge|small scratches",
+      "kept_share": 0.9962117346938776,
+      "unmasked": {
+        "score": 2.0108482702502215,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.11633603350035,
+        "gate": 5.085675745244421,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/067.JPG",
+      "defect_types": "small chip around edge|small scratches",
+      "kept_share": 0.9914795918367347,
+      "unmasked": {
+        "score": 2.347691501079545,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.210795672280293,
+        "gate": 4.840493361121273,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/068.JPG",
+      "defect_types": "small chip around edge|small scratches",
+      "kept_share": 0.9936989795918367,
+      "unmasked": {
+        "score": 2.586439606079353,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.770341033033313,
+        "gate": 4.966775171767759,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/071.JPG",
+      "defect_types": "breakage down the middle|color spot similar to the object|different color spot|other|small chip around edge|small cracks|small scratches",
+      "kept_share": 0.9853571428571428,
+      "unmasked": {
+        "score": 2.1238913846296503,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.222306612452546,
+        "gate": 4.816169071698734,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/073.JPG",
+      "defect_types": "small cracks",
+      "kept_share": 0.9870408163265306,
+      "unmasked": {
+        "score": 1.7505726063697706,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.070138875283933,
+        "gate": 4.867757803909942,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/076.JPG",
+      "defect_types": "small cracks",
+      "kept_share": 0.9926785714285714,
+      "unmasked": {
+        "score": 1.9460865315761955,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.0268177870575723,
+        "gate": 5.046874296211409,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/082.JPG",
+      "defect_types": "breakage down the middle|color spot similar to the object|different color spot|small chip around edge",
+      "kept_share": 0.9944387755102041,
+      "unmasked": {
+        "score": 2.0123389593765895,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.14558603134728,
+        "gate": 5.182287036047175,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/084.JPG",
+      "defect_types": "breakage down the middle|color spot similar to the object|different color spot|small chip around edge|small cracks|small scratches",
+      "kept_share": 0.9922321428571429,
+      "unmasked": {
+        "score": 1.6286679263793535,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.749039868831211,
+        "gate": 4.831783554508814,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/095.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9923724489795919,
+      "unmasked": {
+        "score": 2.204950689066678,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.2648055773983584,
+        "gate": 5.044580684391005,
+        "gated": false
+      }
+    },
+    {
+      "category": "macaroni2",
+      "image": "macaroni2/Data/Images/Anomaly/096.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9925510204081632,
+      "unmasked": {
+        "score": 2.051057696413598,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.1108035347185523,
+        "gate": 4.840853065138742,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/004.JPG",
+      "defect_types": "bent",
+      "kept_share": 0.9917857142857143,
+      "unmasked": {
+        "score": 5.286711827963048,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.5714575869126035,
+        "gate": 4.594470696874475,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/006.JPG",
+      "defect_types": "bent",
+      "kept_share": 0.9889668367346939,
+      "unmasked": {
+        "score": 3.2383266574947958,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.3792196474742155,
+        "gate": 4.617833317659383,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/007.JPG",
+      "defect_types": "bent",
+      "kept_share": 0.9877423469387755,
+      "unmasked": {
+        "score": 4.745668725106114,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.033907376888087,
+        "gate": 4.629887486446139,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/009.JPG",
+      "defect_types": "bent|melt",
+      "kept_share": 0.9872066326530612,
+      "unmasked": {
+        "score": 4.253640347644122,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.793404504359175,
+        "gate": 4.618675033832176,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/011.JPG",
+      "defect_types": "bent",
+      "kept_share": 0.9893877551020408,
+      "unmasked": {
+        "score": 2.7675581757532983,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.8076077957876637,
+        "gate": 4.618711065815792,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/018.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.993609693877551,
+      "unmasked": {
+        "score": 4.924903100199975,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.892242226737219,
+        "gate": 4.563546093323825,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/024.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9932525510204082,
+      "unmasked": {
+        "score": 3.1658830038740238,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.084671552892956,
+        "gate": 4.598937174532106,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/025.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9945663265306123,
+      "unmasked": {
+        "score": 3.516825423087628,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.5406329122006364,
+        "gate": 4.565748257921023,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/039.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9877423469387755,
+      "unmasked": {
+        "score": 1.3174071733523445,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.4499108146560395,
+        "gate": 4.632116131972293,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/042.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.981594387755102,
+      "unmasked": {
+        "score": 4.790784847444608,
+        "gated": true
+      },
+      "masked": {
+        "score": 3.839536407985844,
+        "gate": 4.554964147380019,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/046.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9175255102040817,
+      "unmasked": {
+        "score": 10.692577210054331,
+        "gated": true
+      },
+      "masked": {
+        "score": 2.445470849144834,
+        "gate": 4.801003345669591,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/065.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9934821428571429,
+      "unmasked": {
+        "score": 4.25514488997063,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.813584827914425,
+        "gate": 4.595257538831986,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/068.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9900255102040816,
+      "unmasked": {
+        "score": 1.8589116192421067,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.4855813840815215,
+        "gate": 4.614470739240061,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/073.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9881632653061224,
+      "unmasked": {
+        "score": 3.3654479736375342,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.3029139763496715,
+        "gate": 4.603063610960263,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/076.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9948852040816326,
+      "unmasked": {
+        "score": 2.443837632588221,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.38765531644874,
+        "gate": 4.605029210816675,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/080.JPG",
+      "defect_types": "melt|scratch",
+      "kept_share": 0.9889668367346939,
+      "unmasked": {
+        "score": 2.738865688481346,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.5652458652383907,
+        "gate": 4.636768035321877,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/086.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9863520408163265,
+      "unmasked": {
+        "score": 6.962919314931659,
+        "gated": true
+      },
+      "masked": {
+        "score": 7.24650612857795,
+        "gate": 4.609218097645158,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/094.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9832015306122449,
+      "unmasked": {
+        "score": 2.553770282617536,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.661257131702222,
+        "gate": 4.613550973619907,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/096.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9932780612244898,
+      "unmasked": {
+        "score": 2.8488691426632737,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.9860599082765904,
+        "gate": 4.631353735356937,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb1",
+      "image": "pcb1/Data/Images/Anomaly/099.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9894005102040816,
+      "unmasked": {
+        "score": 4.044217939420723,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.920045050256384,
+        "gate": 4.64807108360914,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/005.JPG",
+      "defect_types": "bent",
+      "kept_share": 0.9856122448979592,
+      "unmasked": {
+        "score": 3.052329412267042,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.0569114130671764,
+        "gate": 4.572859305707067,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/009.JPG",
+      "defect_types": "bent",
+      "kept_share": 0.9839795918367347,
+      "unmasked": {
+        "score": 2.2328783789507574,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.3760574028490473,
+        "gate": 4.593608235175784,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/018.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9885969387755102,
+      "unmasked": {
+        "score": 10.200762151671624,
+        "gated": true
+      },
+      "masked": {
+        "score": 9.593259942418811,
+        "gate": 4.170568047546153,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/033.JPG",
+      "defect_types": "melt|scratch",
+      "kept_share": 0.9877295918367347,
+      "unmasked": {
+        "score": 9.551002991916535,
+        "gated": true
+      },
+      "masked": {
+        "score": 9.381221419160488,
+        "gate": 4.514750556539336,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/041.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9695535714285715,
+      "unmasked": {
+        "score": 10.501861759545116,
+        "gated": true
+      },
+      "masked": {
+        "score": 9.812587553105795,
+        "gate": 4.597194020752571,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/042.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9653826530612245,
+      "unmasked": {
+        "score": 9.848612249626484,
+        "gated": true
+      },
+      "masked": {
+        "score": 8.46367170332809,
+        "gate": 4.617898493159567,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/043.JPG",
+      "defect_types": "missing|scratch",
+      "kept_share": 0.9766326530612245,
+      "unmasked": {
+        "score": 8.961738727951436,
+        "gated": true
+      },
+      "masked": {
+        "score": 8.430565833766185,
+        "gate": 4.402324579847661,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/047.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9917091836734694,
+      "unmasked": {
+        "score": 9.854732275685606,
+        "gated": true
+      },
+      "masked": {
+        "score": 8.55054269606488,
+        "gate": 4.330529921311642,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/050.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9922831632653061,
+      "unmasked": {
+        "score": 7.887551313102252,
+        "gated": true
+      },
+      "masked": {
+        "score": 8.019786867528138,
+        "gate": 4.532002023690784,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/051.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9889540816326531,
+      "unmasked": {
+        "score": 9.568445000270827,
+        "gated": true
+      },
+      "masked": {
+        "score": 9.28640915771083,
+        "gate": 4.218717922617359,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/052.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9633290816326531,
+      "unmasked": {
+        "score": 4.095504290548696,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.983890627643288,
+        "gate": 4.510785703649014,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/053.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9948214285714285,
+      "unmasked": {
+        "score": 4.668869558620247,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.63375622303923,
+        "gate": 4.432964698082327,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/058.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9964158163265306,
+      "unmasked": {
+        "score": 3.4177018850850756,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.3053232274377877,
+        "gate": 4.481267770120971,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/071.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9843367346938775,
+      "unmasked": {
+        "score": 10.55778984795873,
+        "gated": true
+      },
+      "masked": {
+        "score": 9.952063986763177,
+        "gate": 4.469674002734262,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/078.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.991875,
+      "unmasked": {
+        "score": 10.246078855801462,
+        "gated": true
+      },
+      "masked": {
+        "score": 9.853053631845937,
+        "gate": 4.5568929568363705,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/079.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9879081632653062,
+      "unmasked": {
+        "score": 10.28333880263725,
+        "gated": true
+      },
+      "masked": {
+        "score": 9.973532441660035,
+        "gate": 4.452265001833316,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/080.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9938520408163265,
+      "unmasked": {
+        "score": 8.232428225365911,
+        "gated": true
+      },
+      "masked": {
+        "score": 8.089791509722225,
+        "gate": 4.502201352371826,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/084.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9822831632653061,
+      "unmasked": {
+        "score": 5.664447537208208,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.261771745272042,
+        "gate": 4.645096562330889,
+        "gated": true
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/094.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9760204081632653,
+      "unmasked": {
+        "score": 3.2363133362870182,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.052088650736118,
+        "gate": 4.474195728159421,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb2",
+      "image": "pcb2/Data/Images/Anomaly/096.JPG",
+      "defect_types": "melt|scratch",
+      "kept_share": 0.9788775510204082,
+      "unmasked": {
+        "score": 2.0683493386710388,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.0204362674161573,
+        "gate": 4.496629972966992,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/007.JPG",
+      "defect_types": "bent",
+      "kept_share": 0.9904336734693877,
+      "unmasked": {
+        "score": 3.8130153644450653,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.8124706513675655,
+        "gate": 6.309956231644349,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/018.JPG",
+      "defect_types": "bent",
+      "kept_share": 0.9851785714285715,
+      "unmasked": {
+        "score": 2.630271385137132,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.8202605282977884,
+        "gate": 6.212193161977237,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/031.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9878061224489796,
+      "unmasked": {
+        "score": 1.3266568985631624,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.4391082160322441,
+        "gate": 6.4448922052689035,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/037.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9871045918367347,
+      "unmasked": {
+        "score": 3.018887823982577,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.092391600116052,
+        "gate": 6.415311392387372,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/044.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.974234693877551,
+      "unmasked": {
+        "score": 4.629771006972593,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.42003721086137,
+        "gate": 6.119024576596206,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/045.JPG",
+      "defect_types": "melt|missing",
+      "kept_share": 0.9886734693877551,
+      "unmasked": {
+        "score": 3.7595333799100716,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.861760026555777,
+        "gate": 6.353853063429332,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/046.JPG",
+      "defect_types": "melt|missing|scratch",
+      "kept_share": 0.9676913265306123,
+      "unmasked": {
+        "score": 2.6274986065654704,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.0224996593361557,
+        "gate": 6.2888445445207095,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/051.JPG",
+      "defect_types": "missing|scratch",
+      "kept_share": 0.9897704081632653,
+      "unmasked": {
+        "score": 3.428418622783233,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.4906763125045415,
+        "gate": 6.257404547396675,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/052.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9671428571428572,
+      "unmasked": {
+        "score": 3.9557812856693273,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.7300259167054395,
+        "gate": 6.16989923282608,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/058.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.993545918367347,
+      "unmasked": {
+        "score": 4.601056643296044,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.537911125474175,
+        "gate": 6.296271359978735,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/059.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9909438775510204,
+      "unmasked": {
+        "score": 5.216752043290676,
+        "gated": false
+      },
+      "masked": {
+        "score": 5.340096795241148,
+        "gate": 6.361415209931186,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/070.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9908928571428571,
+      "unmasked": {
+        "score": 3.627270224291993,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.653018112841947,
+        "gate": 6.355683510977222,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/071.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9945535714285715,
+      "unmasked": {
+        "score": 4.154821079978086,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.1099543398273,
+        "gate": 6.317496013222099,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/073.JPG",
+      "defect_types": "melt",
+      "kept_share": 0.9897959183673469,
+      "unmasked": {
+        "score": 5.481590181728778,
+        "gated": false
+      },
+      "masked": {
+        "score": 5.598166823142059,
+        "gate": 6.3348426242208395,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/082.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9835076530612245,
+      "unmasked": {
+        "score": 2.205616204948905,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.098252751762832,
+        "gate": 6.338826716971112,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/084.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9890433673469388,
+      "unmasked": {
+        "score": 2.4465389863776608,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.3277400908805026,
+        "gate": 6.421012514514856,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/086.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9907142857142858,
+      "unmasked": {
+        "score": 1.7998806071274502,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.7068936274846043,
+        "gate": 6.380733594628649,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/087.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.989375,
+      "unmasked": {
+        "score": 1.8757640258187547,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.0230149908790365,
+        "gate": 6.266260054655325,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/091.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9902933673469387,
+      "unmasked": {
+        "score": 1.896237742241291,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.7628446286095485,
+        "gate": 6.457893269433513,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb3",
+      "image": "pcb3/Data/Images/Anomaly/094.JPG",
+      "defect_types": "scratch",
+      "kept_share": 0.9865688775510204,
+      "unmasked": {
+        "score": 2.1134976109464256,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.4923842187184575,
+        "gate": 6.401637887232152,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/009.JPG",
+      "defect_types": "damage|dirt",
+      "kept_share": 0.9558418367346939,
+      "unmasked": {
+        "score": 2.2620396908207585,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.8476856233120715,
+        "gate": 5.491600499224604,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/010.JPG",
+      "defect_types": "damage|dirt|scratch",
+      "kept_share": 0.9607780612244898,
+      "unmasked": {
+        "score": 2.716079716260625,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.6354632539548493,
+        "gate": 5.474499104431729,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/011.JPG",
+      "defect_types": "damage",
+      "kept_share": 0.9860459183673469,
+      "unmasked": {
+        "score": 1.9334901297352747,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.9357552782937497,
+        "gate": 5.8385230446739405,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/019.JPG",
+      "defect_types": "damage|dirt",
+      "kept_share": 0.9420025510204082,
+      "unmasked": {
+        "score": 2.1921588335016646,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.3129945650409782,
+        "gate": 5.484450136883471,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/025.JPG",
+      "defect_types": "extra",
+      "kept_share": 0.987155612244898,
+      "unmasked": {
+        "score": 2.1802782457819854,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.178313535134096,
+        "gate": 5.575042925933335,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/030.JPG",
+      "defect_types": "burnt|extra",
+      "kept_share": 0.9932270408163265,
+      "unmasked": {
+        "score": 1.785954991294953,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.8617827639722806,
+        "gate": 5.607256585220398,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/031.JPG",
+      "defect_types": "dirt|extra",
+      "kept_share": 0.9541198979591837,
+      "unmasked": {
+        "score": 2.8975551838301046,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.3857506767604244,
+        "gate": 5.48698250681285,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/033.JPG",
+      "defect_types": "dirt|extra",
+      "kept_share": 0.9639923469387756,
+      "unmasked": {
+        "score": 2.352907261360712,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.2039088129863784,
+        "gate": 5.423700695600339,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/037.JPG",
+      "defect_types": "dirt|extra",
+      "kept_share": 0.9860459183673469,
+      "unmasked": {
+        "score": 2.4761165100017877,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.4847037545444985,
+        "gate": 5.465817920265759,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/043.JPG",
+      "defect_types": "extra|scratch",
+      "kept_share": 0.9851275510204082,
+      "unmasked": {
+        "score": 4.954553790871518,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.4861622775415886,
+        "gate": 5.687420853979469,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/046.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9964158163265306,
+      "unmasked": {
+        "score": 1.5211880134011748,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.5653349782897197,
+        "gate": 5.754756015543323,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/050.JPG",
+      "defect_types": "dirt|missing",
+      "kept_share": 0.9409311224489796,
+      "unmasked": {
+        "score": 1.8481049630887998,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.2491936900206673,
+        "gate": 5.434664946577307,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/053.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.947640306122449,
+      "unmasked": {
+        "score": 4.376830198316094,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.858068402910626,
+        "gate": 5.4298872699215766,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/059.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9840051020408164,
+      "unmasked": {
+        "score": 3.4715188524906493,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.551479401480548,
+        "gate": 5.578728353652411,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/064.JPG",
+      "defect_types": "dirt|missing",
+      "kept_share": 0.9559948979591837,
+      "unmasked": {
+        "score": 2.5827706678064484,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.5679704659680644,
+        "gate": 5.38959102287567,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/066.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9915816326530612,
+      "unmasked": {
+        "score": 1.7950231728977772,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.7996706913355744,
+        "gate": 5.6283554137358855,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/068.JPG",
+      "defect_types": "missing",
+      "kept_share": 0.9514030612244898,
+      "unmasked": {
+        "score": 4.394727313068369,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.6526192389269347,
+        "gate": 5.550736518068837,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/078.JPG",
+      "defect_types": "dirt|scratch",
+      "kept_share": 0.9533035714285715,
+      "unmasked": {
+        "score": 1.7859371749632398,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.6696394681381352,
+        "gate": 5.585573586282907,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/080.JPG",
+      "defect_types": "dirt|wrong place",
+      "kept_share": 0.9577168367346939,
+      "unmasked": {
+        "score": 2.2149022784127816,
+        "gated": false
+      },
+      "masked": {
+        "score": 2.1490525268683798,
+        "gate": 5.4122828406458,
+        "gated": false
+      }
+    },
+    {
+      "category": "pcb4",
+      "image": "pcb4/Data/Images/Anomaly/090.JPG",
+      "defect_types": "wrong place",
+      "kept_share": 0.9819515306122449,
+      "unmasked": {
+        "score": 1.5618295340345913,
+        "gated": false
+      },
+      "masked": {
+        "score": 1.9991852457449748,
+        "gate": 5.586428316834413,
+        "gated": false
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/007.JPG",
+      "defect_types": "burnt",
+      "kept_share": 0.9953826530612245,
+      "unmasked": {
+        "score": 6.550516630260725,
+        "gated": true
+      },
+      "masked": {
+        "score": 6.617693300004608,
+        "gate": 4.752947017598842,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/009.JPG",
+      "defect_types": "burnt",
+      "kept_share": 0.9939158163265306,
+      "unmasked": {
+        "score": 4.744438660248972,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.730632480047803,
+        "gate": 4.456413214329304,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/010.JPG",
+      "defect_types": "burnt",
+      "kept_share": 0.9937755102040816,
+      "unmasked": {
+        "score": 6.218285858339053,
+        "gated": true
+      },
+      "masked": {
+        "score": 6.643224513577015,
+        "gate": 4.411045917496295,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/018.JPG",
+      "defect_types": "corner and edge breakage",
+      "kept_share": 0.9952168367346939,
+      "unmasked": {
+        "score": 3.504129792728603,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.4848557466277765,
+        "gate": 4.613287000310714,
+        "gated": false
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/023.JPG",
+      "defect_types": "corner and edge breakage",
+      "kept_share": 0.9885841836734693,
+      "unmasked": {
+        "score": 4.034961248147502,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.150227848835831,
+        "gate": 4.476346943712797,
+        "gated": false
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/025.JPG",
+      "defect_types": "corner and edge breakage",
+      "kept_share": 0.9936989795918367,
+      "unmasked": {
+        "score": 4.354774862008,
+        "gated": false
+      },
+      "masked": {
+        "score": 4.582333318636115,
+        "gate": 4.830195991364843,
+        "gated": false
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/030.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9975255102040816,
+      "unmasked": {
+        "score": 5.322716078853722,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.368352540471316,
+        "gate": 4.42223077593215,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/037.JPG",
+      "defect_types": "different colour spot",
+      "kept_share": 0.9977551020408163,
+      "unmasked": {
+        "score": 7.249056009233504,
+        "gated": true
+      },
+      "masked": {
+        "score": 7.299868069728121,
+        "gate": 4.416280171227871,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/041.JPG",
+      "defect_types": "middle breakage|small cracks",
+      "kept_share": 0.9756122448979592,
+      "unmasked": {
+        "score": 9.35262397937507,
+        "gated": true
+      },
+      "masked": {
+        "score": 9.273555793043032,
+        "gate": 5.0694567140781,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/042.JPG",
+      "defect_types": "middle breakage|small cracks",
+      "kept_share": 0.9883418367346939,
+      "unmasked": {
+        "score": 5.669993782843557,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.658996368620786,
+        "gate": 4.457562412666189,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/046.JPG",
+      "defect_types": "middle breakage|small cracks|small scratches",
+      "kept_share": 0.9754591836734694,
+      "unmasked": {
+        "score": 4.722907321130864,
+        "gated": true
+      },
+      "masked": {
+        "score": 4.660132639404039,
+        "gate": 4.5655543447826705,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/061.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9971045918367347,
+      "unmasked": {
+        "score": 7.655862156668048,
+        "gated": true
+      },
+      "masked": {
+        "score": 7.691658316692238,
+        "gate": 4.419206292397066,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/064.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9967474489795919,
+      "unmasked": {
+        "score": 6.1856132481082575,
+        "gated": true
+      },
+      "masked": {
+        "score": 6.2148488228414385,
+        "gate": 4.427253632735416,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/066.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.996594387755102,
+      "unmasked": {
+        "score": 3.0652916684393903,
+        "gated": false
+      },
+      "masked": {
+        "score": 3.060355499338428,
+        "gate": 4.438383940088915,
+        "gated": false
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/068.JPG",
+      "defect_types": "similar colour spot",
+      "kept_share": 0.9970535714285714,
+      "unmasked": {
+        "score": 7.664317127937753,
+        "gated": true
+      },
+      "masked": {
+        "score": 7.671192764327158,
+        "gate": 4.42438282279791,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/076.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9778698979591837,
+      "unmasked": {
+        "score": 5.138540851141166,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.164862725980874,
+        "gate": 4.381873991036625,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/081.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9910586734693878,
+      "unmasked": {
+        "score": 5.29096132204945,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.3818801862946115,
+        "gate": 4.4475475853314945,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/082.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9915306122448979,
+      "unmasked": {
+        "score": 7.00939399144083,
+        "gated": true
+      },
+      "masked": {
+        "score": 7.129438688934691,
+        "gate": 4.4344412530787,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/088.JPG",
+      "defect_types": "small scratches",
+      "kept_share": 0.9936224489795918,
+      "unmasked": {
+        "score": 5.308099141103166,
+        "gated": true
+      },
+      "masked": {
+        "score": 5.359662351584066,
+        "gate": 4.434072283399512,
+        "gated": true
+      }
+    },
+    {
+      "category": "pipe_fryum",
+      "image": "pipe_fryum/Data/Images/Anomaly/095.JPG",
+      "defect_types": "stuck together",
+      "kept_share": 0.8817984693877551,
+      "unmasked": {
+        "score": 4.033233568420299,
+        "gated": false
+      },
+      "masked": {
+        "score": 18.730465963405457,
+        "gate": 4.371816183648036,
+        "gated": true
+      }
+    }
+  ],
+  "seconds": 1516.7
+}
