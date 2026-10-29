@@ -26,8 +26,11 @@ services:
       DEFECT_INSPECT_THREADS: ${DEFECT_INSPECT_THREADS:-}
       # 배포가 승인한 모델 파일의 SHA-256(64자리 16진수, 쉼표로 여러 개. 정밀도마다 하나씩 적어 두면 어느 정밀도로 띄워도
       # 된다). 설정하면 시작할 때 모든 모델 파일의 지문을 계산해, 이 목록에 없는 파일이 하나라도 있으면 뜨지 않는다. 아티팩트
-      # 볼륨 안의 meta.json 대조는 폴더를 통째로(다른 학습본 + 그 학습본의 meta) 바꿔 끼우면 통과하므로, 믿을 기준을 볼륨 밖의
-      # 이 설정에 둔다. 비우면 meta 대조만 한다. 예: 6단계 서빙 모델(dms-280-car FP32)이면
+      # 볼륨 안의 meta.json 대조는 폴더를 통째로(다른 학습본 + 그 학습본의 meta) 바꿔 끼우면 통과하므로, 모델 파일의 믿을
+      # 기준을 볼륨 밖의 이 설정에 둔다. 고정되는 것은 모델(ONNX) 파일뿐이다: 범주 폴더의 meta.json(임계값)과 PatchCore
+      # 세트의 메모리 뱅크(bank.npy)는 볼륨의 값을 그대로 쓴다. 그래서 임계값만 고친 세트나 뱅크만 바꾼 PatchCore 세트(백본
+      # ONNX는 학습과 무관한 같은 사전학습 파일이다)는 이 설정으로 막지 못한다.
+      # 비우면 meta 대조만 한다. 예: 6단계 서빙 모델(dms-280-car FP32)이면
       # DEFECT_INSPECT_EXPECTED_MODEL_SHA256=3bcf8e04d771681178103bb23b2384455548d9dbf336ecfb9736a1ba343c2382
       # (reports/stage6/service-swap.json의 onnx_sha256). 다른 모델 파일의 지문은 `sha256sum <모델 파일>`로 확인한다.
       DEFECT_INSPECT_EXPECTED_MODEL_SHA256: ${DEFECT_INSPECT_EXPECTED_MODEL_SHA256:-}

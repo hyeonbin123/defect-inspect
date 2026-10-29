@@ -371,14 +371,16 @@ def test_load_inspectors_checks_the_model_digest_recorded_in_meta(tmp_path, monk
 
 
 # 배포 설정의 기대 모델 지문(DEFECT_INSPECT_EXPECTED_MODEL_SHA256)으로 승인한 모델 파일만 띄운다. meta 대조는
-# 같은 아티팩트 볼륨 안의 기록과 비교하므로, 볼륨 밖 배포 설정의 목록이 믿을 기준이 된다. 세트: 상위 폴더의
-# 공용 모델(candle·pcb1)과 pcb2의 자기 모델, 처음에는 지문 기록 없음. 확인: (1) 목록에 두 파일의 지문이 모두
-# 있으면(대문자·공백·줄 바꿈을 섞어도) 뜨고, /categories가 범주마다 자기 파일 지문의 앞 12자를 보이며, 해시는
-# 파일마다 한 번이다, (2) 하나라도 없으면 그 범주(pcb2) 이름과 실제 지문 앞 12자를 담은 오류로 멈추고 그
-# 파일로는 세션을 만들지 않는다, (3) 폴더를 통째로 바꿔 끼운 세트(다른 학습본과 그 학습본의 meta 기록)는 meta
-# 대조를 통과해 설정이 없으면 뜨지만, 목록이 있으면 멈춘다, (4) 정밀도마다 지문을 적어 둔 같은 목록으로 FP32와
-# 동적 INT8이 모두 뜬다(쓰이지 않는 지문이 섞여도 된다), (5) /categories의 앞 12자만 옮겨 적은 값처럼 형식이
-# 틀리면 해시 계산과 세션 생성 전에 멈춘다, (6) 모델 파일이 없는 오프라인 앱은 이 설정을 쓰지 않는다.
+# 같은 아티팩트 볼륨 안의 기록과 비교하므로, 볼륨 밖 배포 설정의 목록이 모델 파일의 믿을 기준이 된다(고정하는
+# 것은 모델 파일뿐이다. meta.json의 임계값만 고친 범주는 같은 목록으로 뜨고 그 임계값을 쓴다). 세트: 상위
+# 폴더의 공용 모델(candle·pcb1)과 pcb2의 자기 모델, 처음에는 지문 기록 없음. 확인: (1) 목록에 두 파일의 지문이
+# 모두 있으면(대문자·공백·줄 바꿈을 섞어도) 뜨고, /categories가 범주마다 자기 파일 지문의 앞 12자를 보이며,
+# 해시는 파일마다 한 번이고, 임계값만 고친 범주도 뜬다, (2) 하나라도 없으면 그 범주(pcb2) 이름과 실제 지문 앞
+# 12자를 담은 오류로 멈추고 그 파일로는 세션을 만들지 않는다, (3) 폴더를 통째로 바꿔 끼운 세트(다른 학습본과
+# 그 학습본의 meta 기록)는 meta 대조를 통과해 설정이 없으면 뜨지만, 목록이 있으면 멈춘다, (4) 정밀도마다
+# 지문을 적어 둔 같은 목록으로 FP32와 동적 INT8이 모두 뜬다(쓰이지 않는 지문이 섞여도 된다), (5) /categories의
+# 앞 12자만 옮겨 적은 값처럼 형식이 틀리면 해시 계산과 세션 생성 전에 멈춘다, (6) 모델 파일이 없는 오프라인
+# 앱은 이 설정을 쓰지 않는다.
 def test_the_deployment_settings_pin_the_approved_model_files(tmp_path, monkeypatch):
     import hashlib
 
@@ -400,6 +402,12 @@ def test_the_deployment_settings_pin_the_approved_model_files(tmp_path, monkeypa
     shown = {item["category"]: item["model_sha256"] for item in client.get("/categories").json()}
     assert shown == {"candle": shared[:12], "pcb1": shared[:12], "pcb2": own[:12]}
     assert len(hashed) == len(set(hashed)) == 2
+    # 범위: 모델 파일은 그대로 두고 candle의 meta.json 임계값만 고쳐도(0.25 → 9.5) 같은 목록으로 뜬다.
+    candle_meta = json.loads((tmp_path / "candle" / "meta.json").read_text(encoding="utf-8"))
+    (tmp_path / "candle" / "meta.json").write_text(
+        json.dumps({**candle_meta, "threshold": 9.5}), encoding="utf-8"
+    )
+    assert service.create_app(tmp_path).state.inspectors["candle"].threshold == 9.5
 
     created.clear()
     monkeypatch.setenv(env, shared)

@@ -158,7 +158,8 @@ jobs:
           echo "exit status $status"
 
       # 배포 설정의 기대 지문(DEFECT_INSPECT_EXPECTED_MODEL_SHA256). meta 대조는 같은 볼륨 안의 기록과 비교하므로
-      # 폴더를 통째로 바꿔 끼우면 통과한다. 이 설정은 볼륨 밖에서 승인한 지문으로 막는다. 먼저 good 세트의 실제
+      # 폴더를 통째로 바꿔 끼우면 통과한다. 이 설정은 볼륨 밖에서 승인한 모델 파일 지문으로 막는다(대조하는 것은
+      # 모델 파일뿐이고 meta.json의 임계값과 PatchCore 뱅크는 대조하지 않는다). 먼저 good 세트의 실제
       # 지문을 대문자로, 쓰이지 않는 다른 지문과 쉼표·공백으로 섞어 주면 뜨고 /categories가 그 지문의 앞 12자를
       # 보이는지 본다. 이어서 같은 good 세트에 목록에 없는 지문만 주면 뜨지 않는지를 종료 코드와 로그 문구로 본다.
       - name: Model files the deployment did not approve stop the service

@@ -1578,12 +1578,17 @@ def test_expected_model_digests_read_commas_spaces_and_upper_case():
 
 # 기대 지문을 설정하면 meta에 지문 기록이 없는 옛 PatchCore 세트(4단계 `defect_inspect.export`)도 모델 파일의
 # SHA-256을 계산해 대조한다. 왜: meta 대조는 같은 아티팩트 볼륨 안의 기록과 비교하므로 기록이 없으면 대조가
-# 없고, 폴더를 통째로 바꿔 끼우면 통과한다. 배포 설정의 목록은 볼륨 밖의 믿을 기준이다. 확인: (1) 설정하지
-# 않으면 지금과 같다(해시 계산 없음, model_sha256 None), (2) 목록에 있으면 뜨고, 대조한 지문이 model_sha256과
-# /categories(앞 12자)에 보이며, 두 범주가 같이 쓰는 파일은 한 번만 해시한다, (3) 목록에 없으면 범주 폴더
-# 이름과 실제 지문 앞 12자를 담은 ValueError로 시작을 멈추고(전체 64자는 메시지에 없다), 그 파일로는
-# onnxruntime 세션을 만들지 않는다(승인하지 않은 파일을 모델 파서에 넣지 않는다).
-def test_expected_model_digests_also_cover_a_patchcore_set_without_a_digest_record(tmp_path, monkeypatch):
+# 없고, 폴더를 통째로 바꿔 끼우면 통과한다. 배포 설정의 목록은 모델 파일에 대한 볼륨 밖의 믿을 기준이다. 확인:
+# (1) 설정하지 않으면 지금과 같다(해시 계산 없음, model_sha256 None), (2) 목록에 있으면 뜨고, 대조한 지문이
+# model_sha256과 /categories(앞 12자)에 보이며, 두 범주가 같이 쓰는 파일은 한 번만 해시한다, (3) 범위:
+# 고정하는 것은 모델(백본 ONNX) 파일뿐이다. PatchCore 백본은 학습과 무관한 같은 사전학습 파일이라, 같은 파일에
+# 다른 뱅크(bank.npy)를 두고 meta.json의 임계값을 고친 범주도 같은 목록으로 뜨고 그 뱅크·임계값을
+# 쓴다(README가 적은 한계), (4) 목록에 없으면 범주 폴더 이름과 실제 지문 앞 12자를 담은 ValueError로 시작을
+# 멈추고(전체 64자는 메시지에 없다), 그 파일로는 onnxruntime 세션을 만들지 않는다(승인하지 않은 파일을 모델
+# 파서에 넣지 않는다).
+def test_expected_model_digests_cover_the_backbone_file_of_a_patchcore_set_but_not_its_bank(
+    tmp_path, monkeypatch
+):
     ort = pytest.importorskip("onnxruntime")
     from defect_inspect import download
 
@@ -1621,6 +1626,13 @@ def test_expected_model_digests_also_cover_a_patchcore_set_without_a_digest_reco
     monkeypatch.setenv("DEFECT_INSPECT_EXPECTED_MODEL_SHA256", f" {approved.upper()} ")
     client = TestClient(service.create_app(tmp_path), base_url=HOST)
     assert [item["model_sha256"] for item in client.get("/categories").json()] == [approved[:12]] * 2
+
+    # 범위: 같은 백본 파일에 뱅크(4행 → 6행)와 임계값(1.0 → 7.0)만 바꾼 pcb1도 같은 목록으로 뜬다.
+    np.save(tmp_path / "pcb1" / "bank.npy", np.full((6, 3), 0.25, dtype=np.float16))
+    swapped_meta = {**meta, "category": "pcb1", "threshold": 7.0}
+    (tmp_path / "pcb1" / "meta.json").write_text(json.dumps(swapped_meta), encoding="utf-8")
+    swapped = service.load_inspectors(tmp_path, expected_sha256=frozenset({approved}))["pcb1"]
+    assert (swapped.bank_rows, swapped.threshold, swapped.model_sha256) == (6, 7.0, approved)
 
     created.clear()
     other = hashlib.sha256(b"another model").hexdigest()

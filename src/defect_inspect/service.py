@@ -19,6 +19,7 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 - `DEFECT_INSPECT_EXPECTED_MODEL_SHA256`: 배포가 승인한 모델 파일의 SHA-256(64자리 16진수)을 쉼표로
   나열한다(정밀도마다 하나씩 적어 둘 수 있다, 대소문자와 공백은 가리지 않는다). 설정하면 시작할 때 모든 모델
   파일의 지문을 계산해, 이 목록에 없는 파일이 하나라도 있으면 뜨지 않는다. 없으면 meta.json 대조만 한다.
+  고정하는 것은 모델 파일뿐이고, meta.json의 임계값과 PatchCore 뱅크(bank.npy)는 볼륨의 값을 그대로 쓴다.
 
 감사 기록: 임계값이 바뀌거나(`POST /calibrate`, `DELETE /calibrate`) 관리자 토큰 때문에 403으로 거절할 때마다
 `defect_inspect.audit` 로거로 표준 출력에 JSON 한 줄을 쓴다(토큰 값과 업로드 파일 이름은 쓰지 않는다).
@@ -44,7 +45,8 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 # 사라지고 uvicorn 접근 로그에는 요청 줄과 상태 코드만 남으므로, 바뀐 값과 거절 사유를 사후에 재구성하려는
 # 것이다. /categories는 시작할 때 대조한 모델 파일 지문의 앞 12자(model_sha256)를 보여, 어떤 모델이 떠 있는지
 # 밖에서 확인할 수 있다. 배포 설정에 승인한 지문 목록(DEFECT_INSPECT_EXPECTED_MODEL_SHA256)을 주면, 아티팩트
-# 볼륨 안의 meta 기록이 아니라 볼륨 밖의 그 목록과도 대조해 다른 모델 파일로는 뜨지 않는다.
+# 볼륨 안의 meta 기록이 아니라 볼륨 밖의 그 목록과도 대조해 다른 모델 파일로는 뜨지 않는다(대조하는 것은 모델
+# 파일뿐이고 임계값·PatchCore 뱅크는 볼륨의 값을 쓴다, parse_expected_sha256 주석).
 # [연결] inspector.py(전처리·추론·임계값 상태), calibrate.py(conformal 임계값). 실행은 uvicorn
 # defect_inspect.service:create_app --factory(Dockerfile, compose.yaml) 또는 모델 파일 없는
 # create_offline_app(테스트와 보안 스캔용).
@@ -288,8 +290,13 @@ EXPECTED_SHA256_ENV = "DEFECT_INSPECT_EXPECTED_MODEL_SHA256"
 # 배포 설정의 기대 모델 지문 목록을 읽는다.
 # [왜 필요한가] load_inspectors의 meta 대조는 모델 파일과 같은 아티팩트 볼륨 안의 meta.json 기록과 비교한다.
 # 그래서 폴더를 통째로(다른 학습본 + 그 학습본의 meta) 바꿔 끼우면 대조를 통과하고, 지문 기록이 없는 4단계
-# PatchCore 세트는 대조 자체가 없다. 승인한 지문을 볼륨 밖의 배포 설정(환경 변수, compose)에 두면 믿을 기준이
-# 아티팩트 내용에서 배포 설정으로 옮겨 간다(컨테이너 이미지를 digest로 고정하는 것과 같은 생각이다).
+# PatchCore 세트는 대조 자체가 없다. 승인한 지문을 볼륨 밖의 배포 설정(환경 변수, compose)에 두면 모델 파일을
+# 믿는 기준이 아티팩트 내용에서 배포 설정으로 옮겨 간다(컨테이너 이미지를 digest로 고정하는 것과 같은 생각).
+# [범위] 고정하는 것은 모델(ONNX) 파일의 지문뿐이다. 범주 폴더의 meta.json(임계값 포함)과 PatchCore 세트의
+# 메모리 뱅크(bank.npy)는 대조하지 않고 볼륨의 값을 그대로 쓴다. 서빙 Dinomaly 세트는 학습한 것이 모델 파일
+# 자체라 다른 학습본으로 바꿔 끼운 폴더를 막지만, meta.json의 임계값만 고친 세트는 어느 종류든 뜨고, PatchCore
+# 세트의 백본 ONNX는 학습과 무관한 같은 사전학습 파일이라 뱅크만 바꾼 세트도 뜬다(tests/test_service.py가 이
+# 범위를 확인한다).
 # [형식] SHA-256 16진수 64자리를 쉼표나 공백(줄 바꿈 포함)으로 나열한다. 정밀도마다(FP32, 동적 INT8) 또는 범주
 # 폴더마다 다른 모델 파일이 있으면 그 지문을 모두 적는다. 쓰이지 않는 지문이 섞여 있어도 된다(같은 설정을 두
 # 정밀도에 쓰려고). 대문자는 소문자로 바꾸고 같은 지문은 하나로 친다(대문자로 옮겨 적은 값도 그대로 받으려고).
@@ -351,8 +358,9 @@ def load_inspectors(
     (`source.onnx_sha256` 등, `inspector.check_model_sha256`) 실제 파일과 대조하고, 다르면 같은 오류로 멈춘다.
     `expected_sha256`(소문자 SHA-256 지문의 모음, `parse_expected_sha256`의 결과)을 주면 meta 기록과 상관없이
     모든 모델 파일의 지문을 계산해, 그 모음에 없는 파일이 있으면 그 파일로 세션을 만들기 전에 같은 오류로
-    멈춘다. 대조를 통과한 지문은 검사기의 `model_sha256`에 남기고(어느 대조도 하지 않았으면 None), 클래스의
-    `load`와 다른 점은 이 속성 하나다.
+    멈춘다(대조하는 것은 모델 파일뿐이고 meta.json의 임계값과 PatchCore 뱅크는 대조하지 않는다). 대조를 통과한
+    지문은 검사기의 `model_sha256`에 남기고(어느 대조도 하지 않았으면 None), 클래스의 `load`와 다른 점은 이
+    속성 하나다.
     """
     import onnxruntime as ort
 
@@ -406,9 +414,9 @@ def load_inspectors(
             digest = check_model_sha256(model, meta, precision, digests)
             # 배포 설정의 기대 지문(EXPECTED_SHA256_ENV, parse_expected_sha256 주석): 주어지면 meta에 기록이
             # 없는 파일도 해시를 계산해(같은 캐시라 파일마다 한 번) 목록과 대조한다. meta 대조가 통과해도
-            # 목록에 없으면 멈춘다(폴더를 통째로 바꿔 끼운 경우). 세션을 만들기 전에 하므로 승인하지 않은
-            # 파일은 onnxruntime이 읽지도 않는다. 메시지에는 지문의 앞 12자만 담는다(check_model_sha256의
-            # 메시지, /categories와 같음).
+            # 목록에 없으면 멈춘다(폴더를 통째로 바꿔 끼워 모델 파일이 달라진 경우. 위에서 읽은 뱅크와 meta의
+            # 임계값은 대조하지 않는다). 세션을 만들기 전에 하므로 승인하지 않은 파일은 onnxruntime이 읽지도
+            # 않는다. 메시지에는 지문의 앞 12자만 담는다(check_model_sha256의 메시지, /categories와 같음).
             if expected is not None:
                 digest = digest or model_file_sha256(model, digests)
                 if digest not in expected:
