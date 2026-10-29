@@ -1027,16 +1027,20 @@ def _eval_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     amp = amp_applied(want_amp, args.device)
     model = model.to(args.device)
     out_dir.mkdir(parents=True, exist_ok=True)
-    # 이전 실행의 흔적이 하나도 남으면 안 된다: 읽는 쪽은 폴더의 모든 *.npz를 이 실행의 일부로 보고, 다시
-    # 돌리다 끊긴 실행이 끝난 것처럼 보여서도 안 된다. 그래서 이전 결과를 남김없이 지우고, run.json(완성
-    # 표시)은 마지막에 다시 쓴다.
-    for path in _result_files(out_dir):
-        path.unlink()
     if args.protocol == "test":
         # 테스트 이미지 없이 실패할 수 있는 일은 모두 끝났다. 봉인 테스트 읽기는 여기서 시작한다.
         record_test_access(
             paths.TEST_LEDGER, stage=args.stage, config=cfg.name, note=args.note, commit=commit
         )
+    # 이전 실행의 흔적이 하나도 남으면 안 된다: 읽는 쪽은 폴더의 모든 *.npz를 이 실행의 일부로 보고, 다시
+    # 돌리다 끊긴 실행이 끝난 것처럼 보여서도 안 된다. 그래서 이전 결과를 남김없이 지우고, run.json(완성
+    # 표시)은 마지막에 다시 쓴다. 지우는 시점은 장부 기록 뒤다(run_m2ad, run_m2ad_dinomaly test와 같은 순서):
+    # 장부에 기록하지 못한 재실행(예: 다른 실행이 잠금을 쥐어 record_test_access가 TimeoutError)은 아무것도
+    # 읽거나 지우지 않고 멈추므로, 완성된 이전 실행의 결과가 그대로 남는다. 첫 범주를 채점하기 전에 지우므로
+    # '이전 흔적이 섞이지 않는다'는 그대로 성립한다. 지우기가 실패하면 장부에 읽지 않은 실행의 줄이 하나
+    # 남지만, 장부는 실제보다 많이 적히는 쪽이 안전하다. dev 절차는 장부를 쓰지 않으므로 순서와 무관하다.
+    for path in _result_files(out_dir):
+        path.unlink()
 
     summaries = []
     started = time.perf_counter()

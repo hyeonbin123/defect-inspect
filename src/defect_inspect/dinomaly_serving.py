@@ -339,8 +339,8 @@ def score_category(
 # 1) test 절차는 --allow-test와 --stage가 둘 다 있어야 한다.
 # 2) 조건 이름, 아티팩트, 모델 파일, 범주를 확인하고 모든 검사기를 먼저 만든다. 깨진 아티팩트는 이미지를
 #    하나도 읽기 전에 멈추므로 장부에 헛된 줄이 남지 않는다.
-# 3) 같은 출력 폴더의 예전 결과를 지우고(--overwrite 없이 완성된 실행을 덮어쓰지 않음), test면 장부에 기록한
-#    뒤에 채점한다.
+# 3) test면 장부에 먼저 기록하고, 그 뒤에 같은 출력 폴더의 예전 결과를 지우고(--overwrite 없이 완성된 실행을
+#    덮어쓰지 않음) 채점한다. 장부 기록이 실패하면 아무것도 읽거나 지우지 않아 완성된 예전 결과가 남는다.
 # 4) run.json에 커밋, ONNX sha256, 정밀도, 스레드, 조건, 보정 방식을 남긴다. calibrate는 이 sha256으로 같은
 #    모델의 점수인지 확인한다.
 def _score_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
@@ -382,8 +382,6 @@ def _score_command(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     commit = git_commit()
     cache = ImageCache(paths.CACHE, sizes.pop())
     out_dir.mkdir(parents=True, exist_ok=True)
-    for path in [out_dir / "run.json", *out_dir.glob("*.npz")]:
-        path.unlink(missing_ok=True)  # 예전 실행의 파일이 이번 실행에 섞이면 안 된다
     if args.protocol == "test":
         record_test_access(
             paths.TEST_LEDGER,
@@ -392,6 +390,11 @@ def _score_command(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
             note=args.note,
             commit=commit,
         )
+    # 예전 실행의 파일이 이번 실행에 섞이면 안 되므로 채점 전에 지운다. 지우는 시점은 장부 기록 뒤다
+    # (run_m2ad, run_dinomaly eval과 같은 순서): 장부에 기록하지 못한 재실행(예: 다른 실행이 잠금을 쥐어
+    # record_test_access가 TimeoutError)은 여기까지 오지 않으므로, calibrate가 읽을 완성된 예전 결과가 남는다.
+    for path in [out_dir / "run.json", *out_dir.glob("*.npz")]:
+        path.unlink(missing_ok=True)
     summaries = []
     started = time.perf_counter()
     for category in args.categories:

@@ -3,8 +3,9 @@
 # 테스트 묶음이다.
 # [왜 필요한가] 6단계 서빙 모델(dms-280-car)은 torch에서 학습·평가하고 onnxruntime CPU로 서빙한다. (1) 내보낸
 # ONNX가 torch 그래프와 같은 점수·맵을 내는지, (2) score가 봉인 테스트를 --allow-test와 --stage가 있을 때만,
-# 장부(ledger)에 먼저 기록한 뒤 읽는지, (3) 합성 교란 조건이 평가 이미지에만 걸리고 임계값용 겹 0 정상에는
-# 걸리지 않는지, (4) calibrate가 '교란 없는 test 절차 채점'의 겹 0 점수로만 임계값을 정하는지를 확인한다.
+# 장부(ledger)에 먼저 기록한 뒤 읽는지(다시 채점할 때 장부 기록이 실패하면 예전 결과를 지우지 않는지 포함),
+# (3) 합성 교란 조건이 평가 이미지에만 걸리고 임계값용 겹 0 정상에는 걸리지 않는지, (4) calibrate가
+# '교란 없는 test 절차 채점'의 겹 0 점수로만 임계값을 정하는지를 확인한다.
 # [설계] 무작위 가중치 28px 모델을 한 번 내보내 모든 테스트가 같이 쓰고, 매니페스트·캐시·장부·출력 경로는
 # tmp_path와 monkeypatch로 가짜를 꽂아 실제 데이터와 reports/test_ledger.jsonl을 건드리지 않는다.
 
@@ -256,6 +257,44 @@ def test_score_cli_dev_test_conditions_and_calibrate(exported, project, tmp_path
     assert meta["threshold"] == float(thr.value) and meta["alpha"] == 0.05
     assert meta["calibration"] == {"strategy": "holdout", "n": 4, "guaranteed": False}
     assert ReconstructionInspector.load(art / "toy").threshold == meta["threshold"]
+
+
+# 봉인 테스트 채점을 --overwrite로 다시 할 때도 장부에 먼저 기록하고 그 뒤에 예전 결과를 지운다(run_m2ad·
+# run_dinomaly eval과 같은 순서). 장부 기록이 실패하면(다른 실행이 잠금을 쥐고 있어 10초 안에 얻지 못한
+# TimeoutError) 재실행은 봉인 이미지를 한 장도 읽지 않고 멈추고, 완성된 예전 실행의 run.json·npz가 바이트
+# 그대로 남는다. calibrate가 서비스 임계값을 정할 때 읽는 것이 이 파일들이라, 장부 기록 실패 한 번으로 그
+# 근거가 사라지면 안 된다. 장부에 기록되면 예전 결과(다른 범주의 gone.npz 포함)는 채점 전에 지워진다.
+def test_score_overwrite_keeps_the_earlier_test_run_when_the_ledger_fails(
+    exported, project, tmp_path, monkeypatch
+):
+    import shutil
+
+    art = tmp_path / "dms-toy"
+    shutil.copytree(exported["out"], art)
+    base = ["score", "--artifacts", str(art), "--categories", "toy", "other"]
+    base += ["--protocol", "test", "--allow-test", "--stage", "6"]
+    dinomaly_serving.main(base)
+    test_dir = project["outputs"] / "dms-toy-onnx-fp32-test"
+    finished = {p.name: p.read_bytes() for p in test_dir.iterdir()}
+    assert sorted(finished) == ["other.npz", "run.json", "toy.npz"]
+    ledger = project["ledger"].read_bytes()
+    real = dinomaly_serving.record_test_access
+
+    def locked(*args, **kwargs):
+        raise TimeoutError("could not take the ledger lock within 10 s: another run is writing the ledger")
+
+    monkeypatch.setattr(dinomaly_serving, "record_test_access", locked)
+    project["cache"].requested.clear()
+    with pytest.raises(TimeoutError):
+        dinomaly_serving.main(base + ["--overwrite"])
+    assert {p.name: p.read_bytes() for p in test_dir.iterdir()} == finished
+    assert project["ledger"].read_bytes() == ledger and project["cache"].requested == []
+
+    monkeypatch.setattr(dinomaly_serving, "record_test_access", real)
+    shutil.copy(test_dir / "toy.npz", test_dir / "gone.npz")
+    dinomaly_serving.main(base + ["--overwrite"])
+    assert sorted(p.name for p in test_dir.iterdir()) == ["other.npz", "run.json", "toy.npz"]
+    assert len(project["ledger"].read_text(encoding="utf-8").splitlines()) == 2
 
 
 # 확인: export는 --model(학습한 모델)과 --untrained(지연 관문용 초기값 모델) 가운데 정확히 하나만 받는다. 둘

@@ -1019,6 +1019,39 @@ def test_cli_eval_overwrite_clears_the_results_of_the_earlier_run(toy_project, m
     assert [p.name for p in eval_dir.iterdir()] == ["notes.txt"]
 
 
+# 봉인 테스트 평가를 --overwrite로 다시 할 때는 장부에 먼저 기록하고 그 뒤에 이전 결과를 지운다(run_m2ad와
+# run_m2ad_dinomaly test의 순서). 장부 기록이 실패하면(다른 실행이 잠금을 쥐고 있어 10초 안에 얻지 못한
+# TimeoutError. 2026-10-04 부하에서 실제로 났다) 재실행은 봉인 이미지를 한 장도 읽지 않고 멈추고, 완성된 이전
+# 실행의 run.json·npz·맵 파일은 바이트 그대로 남아야 한다. 예전 순서(지운 뒤 기록)에서는 이때 결과만 사라졌다.
+# 장부에 기록되면 이전 실행의 결과 파일(다른 범주의 gone.npz 포함)은 채점 전에 남김없이 지워진다.
+def test_cli_eval_test_overwrite_keeps_the_earlier_run_when_the_ledger_fails(toy_project, monkeypatch):
+    outputs = toy_project["outputs"]
+    run_dinomaly.main(TRAIN_ARGS + TOY)
+    base = ["eval", "--protocol", "test", "--device", "cpu", "--allow-test", "--stage", "2"] + TOY
+    test_dir = outputs / "dm-test"
+    run_dinomaly.main(base)
+    finished = {p.name: p.read_bytes() for p in test_dir.iterdir()}
+    assert sorted(finished) == ["run.json", "toy.npz", "toy_maps.npy"]
+    ledger = toy_project["ledger"].read_bytes()
+    real = run_dinomaly.record_test_access
+
+    def locked(*args, **kwargs):
+        raise TimeoutError("could not take the ledger lock within 10 s: another run is writing the ledger")
+
+    monkeypatch.setattr(run_dinomaly, "record_test_access", locked)
+    toy_project["cache"].requested.clear()
+    with pytest.raises(TimeoutError):
+        run_dinomaly.main(base + ["--overwrite"])
+    assert {p.name: p.read_bytes() for p in test_dir.iterdir()} == finished
+    assert toy_project["ledger"].read_bytes() == ledger and toy_project["cache"].requested == []
+
+    monkeypatch.setattr(run_dinomaly, "record_test_access", real)
+    shutil.copy(test_dir / "toy.npz", test_dir / "gone.npz")
+    run_dinomaly.main(base + ["--overwrite"])
+    assert sorted(p.name for p in test_dir.iterdir()) == ["run.json", "toy.npz", "toy_maps.npy"]
+    assert len(toy_project["ledger"].read_text(encoding="utf-8").splitlines()) == 2
+
+
 # eval의 채점 정밀도 규칙을 본다. 기본은 모델 파일에 기록된 학습 정밀도를 따르고(fp16으로 학습했으면 fp16
 # 요청), --amp/--no-amp가 있으면 그것을 따른다. CPU는 fp16을 할 수 없으므로 run.json에는 실제로 돈 fp32가
 # 남는다. 학습 정밀도를 기록하지 않은 옛 파일은 플래그 없이는 거절한다. 6단계 채점은 fp16이 점수를 반올림해
