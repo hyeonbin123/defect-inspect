@@ -16,6 +16,9 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 - `DEFECT_INSPECT_WORKERS` / `DEFECT_INSPECT_QUEUE`: 동시에 디코딩·채점하는 이미지 수(기본 2)와 작업자를
   기다릴 수 있는 요청 수(기본 16). 둘의 합보다 많은 업로드 요청(`/inspect`·`/calibrate`)이 진행 중이면 새
   요청은 본문을 받기 전에 `Retry-After`를 붙인 503으로 돌려보낸다. `/calibrate`는 한 번에 하나만 받는다.
+
+감사 기록: 임계값이 바뀌거나(`POST /calibrate`, `DELETE /calibrate`) 관리자 토큰 때문에 403으로 거절할 때마다
+`defect_inspect.audit` 로거로 표준 출력에 JSON 한 줄을 쓴다(토큰 값과 업로드 파일 이름은 쓰지 않는다).
 """
 
 # [파일 역할] FastAPI 검사 서비스. 사진 한 장과 범주를 받아 이상 점수·임계값·양품/불량 판정·히트맵을
@@ -33,6 +36,11 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 # 모든 응답에 보안 헤더(CSP 등)를 붙인다. 이미지 디코딩은 형식·픽셀 수·비트 깊이·투명도를 제한하고, 동시에
 # 계산하는 작업 수를 묶어 둔다(_Gate, 같은 상한의 두 번째 장치). 업로드를 임시 저장소에 쓰다 공간이 모자라면
 # 400이 아니라 503으로 답해 재시도하게 한다. DAST(HawkScan, ZAP) 기록은 docs/security.md에 있다.
+# [운영 기록] 판정 기준(임계값)을 바꾼 요청과 관리자 토큰 거절은 전용 감사 로거(AUDIT_LOGGER)가 표준 출력에
+# JSON 한 줄씩 남긴다(언제, 무엇이 무엇에서 무엇으로, 어디서). 재보정한 값은 메모리에만 있어 재시작하면
+# 사라지고 uvicorn 접근 로그에는 요청 줄과 상태 코드만 남으므로, 바뀐 값과 거절 사유를 사후에 재구성하려는
+# 것이다. /categories는 시작할 때 대조한 모델 파일 지문의 앞 12자(model_sha256)를 보여, 어떤 모델이 떠 있는지
+# 밖에서 확인할 수 있다.
 # [연결] inspector.py(전처리·추론·임계값 상태), calibrate.py(conformal 임계값). 실행은 uvicorn
 # defect_inspect.service:create_app --factory(Dockerfile, compose.yaml) 또는 모델 파일 없는
 # create_offline_app(테스트와 보안 스캔용).
@@ -46,15 +54,17 @@ import json
 import logging
 import math
 import os
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 # fastapi: 경로·폼·파일 업로드 검증과 응답. http_exception_handler는 FastAPI의 기본 HTTPException 처리기로,
 # create_app이 등록하는 처리기가 임시 저장소 부족(503)이 아닌 모든 경우를 그대로 넘긴다. PIL: 업로드 디코딩과
@@ -88,6 +98,119 @@ from .inspector import (
 )
 
 logger = logging.getLogger(__name__)
+# 감사 기록 로거(README 검사 서비스 절). 임계값이 바뀔 때(POST·DELETE /calibrate)와 관리자 토큰 때문에 403으로
+# 거절할 때 JSON 한 줄씩 쓴다. 위 logger와 따로 두는 이유: 서비스를 띄우는 uvicorn의 기본 로깅 설정
+# (uvicorn.config.LOGGING_CONFIG)은 uvicorn.* 로거에만 핸들러를 달아, 이 모듈 logger의 INFO 줄은 어디에도
+# 출력되지 않고 WARNING 이상만 시각 없이 표준 오류로 나간다. 감사 로거는 create_app이 표준 출력 핸들러를 직접
+# 붙이므로(_attach_audit_handler) 로그 설정 없이도 docker logs에 남고, 운영자는 이 이름으로 따로 설정할 수
+# 있다.
+AUDIT_LOGGER = "defect_inspect.audit"
+audit_log = logging.getLogger(AUDIT_LOGGER)
+
+
+# 감사 줄을 쓸 때마다 그 순간의 sys.stdout에 쓰는 핸들러. StreamHandler(sys.stdout)처럼 만들 때의 객체를
+# 붙잡아 두면, 그 객체가 나중에 바뀌거나 닫힌 뒤(테스트 도구의 출력 캡처가 테스트마다 그렇다) 엉뚱한 곳에
+# 쓰거나 쓰기에 실패한다. 표준 라이브러리의 마지막 수단 핸들러(logging.lastResort, sys.stderr용
+# _StderrHandler)와 같은 방식이다: StreamHandler.__init__을 건너뛰어 stream을 저장하지 않고, stream 속성이 늘
+# 지금의 sys.stdout을 돌려준다. StreamHandler는 기록마다 flush하므로 줄이 버퍼에 머물지 않는다(Dockerfile의
+# PYTHONUNBUFFERED=1과 함께 docker logs에 바로 보인다).
+class _StdoutHandler(logging.StreamHandler):
+    """기록할 때마다 지금의 `sys.stdout`에 쓰는 StreamHandler."""
+
+    def __init__(self) -> None:
+        logging.Handler.__init__(self)
+
+    @property
+    def stream(self):
+        return sys.stdout
+
+
+# 감사 기록 하나를 JSON 한 줄로 만든다(_AuditFormatter와 _audit이 같이 쓴다). json.dumps는 따옴표·역슬래시와
+# 제어 문자(U+0000~U+001F, 줄 바꿈 포함)를 이스케이프하지만, ensure_ascii=False(한글 범주 이름을
+# 그대로 읽히게)에서는 U+0085(NEL)·U+2028·U+2029를 그대로 둔다. 이 셋은 str.splitlines()와 일부
+# 로그 도구가 줄의 끝으로 보므로, 그대로 두면 한 기록이 쪼개져 뒷부분이 따로 읽히는 가짜 줄이
+# 된다. 예: uvicorn은 믿는 프록시에서 온 연결이면 X-Forwarded-For 값을 latin-1로 디코딩해 scope의
+# client로 쓰므로 U+0085가 들어올 수 있다. 그래서 이 셋을 같은 뜻의 \u 이스케이프로 바꾼다. json.dumps가
+# 내는 글에서 이 글자들은 문자열 값 안에만 있고 역슬래시는 늘 \\로 나오므로, 바꾼 뒤에도 올바른 JSON이고
+# 읽으면 원래 값 그대로다. default=str은 예상 밖 타입이 섞여도 감사 줄 때문에 이미 끝난 변경의 응답이
+# 500이 되지 않게 하는 안전장치다.
+_LINE_BREAKS = str.maketrans({"\x85": "\\u0085", "\u2028": "\\u2028", "\u2029": "\\u2029"})
+
+
+def _one_line_json(entry: dict) -> str:
+    return json.dumps(entry, ensure_ascii=False, default=str).translate(_LINE_BREAKS)
+
+
+# 감사 줄 하나의 모양: {"time": UTC ISO 8601 시각(밀리초), "level": "INFO"|"WARNING", "event": ..., 그 밖의
+# 필드}를 담은 JSON 객체 한 줄. 사람이 docker logs로 읽기도 하고 jq 같은 도구로 바로 거를 수 있게 앞에 다른
+# 글을 붙이지 않는다. 시각은 기록이 만들어진 때(record.created)이고, 컨테이너와 호스트의 시간대가 달라도
+# 헷갈리지 않게 UTC로 적는다. 필드 값은 줄을 쪼개지 못한다(_one_line_json). 기록에 감사 필드(_audit이 붙이는
+# audit)가 없으면(다른 코드가 이 로거에 보통 문자열을 쓴 경우) message 필드 하나로 담는다.
+class _AuditFormatter(logging.Formatter):
+    """감사 기록을 시각·수준과 사건 필드를 담은 JSON 한 줄로 만든다."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = getattr(record, "audit", None)
+        if not isinstance(entry, dict):
+            entry = {"message": record.getMessage()}
+        when = datetime.fromtimestamp(record.created, UTC).isoformat(timespec="milliseconds")
+        return _one_line_json({"time": when, "level": record.levelname, **entry})
+
+
+# 감사 로거에 핸들러가 하나도 없을 때만 표준 출력 핸들러(_StdoutHandler + _AuditFormatter)를 붙인다. 왜:
+# uvicorn의 기본 로깅 설정은 이 로거를 다루지 않아, 붙이지 않으면 감사 줄이 어디에도 나가지 않는다. 핸들러가
+# 이미 있으면(운영자가 uvicorn --log-config로 이 로거를 설정했거나, 같은 프로세스에서 앞서 만든 앱이 붙였다)
+# 손대지 않아 같은 줄이 두 번 나오지 않는다. 로거 수준을 따로 정하지 않았으면(NOTSET이면 루트의 WARNING을
+# 물려받아 INFO 줄이 버려진다) INFO로 두고, 운영자가 정한 수준은 그대로 둔다. propagate를 끄는 것은 루트
+# 로거에 핸들러를 단 로그 설정에서 같은 줄이 그쪽으로 한 번 더 나가지 않게 하려는 것이다.
+# 호출 위치: create_app.
+def _attach_audit_handler() -> None:
+    if audit_log.handlers:
+        return
+    handler = _StdoutHandler()
+    handler.setFormatter(_AuditFormatter())
+    audit_log.addHandler(handler)
+    if audit_log.level == logging.NOTSET:
+        audit_log.setLevel(logging.INFO)
+    audit_log.propagate = False
+
+
+# 감사 줄 하나를 쓴다. 입력: 로그 수준, 사건 이름(event), 필드들(문자열·정수·실수·참거짓·None). 같은 내용을
+# 기록의 message에도 JSON으로 넣어, 운영자가 로그 설정으로 이 로거에 자기 핸들러·형식을 붙여도 내용이 그대로
+# 보이게 한다(이 모듈의 핸들러는 _AuditFormatter가 audit 필드로 시각·수준과 함께 한 줄을 만든다). message도
+# _one_line_json으로 만들어 그 자체로 한 줄이다.
+def _audit(level: int, event: str, **fields: Any) -> None:
+    entry = {"event": event, **fields}
+    audit_log.log(level, _one_line_json(entry), extra={"audit": entry})
+
+
+# ASGI scope의 client((주소, 포트) 또는 None)를 uvicorn 접근 로그와 같은 '주소:포트' 문자열로 바꾼다(uvicorn의
+# get_client_addr와 같은 모양이라 두 로그의 줄을 맞춰 볼 수 있다). 리버스 프록시 뒤에서는 uvicorn이 믿는
+# 주소(--forwarded-allow-ips, 기본 127.0.0.1과 ::1)에서 온 연결이면 X-Forwarded-For로 바꾼 주소이고, 아니면
+# 프록시 자신의 주소다(uvicorn의 ProxyHeadersMiddleware가 scope를 바꾸므로 접근 로그와 같은 값이다). 주소를 알
+# 수 없으면 None.
+def _client_address(client: Sequence[Any] | None) -> str | None:
+    if not client:
+        return None
+    return f"{client[0]}:{client[1]}"
+
+
+# 관리자 토큰 때문에 403으로 거절한 요청 하나를 WARNING 감사 줄로 남긴다. 입력: 사유 코드(_admin_problem의
+# disabled·missing·mismatch), 메서드, scope의 path(디코딩된 경로), scope의 client. 토큰 값(보낸 값·설정한
+# 값)은 받지도 쓰지도 않는다: 틀린 값은 진짜 토큰과 한 글자만 다를 수 있다. path는 요청하는 쪽이 마음대로 고를
+# 수 있는 필드라 uvicorn 접근 로그처럼 urllib.parse.quote로 퍼센트 인코딩한다. 인쇄 가능한 ASCII만 남으므로,
+# 디코딩된 줄 바꿈이나 U+2028 같은 줄 구분 문자로 감사 줄을 위조하거나 터미널 제어 문자를 심지 못하고,
+# unquote하면 원래 경로가 된다. method는 서버(uvicorn의 h11)가 토큰 문자(인쇄 가능한 ASCII)만 받는다.
+def _audit_refusal(reason: str, method: str, path: str, client: Sequence[Any] | None) -> None:
+    _audit(
+        logging.WARNING,
+        "admin_refused",
+        reason=reason,
+        method=method,
+        path=quote(path),
+        client=_client_address(client),
+    )
+
 
 # 요청 한계값.
 # - MAX_UPLOAD_BYTES: 파일 하나 20MB(README). MAX_REQUEST_BYTES: 여러 장을 올리는 /calibrate 본문 전체 256MB
@@ -168,6 +291,8 @@ def load_inspectors(
     `session.run`은 스레드 안전하고, 범주마다 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘기 때문이다.
     아티팩트에 문제가 있으면 그 폴더 이름을 담은 `ValueError`를 낸다. meta에 모델 파일의 SHA-256이 적혀 있으면
     (`source.onnx_sha256` 등, `inspector.check_model_sha256`) 실제 파일과 대조하고, 다르면 같은 오류로 멈춘다.
+    대조를 통과한 지문은 검사기의 `model_sha256`에 남기고(기록이 없어 대조하지 않았으면 None), 클래스의
+    `load`와 다른 점은 이 속성 하나다.
     """
     import onnxruntime as ort
 
@@ -209,8 +334,8 @@ def load_inspectors(
             bank = None if kind == RECONSTRUCTION else np.load(folder / "bank.npy", allow_pickle=False)
             # meta에 적힌 모델 지문(dinomaly_serving export가 적는 source.onnx_sha256 등)과 실제 파일을
             # 대조한다. 다르면 이 임계값은 다른 모델의 점수로 정한 것이라 조용히 틀린 판정을 내므로 시작을
-            # 멈춘다.
-            check_model_sha256(model, meta, precision, digests)
+            # 멈춘다. 같으면 그 지문을, 기록이 없어 건너뛰었으면 None을 돌려준다(아래 model_sha256).
+            digest = check_model_sha256(model, meta, precision, digests)
             # 실제 경로로 키를 만들어 같은 파일이면 세션을 다시 만들지 않는다. CPU
             # 전용(CPUExecutionProvider)으로 연다.
             key = model.resolve()
@@ -226,6 +351,10 @@ def load_inspectors(
             raise ValueError(f"{folder} ({model.name}): {err}") from err
         inspector.precision = precision
         inspector.threads = None if threads is None else int(threads)
+        # 대조를 통과한 모델 파일 지문(64자리 16진수). /categories가 앞 12자를 보여, 어떤 모델 파일이 떠
+        # 있는지 밖에서 확인할 수 있다. meta에 이 정밀도 파일의 기록이 없으면(4단계 PatchCore, INT8 지문이
+        # 없는 옛 세트) None이다: 대조하지 않은 파일의 해시를 계산해 확인된 것처럼 보이지 않는다.
+        inspector.model_sha256 = digest
         found[folder.name] = inspector
     if not found:
         raise ValueError(f"no inspector artifacts under {artifacts}")
@@ -400,15 +529,21 @@ def _cross_site(headers: Headers) -> bool:
     return urlsplit(origin).netloc.lower() != headers.get("host", "").strip().lower()
 
 
-# 관리자 요청이 거절될 이유를 돌려준다(없으면 None). 토큰을 설정하지 않으면 /calibrate는 꺼져 있다. 비교는
-# hmac.compare_digest(상수 시간 비교)로 해서 응답 시간 차이로 토큰을 한 글자씩 알아내는 공격을 막는다.
-def _admin_problem(headers: Headers, token: str | None) -> str | None:
-    """요청이 임계값을 바꿀 수 없는 이유. 관리자 토큰을 가졌으면 None."""
+# 관리자 요청이 거절될 이유를 (사유 코드, 응답 문구)로 돌려준다(거절하지 않으면 None). 사유 코드:
+# disabled(토큰을 설정하지 않아 /calibrate가 꺼져 있음), missing(X-Admin-Token 헤더가 없거나 빈 값),
+# mismatch(값이 틀림). 사유 코드는 감사 줄(_audit_refusal)에만 쓰고 응답 문구는 예전 그대로다(missing과
+# mismatch는 같은 문구). 값 비교는 hmac.compare_digest(상수 시간 비교)로 해서 응답 시간 차이로 토큰을 한
+# 글자씩 알아내는 공격을 막는다. 빈 값을 먼저 가르는 것은 보낸 쪽이 이미 아는 사실(헤더를 보냈는가)만 보므로
+# 토큰에 대해 새로 드러내는 것이 없다.
+def _admin_problem(headers: Headers, token: str | None) -> tuple[str, str] | None:
+    """요청이 임계값을 바꿀 수 없는 이유 (사유 코드, 응답 문구). 관리자 토큰을 가졌으면 None."""
     if not token:
-        return "calibration is disabled: start the service with DEFECT_INSPECT_ADMIN_TOKEN"
+        return "disabled", "calibration is disabled: start the service with DEFECT_INSPECT_ADMIN_TOKEN"
     given = headers.get(ADMIN_HEADER, "")
+    if not given:
+        return "missing", f"a valid {ADMIN_HEADER} header is required"
     if not hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8")):
-        return f"a valid {ADMIN_HEADER} header is required"
+        return "mismatch", f"a valid {ADMIN_HEADER} header is required"
     return None
 
 
@@ -476,9 +611,10 @@ class _Guard:
         self._calibrations = 0
 
     # 검사 순서: Host 허용 목록(400) → 상태를 바꾸는 메서드의 다른 출처 요청(403) → /calibrate 경로의 관리자
-    # 토큰(403, 하위 경로 포함) → 선언된 본문 크기(413). 하나라도 걸리면 그 응답을 돌려준다. 진행 중인 요청
-    # 수의 검사(503)는 자리를 차지하는 부작용이 있어 __call__에서 이 검사들을 모두 지난 뒤에 한다(_admit):
-    # 거절 사유가 앞쪽 검사부터 보이고, 어차피 거절될 요청이 자리를 차지하지 않는다.
+    # 토큰(403, 하위 경로 포함) → 선언된 본문 크기(413). 하나라도 걸리면 그 응답을 돌려준다. 관리자 토큰
+    # 거절은 사유(disabled·missing·mismatch)를 담은 감사 줄도 남긴다(uvicorn 접근 로그에는 403만 남고 사유가
+    # 없다). 진행 중인 요청 수의 검사(503)는 자리를 차지하는 부작용이 있어 __call__에서 이 검사들을 모두 지난
+    # 뒤에 한다(_admit): 거절 사유가 앞쪽 검사부터 보이고, 어차피 거절될 요청이 자리를 차지하지 않는다.
     def _refuse(self, scope, headers: Headers) -> JSONResponse | None:
         path = scope["path"]
         # 거절한 요청의 본문은 앱에 닿지 않는다: 서버가 소켓에서 읽어 버리므로 클라이언트는 그래도 응답을
@@ -490,7 +626,9 @@ class _Guard:
         if path == ADMIN_PATH or path.startswith(ADMIN_PATH + "/"):
             problem = _admin_problem(headers, self.admin_token)
             if problem:
-                return _refusal(403, problem)
+                reason, detail = problem
+                _audit_refusal(reason, scope["method"], path, scope.get("client"))
+                return _refusal(403, detail)
         length = headers.get("content-length", "")
         if length.isdigit() and int(length) > _body_limit(path):
             return _refusal(413, "request body too large")
@@ -675,6 +813,8 @@ def create_app(
         workers if workers is not None else _env_int("DEFECT_INSPECT_WORKERS", DEFAULT_WORKERS),
         queue if queue is not None else _env_int("DEFECT_INSPECT_QUEUE", DEFAULT_QUEUE),
     )
+    # 감사 줄이 uvicorn의 기본 로깅 설정에서도 표준 출력에 나가게 한다(이미 핸들러가 있으면 그대로 둔다).
+    _attach_audit_handler()
 
     # Swagger·ReDoc 문서 화면은 CDN 스크립트가 필요해 CSP와 맞지 않으므로 끈다. /openapi.json 명세는 남아 있어
     # DAST가 경로를 가져오는 데 쓴다(docs/security.md).
@@ -724,11 +864,15 @@ def create_app(
         return await http_exception_handler(request, exc)
 
     # 라우트 수준의 관리자 검사. _Guard가 이미 본문을 읽기 전에 같은 규칙으로 막지만, 둘의 경로 판단이
-    # 어긋나는 경우에 대비해 라우트에도 같은 규칙을 두는 이중 장치다.
+    # 어긋나는 경우에 대비해 라우트에도 같은 규칙을 두는 이중 장치다. 예: uvicorn --root-path로 띄우면 scope의
+    # path가 root_path로 시작해 _Guard는 관리자 경로로 보지 않고, 라우터가 root_path를 떼어 이 라우트로
+    # 보낸다. 여기서 거절해도 _Guard와 같은 감사 줄을 남긴다(path는 서버가 넘긴 scope의 path 그대로).
     def require_admin(request: Request) -> None:
         problem = _admin_problem(request.headers, admin_token)
         if problem:
-            raise HTTPException(status_code=403, detail=problem)
+            reason, detail = problem
+            _audit_refusal(reason, request.method, request.scope["path"], request.scope.get("client"))
+            raise HTTPException(status_code=403, detail=detail)
 
     # 범주 이름으로 검사기를 찾고, 없으면 404. 이름을 오류 메시지에 되비치지 않는다.
     def get(category: str) -> AnyInspector:
@@ -747,15 +891,39 @@ def create_app(
             "calibration": dict(calibration) if isinstance(calibration, dict) else calibration,
         }
 
-    # /categories 응답 한 줄: 모델 종류(reconstruction/patchcore)와 이름, 임계값, 입력 크기, 뱅크 행 수(복원
-    # 방식은 0), 백본, 정밀도, α, 보정 기록.
+    # 임계값을 바꾼 요청 하나를 INFO 감사 줄로 남긴다. 범주 잠금을 잡은 채로, 바꾼 직후의
+    # 상태(threshold_state의 사본)로 부른다: 그래서 줄의 이전·새 임계값이 실제로 일어난 변경과 맞고, 같은
+    # 범주를 바꾸는 요청이 겹쳐도 줄의 순서가 변경 순서와 같다. n·alpha·guaranteed는 바뀐 뒤의 보정
+    # 기록이다(reset이면 아티팩트의 값이고, 기록이 없으면 None). 업로드 파일 이름·토큰 같은 요청 내용은 넣지
+    # 않는다.
+    def audit_change(event: str, category: str, previous: float, state: dict, request: Request) -> None:
+        calibration = state["calibration"] if isinstance(state["calibration"], dict) else {}
+        _audit(
+            logging.INFO,
+            event,
+            category=category,
+            n=calibration.get("n"),
+            alpha=state["alpha"],
+            guaranteed=calibration.get("guaranteed"),
+            previous_threshold=previous,
+            threshold=state["threshold"],
+            client=_client_address(request.scope.get("client")),
+        )
+
+    # /categories 응답 한 줄: 모델 종류(reconstruction/patchcore)와 이름, 시작할 때 대조한 모델 파일 지문의 앞
+    # 12자(model_sha256: load_inspectors가 붙인 값, 기록이 없거나 직접 넘긴 검사기면 null), 임계값, 입력 크기,
+    # 뱅크 행 수(복원 방식은 0), 백본, 정밀도, α, 보정 기록. 지문을 /healthz가 아니라 여기에 두는 것은
+    # /healthz 응답을 compose의 상태 점검과 CI가 정확히 비교하기 때문이다. 앞 12자(48비트)면 기록과 맞춰
+    # 보기에 충분하고 시작 거부 오류 메시지(check_model_sha256)와 같은 길이다.
     def describe(name: str, inspector: AnyInspector) -> dict:
         with locks[name]:
             state = threshold_state(inspector)
+        digest = getattr(inspector, "model_sha256", None)
         return {
             "category": name,
             "kind": inspector.kind,
             "model": inspector.meta.get("name"),
+            "model_sha256": digest[:12] if digest else None,
             "threshold": state["threshold"],
             "img_size": inspector.size,
             "bank_rows": inspector.bank_rows,
@@ -818,9 +986,11 @@ def create_app(
 
     # POST /calibrate(관리자 전용): 현재 촬영 조건의 정상 사진 여러 장으로 그 범주의 임계값만 다시 정한다.
     # 모델과 PatchCore 뱅크는 그대로다(README: 모델은 그대로). α는 0 초과 0.5 이하. 장수가 부족해 보장이 안
-    # 되면 allow_unguaranteed 없이는 400으로 거절하고 필요한 장수를 알려 준다.
+    # 되면 allow_unguaranteed 없이는 400으로 거절하고 필요한 장수를 알려 준다. request는 감사 줄의 client에만
+    # 쓴다(FastAPI가 넣어 주는 인자라 OpenAPI 명세의 입력 항목은 그대로다).
     @app.post(ADMIN_PATH, dependencies=[Depends(require_admin)])
     async def calibrate(
+        request: Request,
         images: Annotated[list[UploadFile], File()],
         category: Annotated[str, Form(min_length=1, max_length=64)],
         alpha: Annotated[float, Form(gt=0.0, le=0.5)] = 0.05,
@@ -857,7 +1027,7 @@ def create_app(
 
         # 점수로 conformal 임계값을 정한 뒤, 잠금 아래에서 임계값·α·보정 기록(holdout, 장수, 보장 여부)을 한
         # 번에 바꾸고 이전 임계값과 함께 돌려준다. 위에서 구한 점수에 `Inspector.calibrate`와 같은 규칙과 기록
-        # 방식을 적용한 것이다.
+        # 방식을 적용한 것이다. 같은 잠금 안에서 감사 줄(event calibrate)을 남긴다.
         found = conformal_threshold(np.array(scores, dtype=np.float32), alpha)
         with locks[category]:
             previous = inspector.threshold
@@ -868,12 +1038,17 @@ def create_app(
                 "n": len(scores),
                 "guaranteed": bool(found.guaranteed),
             }
-            return {"category": category, "previous_threshold": previous, **threshold_state(inspector)}
+            state = threshold_state(inspector)
+            audit_change("calibrate", category, previous, state, request)
+            return {"category": category, "previous_threshold": previous, **state}
 
     # DELETE /calibrate?category=...(관리자 전용): 재보정을 되돌려 시작할 때의 임계값·α·보정 기록으로
-    # 돌아간다. 원래 없던 키는 _MISSING 표시로 알아보고 지운다.
+    # 돌아간다. 원래 없던 키는 _MISSING 표시로 알아보고 지운다. 이미 아티팩트 값이어서 바뀌는 것이 없어도
+    # 관리자가 한 일이므로 같은 잠금 안에서 감사 줄(event reset)을 남긴다.
     @app.delete(ADMIN_PATH, dependencies=[Depends(require_admin)])
-    async def reset_calibration(category: Annotated[str, Query(min_length=1, max_length=64)]) -> dict:
+    async def reset_calibration(
+        request: Request, category: Annotated[str, Query(min_length=1, max_length=64)]
+    ) -> dict:
         """아티팩트 묶음을 읽어 들였을 때의 임계값, alpha, 보정 기록으로 되돌린다."""
         inspector = get(category)
         threshold, alpha, calibration = originals[category]
@@ -885,7 +1060,9 @@ def create_app(
                     inspector.meta.pop(key, None)
                 else:
                     inspector.meta[key] = dict(value) if isinstance(value, dict) else value
-            return {"category": category, "previous_threshold": previous, **threshold_state(inspector)}
+            state = threshold_state(inspector)
+            audit_change("reset", category, previous, state, request)
+            return {"category": category, "previous_threshold": previous, **state}
 
     # 데모 페이지(static/index.html, 시작할 때 한 번 읽어 둠)와 그 정적 파일(/static/demo.js, demo.css).
     # OpenAPI 명세에는 넣지 않는다.

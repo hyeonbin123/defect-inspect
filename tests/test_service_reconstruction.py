@@ -6,8 +6,9 @@
 # [무엇을 확인하나] /categories가 모델 종류(reconstruction)와 이름을 알리는지, /inspect가 모델 자신의 점수와
 # 맵을 쓰는지, 모델이 유한하지 않은 맵을 내면 검정 히트맵 대신 500으로 멈추는지, /calibrate가 임계값만 바꾸고
 # 되돌릴 수 있는지, load_inspectors가 범주 폴더(meta.json만, 뱅크 없음)와 상위 폴더의 공용 ONNX 하나를 읽어
-# 세션을 나눠 쓰는지, 정밀도별 모델 파일과 잘못된 meta를 어떻게 거절하는지, 실제 작은 ONNX 모델로 끝에서
-# 끝까지 도는지(이 길은 시작 예열도 실제 세션으로 거친다).
+# 세션을 나눠 쓰는지, 정밀도별 모델 파일과 잘못된 meta를 어떻게 거절하는지, 시작할 때 대조한 모델 지문이
+# /categories의 model_sha256(앞 12자)으로 보이는지, 실제 작은 ONNX 모델로 끝에서 끝까지 도는지(이 길은 시작
+# 예열도 실제 세션으로 거친다).
 # [설계 메모] 대부분은 ONNX 대신 ReconSession(밝기를 256으로 키운 맵, 그 최댓값이 점수)으로 돌아 onnxruntime
 # 없이도 의미가 있다. 마지막 테스트만 onnx·onnxruntime이 있을 때 실제 모델을 만든다.
 
@@ -110,10 +111,11 @@ def _inspect(client, image: np.ndarray, **params):
 
 
 # /categories가 복원 모델을 설명하는 방식: kind reconstruction, 모델 이름, 뱅크 행 0, 백본 없음, 입력 크기,
-# 보정 기록. kind와 model은 서비스 모델 교체 때 /categories에 더한 필드다(커밋 7d590d2).
+# 보정 기록. kind와 model은 서비스 모델 교체 때 /categories에 더한 필드다(커밋 7d590d2). model_sha256은 시작할
+# 때 대조한 모델 파일 지문이라, 아티팩트에서 읽지 않고 직접 넘긴 검사기는 null이다.
 def test_categories_describe_a_reconstruction_model():
     item = _client(_inspector()).get("/categories").json()[0]
-    assert item["kind"] == "reconstruction" and item["model"] == "dms-toy"
+    assert item["kind"] == "reconstruction" and item["model"] == "dms-toy" and item["model_sha256"] is None
     assert item["bank_rows"] == 0 and item["backbone"] is None and item["img_size"] == SIZE
     assert item["calibration"] == {"strategy": "holdout", "n": 24, "guaranteed": True}
 
@@ -234,10 +236,13 @@ def test_load_inspectors_reads_a_reconstruction_set(tmp_path, monkeypatch):
     assert all(isinstance(i, ReconstructionInspector) for i in found.values())
     assert found["candle"].session is found["pcb1"].session is not found["pcb2"].session
     assert created == [(tmp_path.name, "model_fp32.onnx", 2), ("pcb2", "model_fp32.onnx", 2)]
-    # 각 검사기는 `ReconstructionInspector.load`가 그 폴더로 만드는 것과 속성 하나하나까지 같다.
+    # 각 검사기는 `ReconstructionInspector.load`가 그 폴더로 만드는 것과 속성 하나하나까지 같다. 예외는 서비스
+    # 로더만 붙이는 model_sha256(시작할 때 대조한 모델 지문)이고, 이 세트의 meta에는 지문 기록이 없어
+    # None이다. vars()는 인스턴스의 __dict__ 자체라 사본에서 뺀다.
     for name, inspector in found.items():
         alone = ReconstructionInspector.load(tmp_path / name, threads=2)
-        mine, theirs = vars(inspector), vars(alone)
+        mine, theirs = dict(vars(inspector)), vars(alone)
+        assert mine.pop("model_sha256") is None
         assert set(mine) == set(theirs)
         for key, value in mine.items():
             if key == "session":
@@ -296,12 +301,17 @@ def test_a_reconstruction_set_needs_no_bank_and_a_patchcore_set_still_does(tmp_p
 # 모델의 점수를 이 임계값과 비교하게 된다. 확인: (1) 같으면 그대로 읽힌다, (2) 한 바이트라도 다르면 범주 폴더
 # 이름과 "does not match"를 담은 ValueError로 멈춘다(ReconstructionInspector.load도 같다), (3) 기록이 64자리
 # 16진수가 아니면 깨진 meta로 멈춘다, (4) INT8 지문이 없는 옛 아티팩트는 INT8로 띄울 때 대조를 건너뛰고,
-# 있으면 대조한다, (5) 12개 범주가 같이 쓰는 파일의 해시는 한 번만 계산한다.
+# 있으면 대조한다, (5) 12개 범주가 같이 쓰는 파일의 해시는 한 번만 계산한다, (6) 대조를 통과한 지문은
+# 검사기의 model_sha256에 남고 /categories가 그 앞 12자를 보인다(어떤 모델 파일이 떠 있는지 밖에서 확인할 수
+# 있게). 지문은 띄운 정밀도의 파일 것이다: INT8로 띄울 때 INT8 기록이 없으면 FP32 기록이 있어도 None(대조하지
+# 않은 파일의 지문을 보이지 않는다). /healthz는 지문을 더하지 않고 지금 모양 그대로다.
 def test_load_inspectors_checks_the_model_digest_recorded_in_meta(tmp_path, monkeypatch):
     import hashlib
 
     from defect_inspect import download
 
+    monkeypatch.delenv("DEFECT_INSPECT_PRECISION", raising=False)
+    monkeypatch.delenv("DEFECT_INSPECT_THREADS", raising=False)
     _fake_ort(monkeypatch)
     _write_set(tmp_path)
     good = hashlib.sha256(b"shared").hexdigest()
@@ -312,9 +322,15 @@ def test_load_inspectors_checks_the_model_digest_recorded_in_meta(tmp_path, monk
     hashed = []
     real = download.sha256_file
     monkeypatch.setattr(download, "sha256_file", lambda path: hashed.append(Path(path).name) or real(path))
-    assert sorted(service.load_inspectors(tmp_path)) == ["candle", "pcb1", "pcb2"]
+    found = service.load_inspectors(tmp_path)
+    assert sorted(found) == ["candle", "pcb1", "pcb2"]
     assert hashed == ["model_fp32.onnx"]  # 세 범주가 같이 쓰는 파일이라 한 번만
     assert ReconstructionInspector.load(tmp_path / "pcb1").threshold == 1.25
+    assert {name: i.model_sha256 for name, i in found.items()} == dict.fromkeys(found, good)
+    client = TestClient(service.create_app(tmp_path, admin_token=TOKEN), base_url=HOST)
+    shown = {item["category"]: item["model_sha256"] for item in client.get("/categories").json()}
+    assert shown == dict.fromkeys(("candle", "pcb1", "pcb2"), good[:12])
+    assert client.get("/healthz").json() == {"status": "ok", "categories": ["candle", "pcb1", "pcb2"]}
 
     (tmp_path / "model_fp32.onnx").write_bytes(b"shared, retrained")
     with pytest.raises(ValueError, match=r"candle.*model_fp32.onnx does not match the artifact meta"):
@@ -331,17 +347,26 @@ def test_load_inspectors_checks_the_model_digest_recorded_in_meta(tmp_path, monk
     meta["source"] = {"onnx_sha256": good}
     (tmp_path / "pcb2" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
-    # INT8: 지문이 없는 옛 아티팩트는 대조 없이 읽히고, 지문을 적으면 대조한다.
+    # INT8: 지문이 없는 옛 아티팩트는 대조 없이 읽히고(대조한 지문이 없으니 model_sha256은 None), 지문을
+    # 적으면 대조한다.
     (tmp_path / "model_int8_dynamic.onnx").write_bytes(b"int8")
-    assert service.load_inspectors(tmp_path, precision="int8-dynamic")["pcb1"].precision == "int8-dynamic"
-    for name in ("candle", "pcb1", "pcb2"):
-        meta = json.loads((tmp_path / name / "meta.json").read_text(encoding="utf-8"))
-        meta["source"]["onnx_int8_dynamic_sha256"] = hashlib.sha256(b"int8, old").hexdigest()
-        (tmp_path / name / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    int8 = service.load_inspectors(tmp_path, precision="int8-dynamic")["pcb1"]
+    assert int8.precision == "int8-dynamic" and int8.model_sha256 is None
+
+    def record_int8(digest: str) -> None:
+        for name in ("candle", "pcb1", "pcb2"):
+            meta = json.loads((tmp_path / name / "meta.json").read_text(encoding="utf-8"))
+            meta["source"]["onnx_int8_dynamic_sha256"] = digest
+            (tmp_path / name / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    record_int8(hashlib.sha256(b"int8, old").hexdigest())
     with pytest.raises(ValueError, match="model_int8_dynamic.onnx does not match the artifact meta"):
         service.load_inspectors(tmp_path, precision="int8-dynamic")
     # FP32는 INT8 지문과 상관없이 자기 지문으로만 대조한다.
     assert sorted(service.load_inspectors(tmp_path)) == ["candle", "pcb1", "pcb2"]
+    record_int8(hashlib.sha256(b"int8").hexdigest())
+    int8 = service.load_inspectors(tmp_path, precision="int8-dynamic")["pcb1"]
+    assert int8.model_sha256 == hashlib.sha256(b"int8").hexdigest() != good
 
 
 # 서빙 인터페이스(입력 image, 출력 score·map)를 가진 실제 ONNX 모델을 만들어 저장한다. onnx.checker로 형식을

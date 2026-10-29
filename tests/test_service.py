@@ -7,8 +7,9 @@
 # 판정(예: Anti-CSRF 지적을 오탐으로 본 근거)도 이 파일의 테스트에 기대고 있다.
 # [주요 구성] 요청 도우미와 ASGI 직접 호출 → 판정·히트맵·입력 형식(RGB 그림은 복사 없이 디코딩) → 잘못된
 # 요청과 크기 제한 → 손상 파일과 디코더 보안 권고 회귀(작은 BMP·APNG) → 16비트·투명도·미리보기 → 재보정과
-# 되돌리기 → 관리자 토큰·다른 출처 거절 → 잠금과 동시 요청·대기열 → 본문을 받기 전의 입장 제한(503)과 스풀
-# 공간 부족 → Host 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors)와 시작 예열 → 히트맵 PNG 눈금과
+# 되돌리기 → 관리자 토큰·다른 출처 거절 → 임계값 변경·토큰 거절의 감사 기록(uvicorn 기본 로깅에서 표준
+# 출력의 JSON 한 줄) → 잠금과 동시 요청·대기열 → 본문을 받기 전의 입장 제한(503)과 스풀 공간 부족 → Host
+# 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors, 대조한 모델 지문)와 시작 예열 → 히트맵 PNG 눈금과
 # 비유한 맵 거부 → 데모 페이지 JS(node가 있을 때).
 
 import asyncio
@@ -18,12 +19,14 @@ import inspect as pyinspect
 import io
 import itertools
 import json
+import re
 import shutil
 import struct
 import subprocess
 import threading
 import time
 import tracemalloc
+import urllib.parse
 import zlib
 from pathlib import Path
 
@@ -53,6 +56,11 @@ HOST = "http://127.0.0.1"
 TOKEN = "test-admin-token"
 ADMIN = {"X-Admin-Token": TOKEN}
 SECURITY = ("x-content-type-options", "x-frame-options", "content-security-policy", "referrer-policy")
+# 감사 기록(임계값 변경·관리자 토큰 거절)을 쓰는 로거 이름. 서비스는 이 로거로 표준 출력에 JSON 한 줄씩 쓰고,
+# 운영자는 로그 설정에서 이 이름으로 감사 줄을 따로 다룰 수 있다(README 검사 서비스 절). AUDIT_TIME은 감사
+# 줄의 time 필드 형식: 밀리초까지의 UTC ISO 8601 시각(예: 2026-10-24T12:34:56.789+00:00).
+AUDIT_LOGGER = "defect_inspect.audit"
+AUDIT_TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}\+00:00")
 
 
 # 배열이나 PIL 이미지를 원하는 형식의 파일 바이트로 인코딩한다(업로드 본문을 만드는 데 쓴다).
@@ -125,8 +133,13 @@ def _state(client) -> dict:
 
 # HTTP 클라이언트를 거치지 않고 ASGI 앱을 직접 부르는 도우미. 클라이언트가 경로의 '..'을 정리해 버리거나
 # 본문을 한꺼번에 보내는 것을 피해, 경로 탈출 시도와 '본문을 조각으로 보낼 때 앱이 얼마나 읽었는가(pulled)'를
-# 그대로 시험할 수 있다.
-def _asgi(app, method: str, path: str, *, headers=(), chunks=()):
+# 그대로 시험할 수 있다. root_path는 uvicorn --root-path로 띄웠을 때의 scope를 흉내 낸다: uvicorn은 path에
+# root_path를 앞붙여 넘기므로(path도 root_path로 시작하게 준다) Starlette 라우터는 그것을 떼고 경로를 맞춘다.
+# peer는 scope의 client((주소, 포트))다. uvicorn은 믿는 프록시에서 온 연결이면 이 값을
+# X-Forwarded-For로 바꾸므로, 감사 줄의 client 필드가 서버 밖에서 온 글자를 담는 경우를 흉내 낼 때 쓴다.
+def _asgi(
+    app, method: str, path: str, *, headers=(), chunks=(), root_path: str = "", peer=("127.0.0.1", 50000)
+):
     """ASGI 앱을 직접 부른다: 경로를 클라이언트가 정리하지 않고, 본문은 조각으로 들어간다.
 
     (상태 코드, 헤더, 본문, 앱이 요청해 받아 간 본문 조각들의 크기)를 돌려준다.
@@ -140,9 +153,9 @@ def _asgi(app, method: str, path: str, *, headers=(), chunks=()):
         "path": path,
         "raw_path": path.encode(),
         "query_string": b"",
-        "root_path": "",
+        "root_path": root_path,
         "headers": [(b"host", b"127.0.0.1"), *((k.lower().encode(), v.encode()) for k, v in headers)],
-        "client": ("127.0.0.1", 50000),
+        "client": peer,
         "server": ("127.0.0.1", 80),
     }
     body = iter(chunks)
@@ -178,7 +191,10 @@ def _multipart_head(field: str = "image") -> tuple[dict, bytes]:
 
 
 # /healthz와 /categories의 기본 응답. 오프라인 검사기는 정상 24장으로 보정돼 있어 보정 기록이 holdout, n 24,
-# 보장됨이다. 헤더만 묻는 HEAD 요청(상태 점검 도구가 쓰는 방식)도 200이어야 한다.
+# 보장됨이다. /categories의 model_sha256(시작할 때 대조한 모델 파일 지문의 앞 12자)은 모델 파일이 없는 합성
+# 검사기라 null이다. /healthz는 상태와 범주 목록만 내고 그 모양이 정확히 그대로여야 한다(compose의 상태 점검과
+# CI docker 작업이 이 응답을 그대로 비교한다). 헤더만 묻는 HEAD 요청(상태 점검 도구가 쓰는 방식)도 200이어야
+# 한다.
 def test_health_and_categories(client):
     response = client.get("/healthz")
     assert response.status_code == 200 and response.json() == {"status": "ok", "categories": ["demo"]}
@@ -186,6 +202,7 @@ def test_health_and_categories(client):
     assert [i["category"] for i in items] == ["demo"]
     assert items[0]["img_size"] == 64 and items[0]["threshold"] > 0
     assert items[0]["calibration"] == {"strategy": "holdout", "n": 24, "guaranteed": True}
+    assert items[0]["model"] == "offline" and items[0]["model_sha256"] is None
     # 헤더만 묻는 상태 점검(HEAD 요청)도 동작한다.
     assert client.head("/healthz").status_code == 200 and client.head("/").status_code == 200
 
@@ -722,6 +739,194 @@ def test_reset_restores_the_threshold_of_the_artifact(client):
     assert bare.delete("/calibrate", params={"category": "demo"}, headers=ADMIN).status_code == 200
     assert "alpha" not in inspector.meta and "calibration" not in inspector.meta
     assert _state(bare)["alpha"] is None and _state(bare)["calibration"] is None
+
+
+# uvicorn이 로그 설정 없이 뜰 때 거는 기본 설정(uvicorn.config.LOGGING_CONFIG)을 이 테스트 동안만 적용한다.
+# 왜: 서비스는 uvicorn --factory로 뜨고(Dockerfile의 기본 명령), 이 설정은 uvicorn.* 로거에만 핸들러를 단다.
+# 그래서 다른 로거의 INFO 줄(logging.getLogger(__name__).info 등)은 어디에도 출력되지 않고, WARNING 이상만
+# logging의 마지막 수단 핸들러로 시각 없이 표준 오류에 나간다. 감사 줄이 이 조건에서도 실제로 표준 출력에
+# 나오는지 보려면 같은 설정을 건 뒤 capfd(파일 기술자 1·2를 잡는 캡처)로 읽어야 한다. caplog는 루트 로거에
+# 자기 핸들러를 달아 '출력되지 않음'을 잡지 못한다. 감사 로거는 처음 만든 앱이 핸들러를 붙이므로, 새
+# 프로세스처럼 핸들러가 없는 상태에서 시작한다. 주의: dictConfig는 프로세스 전체의 로깅 상태를 바꾼다(uvicorn
+# 로거에 이 테스트의 캡처 스트림에 묶인 핸들러를 달고, 설정에 없는 로거의 disabled를 다시 쓴다). 그래서 끝나면
+# 모든 로거의 핸들러·수준·propagate·disabled를 원래대로 돌려 다음 테스트에 영향이 없게 한다(이 테스트 중에
+# 새로 생긴 로거는 기본 상태로).
+@pytest.fixture
+def uvicorn_logging():
+    import copy
+    import logging
+    import logging.config
+
+    uvicorn_config = pytest.importorskip("uvicorn.config")
+
+    # 지금 있는 모든 로거(루트 포함). loggerDict에는 아직 로거가 없는 이름 자리(PlaceHolder)도 있어 뺀다.
+    # list()로 한 번에 복사해, 도는 동안 다른 스레드가 로거를 만들어도 반복이 깨지지 않게 한다.
+    def everyone() -> list:
+        known = list(logging.root.manager.loggerDict.values())
+        return [logging.root, *(log for log in known if isinstance(log, logging.Logger))]
+
+    audit = logging.getLogger(AUDIT_LOGGER)
+    saved = {log.name: (log.handlers[:], log.level, log.propagate, log.disabled) for log in everyone()}
+    for handler in audit.handlers[:]:
+        audit.removeHandler(handler)
+    audit.setLevel(logging.NOTSET)
+    audit.propagate = True
+    logging.config.dictConfig(copy.deepcopy(uvicorn_config.LOGGING_CONFIG))
+    try:
+        yield
+    finally:
+        for log in everyone():
+            handlers, level, propagate, disabled = saved.get(log.name, ([], logging.NOTSET, True, False))
+            log.handlers[:] = handlers
+            log.setLevel(level)
+            log.propagate = propagate
+            log.disabled = disabled
+
+
+# capfd로 읽은 표준 출력을 감사 줄(JSON 객체)의 목록으로 바꾼다. 비어 있지 않은 줄은 모두 감사 줄이어야 한다:
+# 다른 글이 섞이거나 한 기록이 여러 줄로 쪼개지면 json.loads가 실패해 테스트가 깨진다.
+def _audit_lines(out: str) -> list[dict]:
+    return [json.loads(line) for line in out.splitlines() if line.strip()]
+
+
+# 재보정과 되돌리기는 임계값이 바뀔 때마다 표준 출력에 감사 줄(JSON 한 줄)을 남긴다: 언제(time), 무엇이(event:
+# calibrate·reset), 어느 범주가 몇 장(n)·어떤 α로 보장 여부(guaranteed)와 함께 어떤 임계값에서 어떤
+# 임계값으로(previous_threshold → threshold), 어디서(client: uvicorn 접근 로그와 같은 '주소:포트') 바꿨는지.
+# 왜: 재보정한 임계값은 메모리에만 있어 다시 띄우면 사라지고, uvicorn 접근 로그에는 요청 줄과 상태 코드만 남아
+# 판정 기준이 언제 무엇에서 무엇으로 바뀌었는지를 사후에 재구성할 수 없었다. reset 줄의 n·alpha·guaranteed는
+# 되돌린 뒤(아티팩트)의 값이다. uvicorn 기본 로깅 설정에서 확인하고(uvicorn_logging), 앱을 둘 만들어도 줄이 두
+# 번 나오지 않으며(핸들러는 없을 때만 한 번 붙임), 관리자 토큰과 업로드 파일 이름은 어느 출력에도 없고, 조회·
+# 검사처럼 임계값을 바꾸지 않는 요청은 감사 줄을 남기지 않는다. 감사 줄은 표준 오류가 아니라 표준 출력에 쓴다.
+def test_threshold_changes_are_audited_on_stdout_under_uvicorn_logging(uvicorn_logging, capfd):
+    client = _client()
+    _client()  # 두 번째 앱: 감사 핸들러를 또 붙이면 아래 줄이 두 번씩 나온다
+    before = _state(client)
+    capfd.readouterr()
+    named = [("images", (f"line3-secret-{i}.png", _png(im), "image/png")) for i, im in enumerate(_bright(25))]
+    changed = client.post("/calibrate", files=named, data={"category": "demo"}, headers=ADMIN)
+    undone = client.delete("/calibrate", params={"category": "demo"}, headers=ADMIN)
+    assert changed.status_code == 200 and undone.status_code == 200
+    assert client.get("/categories").status_code == 200 and client.get("/healthz").status_code == 200
+    assert _inspect(client, _png(_normal())).status_code == 200
+    out, err = capfd.readouterr()
+
+    lines = _audit_lines(out)
+    assert [line["event"] for line in lines] == ["calibrate", "reset"]
+    for line in lines:
+        assert AUDIT_TIME.fullmatch(line["time"]) and line["level"] == "INFO"
+    fields = [{k: v for k, v in line.items() if k not in ("time", "level")} for line in lines]
+    calibrated = changed.json()
+    assert fields[0] == {
+        "event": "calibrate",
+        "category": "demo",
+        "n": 25,
+        "alpha": 0.05,
+        "guaranteed": True,
+        "previous_threshold": before["threshold"],
+        "threshold": calibrated["threshold"],
+        "client": "testclient:50000",
+    }
+    assert fields[1] == {
+        "event": "reset",
+        "category": "demo",
+        "n": before["calibration"]["n"],
+        "alpha": before["alpha"],
+        "guaranteed": before["calibration"]["guaranteed"],
+        "previous_threshold": calibrated["threshold"],
+        "threshold": before["threshold"],
+        "client": "testclient:50000",
+    }
+    assert calibrated["previous_threshold"] == before["threshold"] != calibrated["threshold"]
+    assert undone.json()["threshold"] == before["threshold"]
+    # 감사 줄은 표준 출력에만 있고, 비밀값과 업로드 파일 이름은 어느 출력에도 남지 않는다.
+    assert '"event"' not in err
+    for secret in (TOKEN, "line3-secret"):
+        assert secret not in out and secret not in err
+
+
+# 관리자 토큰 때문에 403으로 거절한 요청은 사유를 담은 WARNING 감사 줄 하나를 남긴다. reason은 disabled(토큰을
+# 설정하지 않아 /calibrate가 꺼져 있음), missing(X-Admin-Token 헤더가 없거나 빈 값), mismatch(값이 틀림)이고,
+# method·path·client가 함께 남는다. 보낸 값이든 설정한 토큰이든 토큰 값은 남기지 않는다(틀린 값은 진짜 토큰과
+# 한 글자만 다를 수 있다). 하위 경로(/calibrate/...)와 GET·DELETE도 같은 검사라 같은 줄이 남는다. path는
+# 요청하는 쪽이 마음대로 고를 수 있는 필드라 uvicorn 접근 로그처럼 퍼센트 인코딩해 남긴다: 줄 바꿈과 JSON을
+# 담은 경로로 가짜 감사 줄을 끼워 넣지 못하고(줄 수가 그대로), 디코딩하면 원래 경로가 된다. 라우트
+# 수준의 같은 검사(require_admin, _Guard와 경로 판단이 어긋날 때의 이중 장치)가 거절해도 같은 줄이 남는다:
+# uvicorn --root-path로 띄우면 scope의 path가 root_path로 시작해 _Guard는 관리자 경로로 보지 않고, 라우터가
+# root_path를 떼어 /calibrate 라우트로 보낸 뒤 require_admin이 거절한다. 토큰이 맞는 요청과 조회는 거절 줄을
+# 남기지 않는다.
+def test_refused_admin_requests_are_audited_with_a_reason(uvicorn_logging, capfd, monkeypatch):
+    monkeypatch.delenv("DEFECT_INSPECT_ADMIN_TOKEN", raising=False)
+    wrong = "not-the-admin-token-7f3a"
+    closed = TestClient(service.create_offline_app(), base_url=HOST)  # 토큰을 설정하지 않음: 꺼져 있다
+    client = _client()
+    capfd.readouterr()
+    white = [np.full((64, 64, 3), 255, np.uint8)] * 19
+    assert _calibrate(closed, white).status_code == 403
+    for headers in (None, {"X-Admin-Token": ""}, {"X-Admin-Token": wrong}):
+        assert _calibrate(client, white, headers=headers).status_code == 403
+    denied = client.delete("/calibrate", params={"category": "demo"}, headers={"X-Admin-Token": wrong})
+    assert denied.status_code == 403
+    assert client.get("/calibrate/anything").status_code == 403
+    forged = '/calibrate/\n{"event": "calibrate", "threshold": 0}'
+    assert _asgi(client.app, "POST", forged)[0] == 403
+    rooted = _asgi(client.app, "POST", "/x/calibrate", root_path="/x", headers=[("X-Admin-Token", wrong)])
+    assert rooted[0] == 403
+    assert client.get("/healthz").status_code == 200
+    assert _calibrate(client, white).status_code == 200
+    out, err = capfd.readouterr()
+
+    lines = _audit_lines(out)
+    assert [line["event"] for line in lines] == ["admin_refused"] * 8 + ["calibrate"]
+    refused = lines[:8]
+    for line in refused:
+        assert set(line) == {"time", "level", "event", "reason", "method", "path", "client"}
+        assert AUDIT_TIME.fullmatch(line["time"]) and line["level"] == "WARNING"
+    seen = [(line["reason"], line["method"], line["path"], line["client"]) for line in refused]
+    assert seen[:6] == [
+        ("disabled", "POST", "/calibrate", "testclient:50000"),
+        ("missing", "POST", "/calibrate", "testclient:50000"),
+        ("missing", "POST", "/calibrate", "testclient:50000"),
+        ("mismatch", "POST", "/calibrate", "testclient:50000"),
+        ("mismatch", "DELETE", "/calibrate", "testclient:50000"),
+        ("missing", "GET", "/calibrate/anything", "testclient:50000"),
+    ]
+    # 가짜 줄을 끼우려던 경로: 한 줄로 남고, 인쇄 가능한 ASCII뿐이며, 디코딩하면 보낸 경로 그대로다.
+    reason, method, path, address = seen[6]
+    assert (reason, method, address) == ("missing", "POST", "127.0.0.1:50000")
+    assert path.isascii() and path.isprintable() and urllib.parse.unquote(path) == forged
+    assert seen[7] == ("mismatch", "POST", "/x/calibrate", "127.0.0.1:50000")
+    for secret in (TOKEN, wrong):
+        assert secret not in out and secret not in err
+
+
+# 감사 기록 하나는 필드에 어떤 글자가 와도 한 줄이다. json.dumps는 따옴표·역슬래시와 U+0000~U+001F(줄 바꿈
+# 포함)를 이스케이프하지만, ensure_ascii=False에서는 U+0085(NEL)·U+2028·U+2029를 그대로 둔다. 이 셋은
+# str.splitlines()와 일부 로그 도구가 줄의 끝으로 보므로, 그대로 두면 한 기록이 두 줄로 쪼개지고 뒷부분이
+# 따로 읽히는 가짜 줄이 된다. client 필드가 그런 글자를 담는 예: uvicorn은 믿는
+# 프록시(--forwarded-allow-ips)에서 온 연결이면 X-Forwarded-For 값을 latin-1로 디코딩해 scope의 client로
+# 쓰므로 U+0085가 들어올 수 있다. 감사 형식은 이 셋을 같은 뜻의 \u 이스케이프로 쓴다: 출력에 그 글자가 없고,
+# JSON으로 읽으면 원래 값 그대로다. 한글 범주 이름처럼 줄을 끊지 않는 글자는 이스케이프하지 않고 그대로
+# 읽히게 쓴다(ensure_ascii=False 유지).
+def test_an_audit_record_stays_one_line_whatever_the_characters(uvicorn_logging, capfd):
+    client = _client()
+    korean = TestClient(
+        service.create_app(inspectors={"캔들": service.offline_inspector()}, admin_token=TOKEN), base_url=HOST
+    )
+    capfd.readouterr()
+    sneaky = '10.0.0.7\x85{"event": "calibrate", "threshold": 0}\u2028\u2029'
+    assert _asgi(client.app, "POST", "/calibrate", peer=(sneaky, 0))[0] == 403
+    assert korean.delete("/calibrate", params={"category": "캔들"}, headers=ADMIN).status_code == 200
+    out, err = capfd.readouterr()
+
+    lines = _audit_lines(out)
+    assert [(line["event"], line.get("reason")) for line in lines] == [
+        ("admin_refused", "missing"),
+        ("reset", None),
+    ]
+    assert lines[0]["client"] == f"{sneaky}:0"
+    assert not any(char in out for char in "\x85\u2028\u2029")
+    assert lines[1]["category"] == "캔들" and '"category": "캔들"' in out
+    assert '"event"' not in err
 
 
 # 검사기 meta 대신 끼우는 dict. alpha·calibration에 접근할 때마다 그 순간 범주 잠금이 잡혀 있었는지 기록해,
@@ -1286,11 +1491,14 @@ def test_load_inspectors_shares_one_session_per_model_file(tmp_path, monkeypatch
         (tmp_path.name, 3, ["CPUExecutionProvider"]),
         ("pcb2", 3, ["CPUExecutionProvider"]),
     ]
-    # 각 검사기는 `Inspector.load`가 그 폴더로 만드는 것과 같아야 한다. 골라 낸 몇 개가 아니라 모든
-    # 속성을 비교해, 로더가 바뀌었을 때 이쪽이 모르는 사이에 뒤처지지 않게 한다.
+    # 각 검사기는 `Inspector.load`가 그 폴더로 만드는 것과 같아야 한다. 골라 낸 몇 개가 아니라 모든 속성을
+    # 비교해, 로더가 바뀌었을 때 이쪽이 모르는 사이에 뒤처지지 않게 한다. 예외는 서비스 로더만 붙이는
+    # model_sha256 하나(시작할 때 대조한 모델 파일 지문, /categories가 앞 12자를 보인다)이고, 이 세트의
+    # meta에는 지문 기록이 없으므로 None이다. vars()는 인스턴스의 __dict__ 자체라 사본에서 뺀다.
     for name, inspector in found.items():
         alone = Inspector.load(tmp_path / name, threads=3)
-        mine, theirs = vars(inspector), vars(alone)
+        mine, theirs = dict(vars(inspector)), vars(alone)
+        assert mine.pop("model_sha256") is None
         assert set(mine) == set(theirs)
         for key, value in mine.items():
             if key == "session":
