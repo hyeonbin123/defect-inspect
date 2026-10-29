@@ -122,6 +122,7 @@ curl -s -X POST https://api.osv.dev/v1/query -d '{"package":{"name":"torchvision
 - (3)의 affects 조회는 이름 표기에 따라 결과가 갈렸다(같은 날 `pillow@12.3.0` 11건, `Pillow@12.3.0` 28건, 겹치는 것 없음)
 - (2)는 `--require-hashes`를 주어도 해시가 있는지만 보고 값이 맞는지는 확인하지 않는다는 경고를 낸다. 해시 검증은 (1)이 한다
 - (4)를 두는 이유: 학습용 그룹(`train`·`dinomaly`)은 서비스 이미지에 들어가지 않아 CI가 대조하지 않는다. 이 그룹을 손으로 대조할 때 (1)·(2)의 `--group serve`를 `--group train --group dinomaly`로 바꾸면 torch·torchvision은 "Dependency not found on PyPI"로 빠지므로, 이 둘은 (4)로 채운다
+- 2026-10-29 추가: CI audit 작업이 (1)에 이어 (2)의 OSV 대조도 돈다. (3)과 (4), 그리고 서비스 집합 밖의 그룹 대조는 여전히 손으로 한다. 잠금 전체를 한 번에 볼 때는 (1)·(2)의 `--no-dev --group serve` 대신 `--all-groups`를 준다
 
 ### 2026-10-24 Pillow 12.3.0 → 13.0.0, opentelemetry-api 1.45.0 → 1.45.1
 - **계기**: 위 절차 (1)을 다시 돌리니 `Found 36 known vulnerabilities in 2 packages`가 나왔다. pillow 12.3.0에 35건(수정 판은 모두 13.0.0), fastapi가 끌어오는 opentelemetry-api 1.45.0에 1건(CVE-2026-114603 / GHSA-xcq7-p3pf-p88h, tracestate를 제한 없이 해석함, 수정 판 1.45.1)이다. 권고들은 2026-10-20~22에 올라왔고 마지막 push(2026-10-18)보다 뒤라 CI는 녹색으로 남아 있었지만, 다음 push부터 audit 작업이 실패할 상태였다. (2)와 (3)에서는 pillow가 39건이었다(GHSA-8g5g-8vmr-9782, GHSA-xvh5-g6gv-559v, GHSA-rfgq-q3w2-pmv2, GHSA-4558-3h8r-v8xp가 더 있음)
@@ -143,3 +144,16 @@ curl -s -X POST https://api.osv.dev/v1/query -d '{"package":{"name":"torchvision
 - **회귀 테스트** (`tests/test_service.py`): `test_a_tiny_rle_bmp_does_not_blow_up_into_a_huge_allocation`은 위 BMP를 `_decode`에 넣고 디코딩 동안 늘어난 파이썬 메모리 최고치가 20MB보다 작은지 본다(12.3.0에서 97.8MB로 실패, 13.0.0에서 통과). `test_the_installed_pillow_has_the_decoder_security_fixes`는 Pillow 주 버전이 13 이상인지와 위 APNG가 400인지를 본다. APNG의 바탕 그림은 Pillow의 C 코드가 잡는 메모리라 tracemalloc으로 잴 수 없어서, 잠금이 낮은 버전으로 돌아가는 것을 버전 단언으로 막는다
 - **측정 기록에 미치는 영향**: 없다. 봉인 test가 아닌 VisA 학습 풀 6,493장을 리사이즈 캐시와 같은 호출로 280·256px로 줄인 결과가 Pillow 12.3.0으로 만든 기존 캐시와 모두 바이트 단위로 같았다. 자세한 내용은 [experiments.md](experiments.md) 공통 규칙의 '전처리' 절에 적었다
 - **학습용 torch (같은 날, 절차 (4))**: OSV에 물으니 torch 2.11.0에 GHSA-rrmf-rvhw-rf47(CVE-2025-3000, `torch.jit.script`의 메모리 손상, 심각도 low, 수정 판 2.13.0) 1건이 있고 torchvision 0.26.0에는 없었다. 판단: 그대로 둔다. torch는 학습·내보내기 그룹에만 있고 서비스 이미지에는 없다. 이 저장소의 코드는 `torch.jit.script`를 부르지 않는다. anomalib이 끌어오는 kornia가 가져올 때 자기 함수를 스크립팅하고, ONNX 내보내기(`dynamo=False`)가 TorchScript 기반 추적을 쓰지만, 다루는 것은 설치한 라이브러리와 이 저장소의 코드뿐이고 외부에서 받은 TorchScript를 불러오지 않는다. 수정 판은 `pytorch-cu128` 인덱스에 없다(이 인덱스의 마지막 판은 torch 2.11.0·torchvision 0.26.0이고, torch 2.13.0 이상은 cu130·cu132 인덱스에 있다). 올릴 때의 절차는 `pyproject.toml`의 인덱스 주석에 적었다
+
+### 2026-10-29 학습·개발 그룹: aiohttp 3.14.3 → 3.14.5, certifi 2026.7.22 → 2026.10.23, filelock 4.0.7 → 4.2.4
+- **계기**: 서비스 집합은 위 절차 (1)·(2) 모두 `No known vulnerabilities found`였다. 잠금 전체(`--all-groups`)를 같은 방식으로 대조하니 pip-audit이 PyPI에서 27건(4개 패키지), OSV에서 28건(5개 패키지)을 냈다. aiohttp 3.14.3에 8건(수정 판 3.14.4, `dinomaly` 그룹의 lightning → fsspec[http]가 끌어옴), certifi 2026.7.22에 PYSEC-2026-4320(수정 판 2026.10.19, `dev` 그룹의 httpx·httpcore), filelock 4.0.7에 14건(CVE-2026-112907 등, 수정 판 4.2.1이고 한 건은 4.0.9, `train`·`dinomaly` 그룹의 torch·huggingface-hub), setuptools 81.0.0에 2건, 그리고 OSV에만 torch 2.11.0+cu128의 PYSEC-2025-194(위 절의 CVE-2025-3000) 1건이다. certifi와 setuptools의 PYSEC 권고는 pip-audit 출력에 같은 ID가 두 줄씩 나와 건수에 두 번 들어간다
+- **조치**: `uv lock --upgrade-package aiohttp --upgrade-package certifi --upgrade-package filelock`로 세 패키지만 올렸다. 다른 패키지의 판과 잠금 형식(revision 5)은 바뀌지 않았다. 서비스 집합(기본 + `serve`)의 내보내기 목록은 갱신 전과 같아 이미지 내용은 바뀌지 않는다. 세 패키지 모두 학습·채점 수치를 계산하는 경로의 라이브러리가 아니다(내려받기·잠금 파일·인증서 묶음)
+- **조치 뒤 대조**: 서비스 집합 (1)·(2) 0건. 잠금 전체는 PyPI 3건·OSV 4건으로, 남은 것은 아래 setuptools와 torch(위 절의 판단 그대로)뿐이다. 같은 날 CI docker 작업이 잠시 설치하는 onnx 집합(`.github/ci/requirements-onnx.txt`)도 (1)·(2) 방식으로 대조해 0건이었다(CI는 이 집합을 대조하지 않는다)
+- **남긴 것: setuptools 81.0.0** (`train`·`dinomaly` 그룹, torch가 끌어옴)
+
+| 권고 | 내용 | 이 저장소 | 근거 |
+|---|---|---|---|
+| PYSEC-2026-3447 (CVE-2026-59890) | MANIFEST.in의 제외 규칙이 macOS APFS·HFS+에서 NFD 파일 이름으로 우회되어 소스 배포에 파일이 섞임, 수정 판 83.0.0 | 닿지 않음 | 이 저장소는 setuptools로 소스 배포를 만들지 않는다(빌드 백엔드는 hatchling) |
+| GHSA-xmj3-9gf7-h52w | Windows에서 옛 방식 wheel 설치(`Wheel.install_as_egg`)가 wheel 안의 `namespace_packages.txt` 때문에 대상 폴더 밖에 `__init__.py`를 만듦, 수정 판 84.1.0 | 닿지 않음 | wheel은 uv가 설치하고 setuptools의 옛 설치 경로를 쓰지 않는다 |
+
+- **setuptools를 올리지 못하는 이유**: torch 2.11.0이 `setuptools<82`를 요구해 `uv lock --upgrade-package setuptools`가 잠금을 바꾸지 않는다. torch는 학습·채점 수치에 닿는 라이브러리라 이 갱신에서 올리지 않는다(올릴 때의 절차는 `pyproject.toml`의 인덱스 주석). setuptools는 서비스 이미지에 들어가지 않는다
