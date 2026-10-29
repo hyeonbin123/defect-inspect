@@ -10,7 +10,8 @@
 # [설계 이유] M2AD의 독립 표본은 시편이므로 3-B의 ClusterBootstrap을 그대로 쓴다. 같은 seed·같은 검사기 순서로
 # 만들면 3-B 표와 같은 재표집이 나와, 3-B 사람 재보정 행과의 차이도 같은 추출로 낼 수 있다. 임계값을 정하는
 # 규칙(conformal, 목표 5%)은 calibrate.conformal_threshold 하나만 쓴다.
-# [흐름] calibrate: 3-B 실행 + 8-A 실행 → 팔(T8, T19, T30)마다 조명별 임계값 → 합산 비율 → H23.
+# [흐름] calibrate: 3-B 실행 + 8-A 실행 → 팔(T8, T19, T30)마다 조명별 임계값 → 합산 비율 → H23. 팔마다
+# 검사기·조명 평균 이미지 AUROC도 같은 추출로 낸다(판정 없음).
 # loop: 3-B 실행 + 7단계 폐루프 + 8-B 실행 → 재현 관문 → 팔별 표 → H25와 차이.
 # dms-train: 8-C 학습 기록과 학습 시편 교차 적합 점수 → 팔별 등록·못 본 조명 오검출률(판정 없음).
 # dms-test: 8-C test 점수 → 7단계와 같은 표 → H24, 임계값만 다시 잡기, 폐루프(판정 없음).
@@ -101,6 +102,20 @@ def _threshold_summary(thresholds: list) -> dict:
     }
 
 
+# 조명 칸 여러 개의 이미지 AUROC를 한 값으로 모은다. 칸(조명)마다 ClusterBootstrap.auroc로 검사기 평균 AUROC를
+# 내고 조명끼리 단순 평균한다. 재표집 표본도 같은 추출 안에서 조명 평균을 낸다(7단계·8-C의 못 본 조명 AUROC
+# 평균과 같은 정의). 입력: 칸 목록(검사기마다 점수, 라벨, 임계값). 출력: {"auroc": 관측값, "auroc_samples":
+# [n_boot]}. AUROC는 임계값을 쓰지 않으므로 점수와 라벨이 같은 칸이면 임계값 규칙이 달라도 값이 같다. 어떤
+# 조명 칸에 AUROC가 없으면(정상이나 결함 이미지가 하나도 없음) 그 평균은 nan이고, 구간은 nan 표본을 빼고 낸다.
+def _mean_auroc(boot: ClusterBootstrap, cells: list) -> dict:
+    values, samples = [], []
+    for cell in cells:
+        value, draws = boot.auroc(cell)
+        values.append(value)
+        samples.append(draws)
+    return {"auroc": float(np.mean(values)), "auroc_samples": np.mean(np.stack(samples), axis=0)}
+
+
 # ---------------------------------------------------------------- 8-A
 
 
@@ -137,8 +152,14 @@ def threshold_cell(ref: dict, run: dict, light: str, n: int) -> tuple[list, list
 # 방법 하나의 8-A 표. 팔 T8·T19·T30(임계값만), 3-B의 뱅크+임계값 재보정(bank8, bank30), 재보정 없음(none)을
 # 같은 부트스트랩 추출로 내고, H23(T30 − bank30 검출률)과 T30 오검출률 상한이 10% 이하인지를 적는다. 동일성
 # 관문 기록도 같이 싣는다.
+# 팔마다 붙는 검사기·조명 평균 이미지 AUROC(auroc, auroc_ci)와 H23 옆의 같은 추출 AUROC 차이
+# (d_auroc_t30_bank30)는 판정 없는 보조 수치다. H23의 검출률 차이에는 분리도(AUROC) 차이와 운영점(임계값 순위:
+# T30은 30장 중 30번째, bank30은 60장 중 58번째) 차이가 함께 들어 있어, 팔의 분리도를 따로 보려고 측정 뒤에
+# 더했다. 3-B 실행에 저장된 점수만 쓰므로 봉인 이미지를 다시 읽지 않고 장부 줄도 생기지 않는다. 임계값만 팔은
+# test 점수가 none(3-B E0 점수)과 같아 AUROC도 none과 같다. 새 키는 각 묶음의 끝에 붙여 기존 키의 값과 순서는
+# 그대로다(커밋한 리포트를 다시 만들어도 새 키만 는다).
 def calibrate_method(ref: dict, run: dict, boot: ClusterBootstrap) -> dict:
-    arms, per_light = {}, {}
+    arms, per_light, aurocs = {}, {}, {}
     for n in THRESHOLD_ARMS:
         cells, thresholds = [], []
         for light in NEW_LIGHTS:
@@ -147,17 +168,22 @@ def calibrate_method(ref: dict, run: dict, boot: ClusterBootstrap) -> dict:
             thresholds += thr
             per_light[f"T{n}:{light}"] = _public(_rates(boot, [cell]))
         arms[f"T{n}"] = _rates(boot, cells) | {"thresholds": _threshold_summary(thresholds)}
+        aurocs[f"T{n}"] = _mean_auroc(boot, cells)
     for n in (8, 30):
         cells = [recal_cell(ref, f"{light}:{n}") for light in NEW_LIGHTS]
         arms[f"bank{n}"] = _rates(boot, cells)
+        aurocs[f"bank{n}"] = _mean_auroc(boot, cells)
         for light, cell in zip(NEW_LIGHTS, cells, strict=True):
             per_light[f"bank{n}:{light}"] = _public(_rates(boot, [cell]))
-    arms["none"] = _rates(boot, [condition_cell(ref, f"R:{light}") for light in NEW_LIGHTS])
+    none_cells = [condition_cell(ref, f"R:{light}") for light in NEW_LIGHTS]
+    arms["none"] = _rates(boot, none_cells)
+    aurocs["none"] = _mean_auroc(boot, none_cells)
     d_tpr = _diff(arms["T30"], arms["bank30"], "tpr")
     lo, hi = d_tpr["ci"]
     t30_fpr_ci = _ci(arms["T30"]["fpr_samples"])
+    public_auroc = {k: {"auroc": a["auroc"], "auroc_ci": _ci(a["auroc_samples"])} for k, a in aurocs.items()}
     return {
-        "arms": {k: _public(v) for k, v in arms.items()},
+        "arms": {k: _public(v) | public_auroc[k] for k, v in arms.items()},
         "per_light": per_light,
         "h23": {
             "d_tpr": d_tpr["diff"],
@@ -168,6 +194,7 @@ def calibrate_method(ref: dict, run: dict, boot: ClusterBootstrap) -> dict:
             "t30_fpr_ci": t30_fpr_ci,
             "t30_fpr_upper_at_most_10pct": bool(t30_fpr_ci[1] <= LIMIT + _TOL),
             "d_fpr_t30_bank30": _diff(arms["T30"], arms["bank30"], "fpr"),
+            "d_auroc_t30_bank30": _diff(aurocs["T30"], aurocs["bank30"], "auroc"),
         },
         "gate": [
             info["gate"] | {"inspector": f"{info['category']}_{info['view']}"}

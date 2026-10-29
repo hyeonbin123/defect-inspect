@@ -140,6 +140,81 @@ def test_calibrate_analysis_follows_the_rule(threshold_runs, monkeypatch):
         analyze_stage8.load_threshold_run(root / "check")
 
 
+# 8-A 팔마다 검사기·조명 평균 이미지 AUROC가 붙는다(저장된 점수로만 계산한다). 임계값만 팔(T8·T19·T30)은 test
+# 점수가 재보정 없음(none, 3-B E0 점수)과 같으므로 AUROC와 구간도 none과 같고, 뱅크+임계값 팔은 3-B 재보정
+# 점수로 잰다. 새 키(팔의 auroc·auroc_ci, h23의 d_auroc_t30_bank30)를 빼면 나머지는 키를 더하기 전 출력과
+# 값·키 순서까지 같다. 이미 커밋한 reports/stage8/calibrate.json을 다시 만들 때 기존 값이 바뀌지 않는다는
+# 근거다.
+def test_calibrate_arms_carry_the_image_auroc(threshold_runs):
+    from defect_inspect.analyze_m2ad_enrol import _public, _rates
+    from defect_inspect.metrics import auroc
+
+    root, _, _ = threshold_runs
+    ref = analyze_m2ad.load(root / "m2ad-p0")
+    run = analyze_stage8.load_threshold_run(root / "m2ad-threshold-p0")
+    boot = analyze_m2ad.ClusterBootstrap(ref, 50, 0)
+    entry = analyze_stage8.calibrate_method(ref, run, boot)
+    arms, lights = entry["arms"], analyze_stage8.NEW_LIGHTS
+    for name in ("T8", "T19", "T30"):
+        assert arms[name]["auroc"] == arms["none"]["auroc"]
+        assert arms[name]["auroc_ci"] == arms["none"]["auroc_ci"]
+
+    # 관측값은 조명마다 낸 이미지 AUROC(가짜 자료는 검사기 하나라 그 검사기의 값)의 조명 평균, 구간은 같은
+    # 추출에서 조명 평균을 낸 재표집 표본의 백분위 구간이다.
+    def observed(cells):
+        assert all(len(cell) == 1 for cell in cells)
+        values = []
+        for cell in cells:
+            scores, labels, _ = cell[0]
+            values.append(auroc(scores[labels == 0], scores[labels == 1]))
+        return float(np.mean(values))
+
+    def samples(cells):
+        return np.mean(np.stack([boot.auroc(cell)[1] for cell in cells]), axis=0)
+
+    none_cells = [analyze_m2ad.condition_cell(ref, f"R:{light}") for light in lights]
+    bank_cells = {n: [analyze_m2ad.recal_cell(ref, f"{light}:{n}") for light in lights] for n in (8, 30)}
+    assert arms["none"]["auroc"] == pytest.approx(observed(none_cells), abs=1e-12)
+    assert arms["none"]["auroc_ci"] == analyze_m2ad._ci(samples(none_cells))
+    for n, cells in bank_cells.items():
+        assert arms[f"bank{n}"]["auroc"] == pytest.approx(observed(cells), abs=1e-12)
+        assert arms[f"bank{n}"]["auroc_ci"] == analyze_m2ad._ci(samples(cells))
+    d = entry["h23"]["d_auroc_t30_bank30"]
+    assert d["diff"] == arms["T30"]["auroc"] - arms["bank30"]["auroc"]
+    assert d["ci"] == analyze_m2ad._ci(samples(none_cells) - samples(bank_cells[30]))
+
+    # 키를 더하기 전 출력: 팔은 비율·구간(+ 임계값 요약), H23은 같은 여덟 키, 조명별 표와 관문은 그대로.
+    before = {}
+    for n in analyze_stage8.THRESHOLD_ARMS:
+        cells, thresholds = [], []
+        for light in lights:
+            cell, thr = analyze_stage8.threshold_cell(ref, run, light, n)
+            cells.append(cell)
+            thresholds += thr
+        summary = analyze_stage8._threshold_summary(thresholds)
+        before[f"T{n}"] = _public(_rates(boot, cells) | {"thresholds": summary})
+    for n, cells in bank_cells.items():
+        before[f"bank{n}"] = _public(_rates(boot, cells))
+    before["none"] = _public(_rates(boot, none_cells))
+    new_keys = ("auroc", "auroc_ci")
+    stripped = {k: {kk: vv for kk, vv in v.items() if kk not in new_keys} for k, v in arms.items()}
+    assert json.dumps(stripped) == json.dumps(before)
+    assert all(tuple(v)[-2:] == new_keys for v in arms.values())
+    assert list(entry["h23"]) == [
+        "d_tpr",
+        "d_tpr_ci",
+        "margin",
+        "verdict",
+        "t30_fpr",
+        "t30_fpr_ci",
+        "t30_fpr_upper_at_most_10pct",
+        "d_fpr_t30_bank30",
+        "d_auroc_t30_bank30",
+    ]
+    assert list(entry) == ["arms", "per_light", "h23", "gate"]
+    assert all("auroc" not in key for v in entry["per_light"].values() for key in v)
+
+
 def test_verdict_lines():
     assert analyze_stage8._verdict_below(-0.4, -0.3, -0.2) == "지지"
     assert analyze_stage8._verdict_below(-0.1, 0.0, -0.2) == "기각"
