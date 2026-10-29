@@ -9,12 +9,13 @@
 # 요청과 크기 제한 → 손상 파일과 디코더 보안 권고 회귀(작은 BMP·APNG) → 16비트·투명도·미리보기 → 재보정과
 # 되돌리기 → 관리자 토큰·다른 출처 거절 → 임계값 변경·토큰 거절의 감사 기록(uvicorn 기본 로깅에서 표준
 # 출력의 JSON 한 줄) → 잠금과 동시 요청·대기열 → 본문을 받기 전의 입장 제한(503)과 스풀 공간 부족 → Host
-# 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors, 대조한 모델 지문)와 시작 예열 → 히트맵 PNG 눈금과
-# 비유한 맵 거부 → 데모 페이지 JS(node가 있을 때).
+# 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors, 대조한 모델 지문)와 시작 예열 → 배포 설정의 기대
+# 모델 지문 → 히트맵 PNG 눈금과 비유한 맵 거부 → 데모 페이지 JS(node가 있을 때).
 
 import asyncio
 import base64
 import errno
+import hashlib
 import inspect as pyinspect
 import io
 import itertools
@@ -1376,20 +1377,23 @@ def test_loading_artifacts_warms_up_each_model_session_once(tmp_path, monkeypatc
 
     monkeypatch.delenv("DEFECT_INSPECT_PRECISION", raising=False)
     monkeypatch.delenv("DEFECT_INSPECT_THREADS", raising=False)
+    monkeypatch.delenv("DEFECT_INSPECT_EXPECTED_MODEL_SHA256", raising=False)
     shared, twin = service.offline_inspector(), service.offline_inspector()
     own = service.offline_inspector(seed=1)
     shared.session = twin.session = _RecordingSession(shared.session)
     own.session = _RecordingSession(own.session)
     asked = []
 
-    def fake_load(artifacts, *, precision, threads):
-        asked.append((Path(artifacts), precision, threads))
+    # 기대 모델 지문(expected_sha256)은 설정하지 않았으므로 None으로 넘어와야 한다(meta 대조만 하는 기본
+    # 시작).
+    def fake_load(artifacts, *, precision, threads, expected_sha256):
+        asked.append((Path(artifacts), precision, threads, expected_sha256))
         return {"b": twin, "a": shared, "c": own}
 
     monkeypatch.setattr(service, "load_inspectors", fake_load)
     before = {name: (i.threshold, dict(i.meta)) for name, i in (("a", shared), ("c", own))}
     app = service.create_app(tmp_path, admin_token=TOKEN)
-    assert asked == [(tmp_path, "fp32", None)]
+    assert asked == [(tmp_path, "fp32", None, None)]
     grey = preprocess(np.full((64, 64, 3), 128, np.uint8), 64)
     assert len(shared.session.inputs) == 1 and np.array_equal(shared.session.inputs[0], grey)
     assert len(own.session.inputs) == 1 and np.array_equal(own.session.inputs[0], grey)
@@ -1538,6 +1542,103 @@ def test_load_inspectors_shares_one_session_per_model_file(tmp_path, monkeypatch
     (tmp_path / "candle" / "bank.npy").unlink()
     with pytest.raises(ValueError, match="bank.npy is missing"):
         service.load_inspectors(tmp_path)
+
+
+# 배포 설정의 기대 모델 지문(DEFECT_INSPECT_EXPECTED_MODEL_SHA256)을 읽는 규칙. 값은 승인한 모델 파일의
+# SHA-256을 쉼표로 나열한 것이고(정밀도마다 하나씩 적어 둘 수 있다), 대문자로 옮겨 적거나 공백·줄 바꿈을
+# 섞어도 같게 읽는다. 확인: (1) 없거나 비었거나 공백뿐이면 None(설정 안 함, 지금과 같은 시작), (2) 쉼표와
+# 공백으로 나누고 소문자로 바꾸며, 같은 지문은 하나로 치고 빈 항목(끝의 쉼표)은 버린다, (3) 구분자만 있으면
+# 지문이 없다는 오류, (4) 64자리 16진수가 아닌 항목(한 자리 모자람·넘침, 16진수 밖의 글자, `sha256:` 접두사,
+# /categories의 앞 12자만 옮긴 값, 둘째 항목)은 그 순서와 길이를 담은 오류이고, 메시지에는 항목의 앞
+# 12자까지만 나온다(다른 비밀값을 잘못 넣어도 로그에 다 찍히지 않게).
+def test_expected_model_digests_read_commas_spaces_and_upper_case():
+    a, b = hashlib.sha256(b"a").hexdigest(), hashlib.sha256(b"b").hexdigest()
+    parse = service.parse_expected_sha256
+    assert parse(None) is None and parse("") is None and parse(" \t\n ") is None
+    assert parse(a) == frozenset({a})
+    assert parse(f"  {a.upper()} ,{b}, ") == parse(f"{a}\n{b}\t{a.upper()},,") == frozenset({a, b})
+    with pytest.raises(ValueError, match="DEFECT_INSPECT_EXPECTED_MODEL_SHA256 lists no digest"):
+        parse(" , ,")
+    cases = (
+        (a[:63], 1, 63),
+        (a + "0", 1, 65),
+        (a[:63] + "g", 1, 64),
+        (f"sha256:{a}", 1, 71),
+        (a[:12], 1, 12),
+        (f"{a}, {b[:40]}", 2, 40),
+    )
+    for value, position, length in cases:
+        pattern = rf"SHA256 item {position} is not a SHA-256 hex digest.*\({length} characters\)"
+        with pytest.raises(ValueError, match=pattern):
+            parse(value)
+    with pytest.raises(ValueError) as caught:
+        parse("s3cr3t-" * 6)
+    assert "s3cr3t-s3cr3" in str(caught.value) and "s3cr3t-s3cr3t" not in str(caught.value)
+
+
+# 기대 지문을 설정하면 meta에 지문 기록이 없는 옛 PatchCore 세트(4단계 `defect_inspect.export`)도 모델 파일의
+# SHA-256을 계산해 대조한다. 왜: meta 대조는 같은 아티팩트 볼륨 안의 기록과 비교하므로 기록이 없으면 대조가
+# 없고, 폴더를 통째로 바꿔 끼우면 통과한다. 배포 설정의 목록은 볼륨 밖의 믿을 기준이다. 확인: (1) 설정하지
+# 않으면 지금과 같다(해시 계산 없음, model_sha256 None), (2) 목록에 있으면 뜨고, 대조한 지문이 model_sha256과
+# /categories(앞 12자)에 보이며, 두 범주가 같이 쓰는 파일은 한 번만 해시한다, (3) 목록에 없으면 범주 폴더
+# 이름과 실제 지문 앞 12자를 담은 ValueError로 시작을 멈추고(전체 64자는 메시지에 없다), 그 파일로는
+# onnxruntime 세션을 만들지 않는다(승인하지 않은 파일을 모델 파서에 넣지 않는다).
+def test_expected_model_digests_also_cover_a_patchcore_set_without_a_digest_record(tmp_path, monkeypatch):
+    ort = pytest.importorskip("onnxruntime")
+    from defect_inspect import download
+
+    for name in (
+        "DEFECT_INSPECT_EXPECTED_MODEL_SHA256",
+        "DEFECT_INSPECT_PRECISION",
+        "DEFECT_INSPECT_THREADS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    created = []
+
+    class FakeSession(service._GridMeanSession):
+        def __init__(self, path, sess_options=None, providers=None):
+            created.append(Path(path).name)
+
+    monkeypatch.setattr(ort, "InferenceSession", FakeSession)
+    hashed = []
+    real = download.sha256_file
+    monkeypatch.setattr(download, "sha256_file", lambda path: hashed.append(Path(path).name) or real(path))
+    meta = {"version": 1, "name": "set", "backbone": "fake", "img_size": 64, "grid": [8, 8], "dim": 3}
+    meta.update(reweight_k=9, sigma=1.0, threshold=1.0)
+    (tmp_path / "model_fp32.onnx").write_bytes(b"patchcore, stage 4")
+    for name in ("candle", "pcb1"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "meta.json").write_text(json.dumps({**meta, "category": name}), encoding="utf-8")
+        np.save(tmp_path / name / "bank.npy", np.full((4, 3), 0.5, dtype=np.float16))
+    approved = hashlib.sha256(b"patchcore, stage 4").hexdigest()
+
+    found = service.load_inspectors(tmp_path)
+    assert hashed == [] and [i.model_sha256 for i in found.values()] == [None, None]
+
+    found = service.load_inspectors(tmp_path, expected_sha256=frozenset({approved}))
+    assert hashed == ["model_fp32.onnx"]
+    assert {name: i.model_sha256 for name, i in found.items()} == {"candle": approved, "pcb1": approved}
+    monkeypatch.setenv("DEFECT_INSPECT_EXPECTED_MODEL_SHA256", f" {approved.upper()} ")
+    client = TestClient(service.create_app(tmp_path), base_url=HOST)
+    assert [item["model_sha256"] for item in client.get("/categories").json()] == [approved[:12]] * 2
+
+    created.clear()
+    other = hashlib.sha256(b"another model").hexdigest()
+    monkeypatch.setenv("DEFECT_INSPECT_EXPECTED_MODEL_SHA256", other)
+    refused = (
+        rf"candle.*model_fp32.onnx sha256 {approved[:12]}\.\.\. is not one of the expected model digests"
+    )
+    with pytest.raises(ValueError, match=refused) as caught:
+        service.create_app(tmp_path)
+    assert approved not in str(caught.value) and other not in str(caught.value)
+    assert f"{other[:12]}..." in str(caught.value) and created == []
+    # load_inspectors를 직접 부를 때 목록 대신 문자열(글자 하나하나가 항목이 된다), 빈 모음, 대문자 지문을
+    # 주면 파일을 읽기 전에 인자 오류로 알린다(어떤 파일도 통과하지 못하는 알기 어려운 거절이 되지 않게).
+    hashed.clear()
+    for wrong in (approved, frozenset(), frozenset({approved.upper()})):
+        with pytest.raises(ValueError, match="expected_sha256 must hold lowercase SHA-256 hex digests"):
+            service.load_inspectors(tmp_path, expected_sha256=wrong)
+    assert hashed == [] and created == []
 
 
 # 히트맵 PNG의 밝기 척도: 점수 0은 검정, 임계값의 1.5배 이상은 흰색(255), 그 사이는 선형(0.75 → 128).

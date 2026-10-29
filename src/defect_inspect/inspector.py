@@ -483,6 +483,34 @@ RECONSTRUCTION_META_KEYS = ("version", "kind", "name", "category", "img_size", "
 # PatchCore 아티팩트(`defect_inspect.export`)는 해시를 적지 않았으므로 이 표의 키가 meta에 없고, 그때는 대조를
 # 건너뛴다(옛 아티팩트도 그대로 읽히게).
 MODEL_SHA256_KEYS = {"fp32": "onnx_sha256", "int8-dynamic": "onnx_int8_dynamic_sha256"}
+# SHA-256 16진수 표기에 쓰는 글자(소문자만).
+SHA256_HEX_DIGITS = frozenset("0123456789abcdef")
+
+
+# SHA-256 지문의 16진수 표기(소문자 64자리)인지 본다. meta 기록의 검사(check_model_sha256)와 배포 설정의 기대
+# 지문 읽기(service.parse_expected_sha256)가 같은 규칙을 쓰게 하려고 한곳에 둔다. 대문자는 받지 않는다: meta
+# 기록은 쓰는 쪽(dinomaly_serving export)이 늘 소문자로 적고, 배포 설정은 읽을 때 소문자로 바꾼 뒤 이 검사를
+# 거친다. 입력이 문자열이 아니면(빈 값, 숫자 등) False다.
+def is_sha256_hex(value) -> bool:
+    """`value`가 소문자 64자리 16진수 문자열이면 True."""
+    return isinstance(value, str) and len(value) == 64 and all(c in SHA256_HEX_DIGITS for c in value)
+
+
+# 모델 파일의 SHA-256(소문자 16진수). digests는 실제 경로 → 지문 캐시로, 12개 범주가 같이 쓰는 파일을 한 번만
+# 해시하려는 것이다(이 함수가 채운다). meta 대조(check_model_sha256)와 배포 설정의 기대 지문 대조
+# (service.load_inspectors)가 같은 캐시를 써서, 둘 다 해도 파일마다 한 번만 읽는다. 경로는 resolve()한 실제
+# 경로로 키를 만들어, 범주 폴더와 상위 폴더에서 같은 파일을 가리키는 경로가 하나로 묶이게 한다.
+def model_file_sha256(model: Path, digests: dict[Path, str] | None = None) -> str:
+    """모델 파일의 SHA-256 16진수 지문. `digests`가 있으면 그 캐시를 먼저 보고 새로 낸 값을 채운다."""
+    from .download import sha256_file
+
+    path = Path(model).resolve()
+    if digests is not None and path in digests:
+        return digests[path]
+    actual = sha256_file(path)
+    if digests is not None:
+        digests[path] = actual
+    return actual
 
 
 # 모델 파일이 meta.json에 적힌 지문과 같은지 확인한다. 왜: 서비스는 모델(ONNX)과 임계값(meta.json)을 서로 다른
@@ -501,23 +529,14 @@ def check_model_sha256(
 
     같으면 그 해시를, 기록이 없으면 None을 돌려준다. 다르거나 기록이 해시 형식이 아니면 ValueError를 낸다.
     """
-    from .download import sha256_file
-
     key = MODEL_SHA256_KEYS.get(precision)
     source = meta.get("source") if isinstance(meta, dict) else None
     if key is None or not isinstance(source, dict) or key not in source:
         return None
     expected = source[key]
-    hex_digits = "0123456789abcdef"
-    if not isinstance(expected, str) or len(expected) != 64 or any(c not in hex_digits for c in expected):
+    if not is_sha256_hex(expected):
         raise ValueError(f"artifact meta: source.{key} is not a SHA-256 hex digest: {expected!r}")
-    path = Path(model).resolve()
-    if digests is not None and path in digests:
-        actual = digests[path]
-    else:
-        actual = sha256_file(path)
-        if digests is not None:
-            digests[path] = actual
+    actual = model_file_sha256(model, digests)
     if actual != expected:
         raise ValueError(
             f"{Path(model).name} does not match the artifact meta: sha256 {actual[:12]}... on disk, "

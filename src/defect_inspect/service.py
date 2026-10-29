@@ -16,6 +16,9 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 - `DEFECT_INSPECT_WORKERS` / `DEFECT_INSPECT_QUEUE`: 동시에 디코딩·채점하는 이미지 수(기본 2)와 작업자를
   기다릴 수 있는 요청 수(기본 16). 둘의 합보다 많은 업로드 요청(`/inspect`·`/calibrate`)이 진행 중이면 새
   요청은 본문을 받기 전에 `Retry-After`를 붙인 503으로 돌려보낸다. `/calibrate`는 한 번에 하나만 받는다.
+- `DEFECT_INSPECT_EXPECTED_MODEL_SHA256`: 배포가 승인한 모델 파일의 SHA-256(64자리 16진수)을 쉼표로
+  나열한다(정밀도마다 하나씩 적어 둘 수 있다, 대소문자와 공백은 가리지 않는다). 설정하면 시작할 때 모든 모델
+  파일의 지문을 계산해, 이 목록에 없는 파일이 하나라도 있으면 뜨지 않는다. 없으면 meta.json 대조만 한다.
 
 감사 기록: 임계값이 바뀌거나(`POST /calibrate`, `DELETE /calibrate`) 관리자 토큰 때문에 403으로 거절할 때마다
 `defect_inspect.audit` 로거로 표준 출력에 JSON 한 줄을 쓴다(토큰 값과 업로드 파일 이름은 쓰지 않는다).
@@ -40,7 +43,8 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 # JSON 한 줄씩 남긴다(언제, 무엇이 무엇에서 무엇으로, 어디서). 재보정한 값은 메모리에만 있어 재시작하면
 # 사라지고 uvicorn 접근 로그에는 요청 줄과 상태 코드만 남으므로, 바뀐 값과 거절 사유를 사후에 재구성하려는
 # 것이다. /categories는 시작할 때 대조한 모델 파일 지문의 앞 12자(model_sha256)를 보여, 어떤 모델이 떠 있는지
-# 밖에서 확인할 수 있다.
+# 밖에서 확인할 수 있다. 배포 설정에 승인한 지문 목록(DEFECT_INSPECT_EXPECTED_MODEL_SHA256)을 주면, 아티팩트
+# 볼륨 안의 meta 기록이 아니라 볼륨 밖의 그 목록과도 대조해 다른 모델 파일로는 뜨지 않는다.
 # [연결] inspector.py(전처리·추론·임계값 상태), calibrate.py(conformal 임계값). 실행은 uvicorn
 # defect_inspect.service:create_app --factory(Dockerfile, compose.yaml) 또는 모델 파일 없는
 # create_offline_app(테스트와 보안 스캔용).
@@ -57,7 +61,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -83,7 +87,8 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # calibrate: /calibrate가 연구 코드와 같은 conformal 규칙(l = ceil((n+1)(1-α))번째 점수)으로 임계값을 정하게
-# 한다. inspector: 두 종류의 검사기와 아티팩트 형식 상수.
+# 한다. inspector: 두 종류의 검사기와 아티팩트 형식 상수, 모델 파일 지문(meta 대조, 지문 형식 검사, 파일
+# 해시 캐시).
 from .calibrate import conformal_rank, conformal_threshold
 from .inspector import (
     ARTIFACT_VERSION,
@@ -95,6 +100,8 @@ from .inspector import (
     ReconstructionInspector,
     artifact_kind,
     check_model_sha256,
+    is_sha256_hex,
+    model_file_sha256,
 )
 
 logger = logging.getLogger(__name__)
@@ -273,15 +280,66 @@ _MISSING = object()
 # MODEL_FILES의 키는 아티팩트 종류(범주 폴더 meta.json의 `kind`)다.
 MODEL_FILES = {PATCHCORE: PRECISIONS, RECONSTRUCTION: RECONSTRUCTION_PRECISIONS}
 AnyInspector = Inspector | ReconstructionInspector
+# 배포 설정의 기대 모델 지문을 담는 환경 변수 이름(README 검사 서비스 절, compose.yaml). 오류 메시지에도 이
+# 이름을 그대로 넣어, 시작이 멈췄을 때 운영자가 어느 설정을 고칠지 바로 알게 한다.
+EXPECTED_SHA256_ENV = "DEFECT_INSPECT_EXPECTED_MODEL_SHA256"
+
+
+# 배포 설정의 기대 모델 지문 목록을 읽는다.
+# [왜 필요한가] load_inspectors의 meta 대조는 모델 파일과 같은 아티팩트 볼륨 안의 meta.json 기록과 비교한다.
+# 그래서 폴더를 통째로(다른 학습본 + 그 학습본의 meta) 바꿔 끼우면 대조를 통과하고, 지문 기록이 없는 4단계
+# PatchCore 세트는 대조 자체가 없다. 승인한 지문을 볼륨 밖의 배포 설정(환경 변수, compose)에 두면 믿을 기준이
+# 아티팩트 내용에서 배포 설정으로 옮겨 간다(컨테이너 이미지를 digest로 고정하는 것과 같은 생각이다).
+# [형식] SHA-256 16진수 64자리를 쉼표나 공백(줄 바꿈 포함)으로 나열한다. 정밀도마다(FP32, 동적 INT8) 또는 범주
+# 폴더마다 다른 모델 파일이 있으면 그 지문을 모두 적는다. 쓰이지 않는 지문이 섞여 있어도 된다(같은 설정을 두
+# 정밀도에 쓰려고). 대문자는 소문자로 바꾸고 같은 지문은 하나로 친다(대문자로 옮겨 적은 값도 그대로 받으려고).
+# 지문에는 쉼표도 공백도 없으므로 이렇게 나눠도 뜻이 모호해지지 않고, 지문 가운데에 공백이 끼면 두 조각 모두
+# 64자리가 아니어서 오류가 된다.
+# [출력] 소문자 지문의 frozenset. 값이 없거나 공백뿐이면 None(설정 안 함: meta 대조만 하는 이전과 같은 시작).
+# compose는 설정하지 않은 변수를 빈 문자열로 넘기므로(`${...:-}`) 빈 값은 설정 안 함이어야 한다.
+# [오류] 구분자만 있어 지문이 하나도 없거나 64자리 16진수가 아닌 항목이 있으면 ValueError로 시작을 멈춘다.
+# 고정을 의도한 설정이 오타로 조용히 꺼지지 않게 하려는 것이다. 메시지에는 항목의 순서, 길이, 앞 12자만
+# 담는다(다른 비밀값을 잘못 넣었을 때 로그에 다 찍히지 않게, 그리고 /categories·지문 대조 오류와 같은 길이로
+# 맞추려고).
+# 호출 위치: create_app, tests/test_service.py, tests/test_service_reconstruction.py.
+def parse_expected_sha256(value: str | None) -> frozenset[str] | None:
+    """`DEFECT_INSPECT_EXPECTED_MODEL_SHA256` 값을 소문자 SHA-256 지문의 집합으로 바꾼다.
+
+    값이 없거나 공백뿐이면 None(설정 안 함)이다. 지문이 하나도 없거나 64자리 16진수가 아닌 항목이 있으면
+    ValueError를 낸다.
+    """
+    if value is None or not value.strip():
+        return None
+    items = value.replace(",", " ").split()
+    if not items:
+        raise ValueError(
+            f"{EXPECTED_SHA256_ENV} lists no digest: give SHA-256 hex digests separated by commas"
+        )
+    digests = set()
+    for position, item in enumerate(items, start=1):
+        digest = item.lower()
+        if not is_sha256_hex(digest):
+            shown = item[:12] + ("..." if len(item) > 12 else "")
+            raise ValueError(
+                f"{EXPECTED_SHA256_ENV} item {position} is not a SHA-256 hex digest (64 hex digits): "
+                f"{shown!r} ({len(item)} characters)"
+            )
+        digests.add(digest)
+    return frozenset(digests)
 
 
 # 아티팩트 폴더에서 범주 검사기를 모두 읽는다. 범주 폴더의 meta.json kind로 클래스를 고르고, 같은 모델 파일을
 # 쓰는 범주는 ONNX Runtime 세션 하나를 같이 쓴다(dms-280-car는 12개 범주가 세션 하나). 세션 run은 스레드
 # 안전하고, 범주마다 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘기 때문이다. 문제가 있으면
-# 폴더 이름을 담은 ValueError로 서비스 시작을 멈춘다.
-# 호출 위치: create_app, tests/test_service.py.
+# 폴더 이름을 담은 ValueError로 서비스 시작을 멈춘다. expected_sha256(배포 설정의 기대 지문,
+# parse_expected_sha256의 결과)을 주면 모든 모델 파일을 그 목록과도 대조한다.
+# 호출 위치: create_app, tests/test_service.py, tests/test_service_reconstruction.py.
 def load_inspectors(
-    artifacts: Path, *, precision: str = "fp32", threads: int | None = None
+    artifacts: Path,
+    *,
+    precision: str = "fp32",
+    threads: int | None = None,
+    expected_sha256: Collection[str] | None = None,
 ) -> dict[str, AnyInspector]:
     """아티팩트 묶음에서 `meta.json`이 있는 모든 범주 폴더의 검사기.
 
@@ -291,7 +349,9 @@ def load_inspectors(
     `session.run`은 스레드 안전하고, 범주마다 세션을 만들면 메모리와 시작 시간이 범주 수만큼 늘기 때문이다.
     아티팩트에 문제가 있으면 그 폴더 이름을 담은 `ValueError`를 낸다. meta에 모델 파일의 SHA-256이 적혀 있으면
     (`source.onnx_sha256` 등, `inspector.check_model_sha256`) 실제 파일과 대조하고, 다르면 같은 오류로 멈춘다.
-    대조를 통과한 지문은 검사기의 `model_sha256`에 남기고(기록이 없어 대조하지 않았으면 None), 클래스의
+    `expected_sha256`(소문자 SHA-256 지문의 모음, `parse_expected_sha256`의 결과)을 주면 meta 기록과 상관없이
+    모든 모델 파일의 지문을 계산해, 그 모음에 없는 파일이 있으면 그 파일로 세션을 만들기 전에 같은 오류로
+    멈춘다. 대조를 통과한 지문은 검사기의 `model_sha256`에 남기고(어느 대조도 하지 않았으면 None), 클래스의
     `load`와 다른 점은 이 속성 하나다.
     """
     import onnxruntime as ort
@@ -300,6 +360,14 @@ def load_inspectors(
     known = sorted({name for files in MODEL_FILES.values() for name in files})
     if precision not in known:
         raise ValueError(f"precision must be one of {known}, got {precision!r}")
+    # 기대 지문은 parse_expected_sha256이 만든 소문자 지문의 모음이어야 한다. 빈 모음이나 형식이 다른
+    # 값(문자열을 그대로 넘겨 글자 하나하나가 항목이 된 경우 등)은 어떤 파일도 통과하지 못해 원인을 알기
+    # 어려운 오류가 되므로, 파일을 읽기 전에 따로 알린다.
+    expected = None if expected_sha256 is None else frozenset(expected_sha256)
+    if expected is not None and (not expected or not all(is_sha256_hex(d) for d in expected)):
+        raise ValueError(
+            "expected_sha256 must hold lowercase SHA-256 hex digests (see parse_expected_sha256)"
+        )
     options = ort.SessionOptions()
     if threads is not None:
         options.intra_op_num_threads = int(threads)
@@ -336,6 +404,19 @@ def load_inspectors(
             # 대조한다. 다르면 이 임계값은 다른 모델의 점수로 정한 것이라 조용히 틀린 판정을 내므로 시작을
             # 멈춘다. 같으면 그 지문을, 기록이 없어 건너뛰었으면 None을 돌려준다(아래 model_sha256).
             digest = check_model_sha256(model, meta, precision, digests)
+            # 배포 설정의 기대 지문(EXPECTED_SHA256_ENV, parse_expected_sha256 주석): 주어지면 meta에 기록이
+            # 없는 파일도 해시를 계산해(같은 캐시라 파일마다 한 번) 목록과 대조한다. meta 대조가 통과해도
+            # 목록에 없으면 멈춘다(폴더를 통째로 바꿔 끼운 경우). 세션을 만들기 전에 하므로 승인하지 않은
+            # 파일은 onnxruntime이 읽지도 않는다. 메시지에는 지문의 앞 12자만 담는다(check_model_sha256의
+            # 메시지, /categories와 같음).
+            if expected is not None:
+                digest = digest or model_file_sha256(model, digests)
+                if digest not in expected:
+                    listed = ", ".join(f"{d[:12]}..." for d in sorted(expected))
+                    raise ValueError(
+                        f"{model.name} sha256 {digest[:12]}... is not one of the expected model digests in "
+                        f"{EXPECTED_SHA256_ENV} ({listed}): this deployment did not approve this model file"
+                    )
             # 실제 경로로 키를 만들어 같은 파일이면 세션을 다시 만들지 않는다. CPU
             # 전용(CPUExecutionProvider)으로 연다.
             key = model.resolve()
@@ -352,8 +433,9 @@ def load_inspectors(
         inspector.precision = precision
         inspector.threads = None if threads is None else int(threads)
         # 대조를 통과한 모델 파일 지문(64자리 16진수). /categories가 앞 12자를 보여, 어떤 모델 파일이 떠
-        # 있는지 밖에서 확인할 수 있다. meta에 이 정밀도 파일의 기록이 없으면(4단계 PatchCore, INT8 지문이
-        # 없는 옛 세트) None이다: 대조하지 않은 파일의 해시를 계산해 확인된 것처럼 보이지 않는다.
+        # 있는지 밖에서 확인할 수 있다. meta에 이 정밀도 파일의 기록이 없고(4단계 PatchCore, INT8 지문이 없는
+        # 옛 세트) 기대 지문도 주지 않았으면 None이다: 대조하지 않은 파일의 해시를 계산해 확인된 것처럼 보이지
+        # 않는다. 기대 지문을 주면 모든 파일을 그 목록과 대조하므로 늘 그 지문이 남는다.
         inspector.model_sha256 = digest
         found[folder.name] = inspector
     if not found:
@@ -769,14 +851,15 @@ def _env_int(name: str, default: int) -> int:
 
 
 # 서비스 앱을 만든다. 인자로 주지 않은 설정은 DEFECT_INSPECT_* 환경 변수에서 읽는다(아티팩트 경로, 정밀도,
-# 스레드, 관리자 토큰, 허용 Host, 작업자·대기열 수). uvicorn --factory가 이 함수를 불러 앱을 만든다. 테스트는
-# inspectors를 직접 넘긴다.
+# 스레드, 기대 모델 지문, 관리자 토큰, 허용 Host, 작업자·대기열 수). uvicorn --factory가 이 함수를 불러 앱을
+# 만든다. 테스트는 inspectors를 직접 넘긴다.
 def create_app(
     artifacts: Path | str | None = None,
     *,
     inspectors: dict[str, AnyInspector] | None = None,
     precision: str | None = None,
     threads: int | None = None,
+    expected_model_sha256: str | None = None,
     admin_token: str | None = None,
     allowed_hosts: Sequence[str] | None = None,
     workers: int | None = None,
@@ -785,6 +868,9 @@ def create_app(
 ) -> FastAPI:
     """서비스 앱. 주지 않은 인자는 `DEFECT_INSPECT_*` 환경 변수에서 가져온다.
 
+    `expected_model_sha256`은 `DEFECT_INSPECT_EXPECTED_MODEL_SHA256`과 같은 형식의 문자열이다(None이면 그
+    환경 변수, 빈 문자열이면 설정 안 함). 아티팩트 경로, 정밀도, 스레드처럼 아티팩트에서 검사기를 읽을 때만
+    쓰고, 직접 넘긴 `inspectors`에는 쓰지 않는다(대조할 모델 파일이 없다).
     `warmup`이 None이면 아티팩트에서 검사기를 읽었을 때만 시작 예열(`warm_up`)을 하고, 직접 넘긴 `inspectors`
     (테스트·오프라인 앱)는 예열하지 않는다. True/False를 주면 어느 경로든 그대로 따른다.
     """
@@ -796,7 +882,14 @@ def create_app(
         precision = precision or os.environ.get("DEFECT_INSPECT_PRECISION", "fp32")
         env_threads = os.environ.get("DEFECT_INSPECT_THREADS")
         threads = threads if threads is not None else (int(env_threads) if env_threads else None)
-        inspectors = load_inspectors(Path(artifacts), precision=precision, threads=threads)
+        # 배포 설정의 기대 모델 지문(parse_expected_sha256 주석). 형식이 틀리면 모델 파일을 읽기 전에 여기서
+        # 멈춘다. 설정하지 않았으면 None이 넘어가 meta 대조만 한다.
+        if expected_model_sha256 is None:
+            expected_model_sha256 = os.environ.get(EXPECTED_SHA256_ENV)
+        expected = parse_expected_sha256(expected_model_sha256)
+        inspectors = load_inspectors(
+            Path(artifacts), precision=precision, threads=threads, expected_sha256=expected
+        )
     # 시작 예열: 아티팩트에서 읽은 실제 모델은 첫 요청 전에 세션마다 한 번 돌려 둔다(warm_up 주석). 직접 넘긴
     # 검사기는 보통 테스트의 가짜 세션이라 기본으로 건너뛴다. 실패하면 ValueError로 여기서 시작이 멈춘다.
     if warmup is None:
@@ -911,10 +1004,11 @@ def create_app(
         )
 
     # /categories 응답 한 줄: 모델 종류(reconstruction/patchcore)와 이름, 시작할 때 대조한 모델 파일 지문의 앞
-    # 12자(model_sha256: load_inspectors가 붙인 값, 기록이 없거나 직접 넘긴 검사기면 null), 임계값, 입력 크기,
-    # 뱅크 행 수(복원 방식은 0), 백본, 정밀도, α, 보정 기록. 지문을 /healthz가 아니라 여기에 두는 것은
-    # /healthz 응답을 compose의 상태 점검과 CI가 정확히 비교하기 때문이다. 앞 12자(48비트)면 기록과 맞춰
-    # 보기에 충분하고 시작 거부 오류 메시지(check_model_sha256)와 같은 길이다.
+    # 12자(model_sha256: load_inspectors가 붙인 값. meta 기록도 기대 지문 설정도 없거나 직접 넘긴 검사기면
+    # null), 임계값, 입력 크기, 뱅크 행 수(복원 방식은 0), 백본, 정밀도, α, 보정 기록. 지문을 /healthz가
+    # 아니라 여기에 두는 것은 /healthz 응답을 compose의 상태 점검과 CI가 정확히 비교하기 때문이다. 앞
+    # 12자(48비트)면 기록과 맞춰 보기에 충분하고 시작 거부 오류 메시지(check_model_sha256, 기대 지문 대조)와
+    # 같은 길이다.
     def describe(name: str, inspector: AnyInspector) -> dict:
         with locks[name]:
             state = threshold_state(inspector)

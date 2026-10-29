@@ -7,8 +7,9 @@
 # 맵을 쓰는지, 모델이 유한하지 않은 맵을 내면 검정 히트맵 대신 500으로 멈추는지, /calibrate가 임계값만 바꾸고
 # 되돌릴 수 있는지, load_inspectors가 범주 폴더(meta.json만, 뱅크 없음)와 상위 폴더의 공용 ONNX 하나를 읽어
 # 세션을 나눠 쓰는지, 정밀도별 모델 파일과 잘못된 meta를 어떻게 거절하는지, 시작할 때 대조한 모델 지문이
-# /categories의 model_sha256(앞 12자)으로 보이는지, 실제 작은 ONNX 모델로 끝에서 끝까지 도는지(이 길은 시작
-# 예열도 실제 세션으로 거친다).
+# /categories의 model_sha256(앞 12자)으로 보이는지, 배포 설정의 기대 지문
+# (DEFECT_INSPECT_EXPECTED_MODEL_SHA256)에 없는 모델 파일로는 뜨지 않는지, 실제 작은 ONNX 모델로 끝에서 끝까지
+# 도는지(이 길은 시작 예열도 실제 세션으로 거친다).
 # [설계 메모] 대부분은 ONNX 대신 ReconSession(밝기를 256으로 키운 맵, 그 최댓값이 점수)으로 돌아 onnxruntime
 # 없이도 의미가 있다. 마지막 테스트만 onnx·onnxruntime이 있을 때 실제 모델을 만든다.
 
@@ -367,6 +368,84 @@ def test_load_inspectors_checks_the_model_digest_recorded_in_meta(tmp_path, monk
     record_int8(hashlib.sha256(b"int8").hexdigest())
     int8 = service.load_inspectors(tmp_path, precision="int8-dynamic")["pcb1"]
     assert int8.model_sha256 == hashlib.sha256(b"int8").hexdigest() != good
+
+
+# 배포 설정의 기대 모델 지문(DEFECT_INSPECT_EXPECTED_MODEL_SHA256)으로 승인한 모델 파일만 띄운다. meta 대조는
+# 같은 아티팩트 볼륨 안의 기록과 비교하므로, 볼륨 밖 배포 설정의 목록이 믿을 기준이 된다. 세트: 상위 폴더의
+# 공용 모델(candle·pcb1)과 pcb2의 자기 모델, 처음에는 지문 기록 없음. 확인: (1) 목록에 두 파일의 지문이 모두
+# 있으면(대문자·공백·줄 바꿈을 섞어도) 뜨고, /categories가 범주마다 자기 파일 지문의 앞 12자를 보이며, 해시는
+# 파일마다 한 번이다, (2) 하나라도 없으면 그 범주(pcb2) 이름과 실제 지문 앞 12자를 담은 오류로 멈추고 그
+# 파일로는 세션을 만들지 않는다, (3) 폴더를 통째로 바꿔 끼운 세트(다른 학습본과 그 학습본의 meta 기록)는 meta
+# 대조를 통과해 설정이 없으면 뜨지만, 목록이 있으면 멈춘다, (4) 정밀도마다 지문을 적어 둔 같은 목록으로 FP32와
+# 동적 INT8이 모두 뜬다(쓰이지 않는 지문이 섞여도 된다), (5) /categories의 앞 12자만 옮겨 적은 값처럼 형식이
+# 틀리면 해시 계산과 세션 생성 전에 멈춘다, (6) 모델 파일이 없는 오프라인 앱은 이 설정을 쓰지 않는다.
+def test_the_deployment_settings_pin_the_approved_model_files(tmp_path, monkeypatch):
+    import hashlib
+
+    from defect_inspect import download
+
+    env = "DEFECT_INSPECT_EXPECTED_MODEL_SHA256"
+    for name in (env, "DEFECT_INSPECT_PRECISION", "DEFECT_INSPECT_THREADS"):
+        monkeypatch.delenv(name, raising=False)
+    created = _fake_ort(monkeypatch)
+    hashed = []
+    real = download.sha256_file
+    monkeypatch.setattr(download, "sha256_file", lambda path: hashed.append(Path(path)) or real(path))
+    _write_set(tmp_path)
+    (tmp_path / "pcb2" / "model_fp32.onnx").write_bytes(b"own")
+    shared, own = hashlib.sha256(b"shared").hexdigest(), hashlib.sha256(b"own").hexdigest()
+
+    monkeypatch.setenv(env, f"{shared.upper()} ,\n {own}")
+    client = TestClient(service.create_app(tmp_path), base_url=HOST)
+    shown = {item["category"]: item["model_sha256"] for item in client.get("/categories").json()}
+    assert shown == {"candle": shared[:12], "pcb1": shared[:12], "pcb2": own[:12]}
+    assert len(hashed) == len(set(hashed)) == 2
+
+    created.clear()
+    monkeypatch.setenv(env, shared)
+    with pytest.raises(
+        ValueError, match=rf"pcb2.*model_fp32.onnx sha256 {own[:12]}\.\.\. is not one of"
+    ) as caught:
+        service.create_app(tmp_path)
+    assert own not in str(caught.value) and f"({shared[:12]}...)" in str(caught.value)
+    assert [entry for entry in created if entry[0] == "pcb2"] == []
+
+    (tmp_path / "model_fp32.onnx").write_bytes(b"shared, retrained")
+    retrained = hashlib.sha256(b"shared, retrained").hexdigest()
+    for name, digest in (("candle", retrained), ("pcb1", retrained), ("pcb2", own)):
+        meta = json.loads((tmp_path / name / "meta.json").read_text(encoding="utf-8"))
+        meta["source"] = {"onnx_sha256": digest}
+        (tmp_path / name / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    monkeypatch.delenv(env)
+    swapped = service.create_app(tmp_path).state.inspectors
+    assert {name: i.model_sha256 for name, i in swapped.items()} == {
+        "candle": retrained,
+        "pcb1": retrained,
+        "pcb2": own,
+    }
+    monkeypatch.setenv(env, f"{shared},{own}")
+    with pytest.raises(
+        ValueError, match=rf"candle.*sha256 {retrained[:12]}\.\.\. is not one of the expected"
+    ):
+        service.create_app(tmp_path)
+
+    (tmp_path / "model_int8_dynamic.onnx").write_bytes(b"int8")
+    (tmp_path / "pcb2" / "model_int8_dynamic.onnx").write_bytes(b"own int8")
+    int8 = {hashlib.sha256(b"int8").hexdigest(), hashlib.sha256(b"own int8").hexdigest()}
+    pinned = service.parse_expected_sha256(",".join([retrained, own, *sorted(int8)]))
+    for precision, digests in (("fp32", {retrained, own}), ("int8-dynamic", int8)):
+        found = service.load_inspectors(tmp_path, precision=precision, expected_sha256=pinned)
+        assert {i.model_sha256 for i in found.values()} == digests
+
+    hashed.clear()
+    created.clear()
+    monkeypatch.setenv(env, shared[:12])
+    with pytest.raises(ValueError, match=rf"{env} item 1 is not a SHA-256 hex digest.*\(12 characters\)"):
+        service.create_app(tmp_path)
+    assert hashed == [] and created == []
+    monkeypatch.setenv(env, "not-a-digest")
+    offline = TestClient(service.create_offline_app(), base_url=HOST)
+    assert [item["model_sha256"] for item in offline.get("/categories").json()] == [None]
 
 
 # 서빙 인터페이스(입력 image, 출력 score·map)를 가진 실제 ONNX 모델을 만들어 저장한다. onnx.checker로 형식을
