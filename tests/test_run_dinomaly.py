@@ -93,6 +93,31 @@ class DropoutModel(TinyModel):
         return 100.0 * (self.decoder(self.drop(feats)) - feats).pow(2).mean()
 
 
+# 학습 손실이 anomalib CosineHardMiningLoss(DinomalyModel이 쓰는 손실, torch_model.py의 loss_fn)를 거치는 가짜
+# 모델. 이 손실은 global_step으로 '잘 복원된 쉬운 점'의 비율 p = min(0.9 × global_step / 1,000, 0.9)를 정하고
+# 그 점들의 기울기를 0.1배로 줄인다. 손실 값 자체는 p와 무관하고 기울기만 바뀌므로, 학습 루프가 넘긴
+# global_step은 손실 목록이 아니라 학습된 가중치에 드러난다. TinyModel·DropoutModel의 손실은 global_step을
+# 쓰지 않아 이 차이를 볼 수 없어서 따로 둔다. p_seen에 학습 호출마다 손실이 실제로 쓴 p를 남긴다.
+class HardMiningModel(TinyModel):
+    """학습 손실이 anomalib `CosineHardMiningLoss`를 거치는 TinyModel. `p_seen`에 스텝마다 쓴 p를 남긴다."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.loss_fn = components.CosineHardMiningLoss()
+        self.p_seen: list[float] = []
+
+    def forward(self, batch, global_step=None):
+        if not self.training:
+            return super().forward(batch, global_step)
+        self.calls.append((self.training, global_step, tuple(batch.shape), batch.dtype))
+        feats = self.encoder(batch)
+        loss = self.loss_fn(
+            encoder_features=[feats], decoder_features=[self.decoder(feats)], global_step=global_step
+        )
+        self.p_seen.append(self.loss_fn.p)
+        return loss
+
+
 # seed로 정해지는 무작위 uint8 이미지 [n, size, size, 3].
 def _images(n: int, seed: int = 0, size: int = SIZE) -> np.ndarray:
     return np.random.default_rng(seed).integers(0, 256, (n, size, size, 3), dtype=np.uint8)
@@ -105,6 +130,9 @@ def _images(n: int, seed: int = 0, size: int = SIZE) -> np.ndarray:
 # optimizer_kwargs·scheduler_kwargs를 주면 TRAINING_CONFIG 대신 그 키워드 인자를 쓴다(스케줄러의 total_iters는
 # 늘 steps). 8-D 미세조정 일정을 train에 넘겼을 때도 같은 부품으로 같은 학습이 되는지 대조하려고 둔 것이고,
 # 주지 않으면 원래 식 그대로라 기존 대조 테스트는 바뀌지 않는다.
+# global_step_start를 주면 모델에 넘기는 global_step을 그 값부터 센다(기본 0이면 Lightning 모듈이 처음부터
+# 학습할 때처럼 0, 1, 2, …). 저장된 모델을 이어 학습할 때 손실의 hard-mining 일정이 이어지는지 대조하려고
+# 둔다.
 def _reference_train(
     model,
     images,
@@ -114,11 +142,13 @@ def _reference_train(
     seed: int,
     optimizer_kwargs: dict | None = None,
     scheduler_kwargs: dict | None = None,
+    global_step_start: int = 0,
 ) -> list[float]:
     """anomalib Lightning 모듈의 fp32 학습을 한 스텝씩 풀어 쓴 것. 손실 목록을 돌려준다.
 
     anomalib의 TRAINING_CONFIG와 부품만으로 만들어, 배치 순서 말고는 `run_dinomaly.train`과 공유하는
-    코드가 없다. `optimizer_kwargs`·`scheduler_kwargs`(total_iters 제외)를 주면 그 설정으로 만든다.
+    코드가 없다. `optimizer_kwargs`·`scheduler_kwargs`(total_iters 제외)를 주면 그 설정으로 만들고,
+    `global_step_start`를 주면 모델에 넘기는 global_step을 그 값부터 센다.
     """
     from anomalib.models.image.dinomaly.lightning_model import TRAINING_CONFIG
 
@@ -137,7 +167,8 @@ def _reference_train(
     losses = []
     for step in range(steps):
         optimizer.zero_grad()
-        loss = model(to_tensor(images[order[step]], "cpu", torch.float32), global_step=step)
+        batch = to_tensor(images[order[step]], "cpu", torch.float32)
+        loss = model(batch, global_step=global_step_start + step)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(params, TRAINING_CONFIG["trainer"]["gradient_clip_val"])
         optimizer.step()
@@ -643,6 +674,78 @@ def test_train_rejects_a_bad_schedule():
         assert model.calls == []
 
 
+# global_step 시작값(8-D 미세조정): train이 모델에 넘기는 global_step을 global_step_start부터 센다. 기본값
+# 0이면 지금까지처럼 0, 1, 2, …라 2·6·8-C단계 학습과 같다. Dinomaly 손실(anomalib CosineHardMiningLoss)은 이
+# 값으로 hard-mining 비율 p = min(0.9 × global_step / 1,000, 0.9)를 정하므로, 8-C E0(3,000스텝)에서 출발하는
+# 미세조정이 0부터 다시 세면 300스텝 동안 p가 0에서 0.27까지만 올라 수렴 때의 손실(p = 0.9)과 다른 목적이
+# 된다. 확인: (1) 모델이 받은 global_step(가짜 모델의 calls)과 손실이 실제로 쓴 p, (2) 같은 일정·시작값을 준
+# 기준 루프와 손실·가중치가 비트 단위로 같고, 시작값만 0으로 바꾸면 가중치가 달라진다(시작값이 기울기까지
+# 닿는다), (3) 시작값 없이 부른 train이 기준 루프(0부터)와 이 손실에서도 비트 단위로 같다(기본 길이 그대로),
+# (4) 손실이 유한하지 않을 때의 오류 문구가 실제로 넘긴 global_step을 적는다.
+def test_train_counts_global_steps_from_the_given_start():
+    model = TinyModel()
+    train(model, _images(8), steps=5, batch_size=4, device="cpu", global_step_start=3000)
+    assert [c[:2] for c in model.calls] == [(True, 3000 + step) for step in range(5)]
+
+    torch.manual_seed(0)
+    fresh = HardMiningModel()
+    resumed = copy.deepcopy(fresh)
+    train(fresh, _images(8), steps=5, batch_size=4, device="cpu")
+    train(resumed, _images(8), steps=5, batch_size=4, device="cpu", global_step_start=3000)
+    assert fresh.p_seen == [0.9 * step / 1000 for step in range(5)]
+    assert resumed.p_seen == [0.9] * 5
+
+    schedule = run_dinomaly.FINETUNE_SCHEDULE
+    optimizer, scheduler = run_dinomaly.optimizer_settings(schedule)
+    images = _images(10, seed=8)
+    steps = 30
+    torch.manual_seed(0)
+    ours = HardMiningModel()
+    reference = copy.deepcopy(ours)
+    restarted = copy.deepcopy(ours)
+    default = copy.deepcopy(ours)
+    default_reference = copy.deepcopy(ours)
+    kwargs = {"steps": steps, "batch_size": 4, "device": "cpu", "seed": 3, "log_every": 1}
+    log = train(ours, images, **kwargs, schedule=schedule, global_step_start=3000)
+    losses = _reference_train(
+        reference,
+        images,
+        steps=steps,
+        batch_size=4,
+        seed=3,
+        optimizer_kwargs=optimizer,
+        scheduler_kwargs=scheduler,
+        global_step_start=3000,
+    )
+    assert [e["loss"] for e in log] == losses
+    assert torch.equal(ours.decoder.weight, reference.decoder.weight)
+    assert torch.equal(ours.decoder.bias, reference.decoder.bias)
+    assert ours.p_seen == reference.p_seen == [0.9] * steps
+    train(restarted, images, **kwargs, schedule=schedule)
+    assert restarted.p_seen[0] == 0.0 and restarted.p_seen[-1] == pytest.approx(0.9 * 29 / 1000)
+    assert not torch.equal(ours.decoder.weight, restarted.decoder.weight)
+
+    log_default = train(default, images, **kwargs)
+    default_losses = _reference_train(default_reference, images, steps=steps, batch_size=4, seed=3)
+    assert [e["loss"] for e in log_default] == default_losses
+    assert torch.equal(default.decoder.weight, default_reference.decoder.weight)
+    assert default.p_seen == default_reference.p_seen == [0.9 * step / 1000 for step in range(steps)]
+
+    broken = TinyModel(nan_at=3002)
+    with pytest.raises(FloatingPointError, match=r"step 3 of 10 \(global_step=3002\)"):
+        train(broken, _images(8), steps=10, batch_size=4, device="cpu", global_step_start=3000)
+
+
+# global_step 시작값 검사: 음수, 정수가 아닌 값(실수·문자열·None), bool은 ValueError다. 잘못된 일정과 같이
+# 모델을 한 번도 부르기 전에 거절한다(잘못된 손실 일정으로 몇 스텝 학습된 모델이 남지 않게).
+def test_train_rejects_a_bad_global_step_start():
+    for start in (-1, 2.5, 3000.0, "3000", None, True, False):
+        model = TinyModel()
+        with pytest.raises(ValueError, match="global_step_start"):
+            train(model, _images(8), steps=2, batch_size=4, device="cpu", global_step_start=start)
+        assert model.calls == []
+
+
 # ---------------------------------------------------------------- predict(추론)
 
 
@@ -765,6 +868,13 @@ def test_real_model_builds_trains_and_predicts_without_pretrained_weights(monkey
     assert _reference_train(reference, images, steps=3, batch_size=4, seed=0) == [e["loss"] for e in log]
     expected = run_dinomaly.trainable_state(reference)
     assert all(torch.equal(after[name], expected[name]) for name in after)
+    # 실제 DinomalyModel은 받은 global_step을 손실(loss_fn = CosineHardMiningLoss)의 hard-mining 비율로 쓴다.
+    # 처음부터 3스텝(global_step 0, 1, 2)이면 마지막 p = 0.9 × 2 / 1,000이고, 8-D처럼 3,000부터 이어 세면 첫
+    # 스텝부터 0.9다(사본으로 확인해, 아래 채점·저장은 위 3스텝 모델 그대로다).
+    assert model.loss_fn.p == 0.9 * 2 / 1000
+    resumed = copy.deepcopy(model)
+    train(resumed, images, steps=2, batch_size=4, device="cpu", global_step_start=3000)
+    assert resumed.loss_fn.p == 0.9
 
     result = predict(model, images, batch_size=5, device="cpu")
     assert result.image_scores.shape == (8,) and result.maps.shape == (8, 256, 256)

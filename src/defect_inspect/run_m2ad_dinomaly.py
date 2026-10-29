@@ -24,7 +24,8 @@ test 이미지를 채점한다(장부에 한 줄). 표와 H24 판정은 `analyze
 # 학습이다. 처음부터 다시 학습(8-C E2, 3,000스텝)하는 대신 8-C E0의 저장된 모델을 출발점으로 I01 + 새 조명 L
 # 이미지로 짧게(300스텝, run_dinomaly.FINETUNE_SCHEDULE) 미세조정한다. 겹 f 모델은 E0 겹 f 모델(겹 f 시편을 본
 # 적 없음)에서 출발해 겹 f 시편을 뺀 이미지로만 미세조정하므로, 그 겹 시편의 점수는 끝까지 교차 적합 점수다.
-# finetune: 조명·모델마다 E0 모델 불러오기·출발 모델 확인 → train(FINETUNE_SCHEDULE, fp16) → ft/<L>/<모델>.pt.
+# finetune: 조명·모델마다 E0 모델 불러오기·출발 모델 확인 → train(FINETUNE_SCHEDULE, fp16, global_step은 출발
+# 모델의 3,000스텝에서 이어 셈) → ft/<L>/<모델>.pt.
 # score-finetune: 미세조정 겹 모델로 그 겹 시편의 I01·L 학습 이미지 채점(fp32) → ft/<L>/train_scores.npz.
 # test-finetune: 장부 기록 → 아홉 미세조정 전체 모델로 test 시편의 I01·L 채점(fp32) →
 # ft/test/<L>_<검사기>.npz.
@@ -266,7 +267,10 @@ def _check_start(start_dir: Path, model_name: str, meta: dict, options: dict) ->
 
 # finetune 명령: 새 조명마다 모델 6개(또는 --models)를 8-C E0의 같은 이름 모델에서 출발해 I01 + L 이미지로
 # 미세조정한다(FT_STEPS × 배치 16, seed 0, 일정 FINETUNE_SCHEDULE, CUDA면 fp16 autocast + 패치 어텐션 — 출발
-# 모델의 구성 옵션 그대로). 옵티마이저는 새 상태다(8-C 학습의 옵티마이저 상태는 저장하지 않았다). 이미 끝난
+# 모델의 구성 옵션 그대로). 옵티마이저는 새 상태다(8-C 학습의 옵티마이저 상태는 저장하지 않았다). 모델에
+# 넘기는 global_step은 출발 모델의 학습 스텝 수(3,000, _check_start가 확인한 모델 파일의 기록)에서 이어 센다.
+# Dinomaly 손실의 hard-mining 비율이 global_step으로 정해지므로, 그래야 8-C 수렴 때 값(0.9) 그대로
+# 미세조정한다(0부터 다시 세면 300스텝 동안 0~0.27. docs/experiments.md 8-D 2026-10-30 규칙 보충). 이미 끝난
 # 모델(<out>/ft/<L>/<모델>.json이 있음)은 건너뛰어, 54번 학습이 중간에 끊겨도 같은 명령으로 이어 간다. 손실이
 # 유한하지 않으면 run_dinomaly.train이 멈춘다. 출발 모델 폴더는 기본 <out>/e0이고 --start로 바꿀 수 있다
 # (출력만 임시 폴더로 보내는 점검 실행용). 출력: <모델>.pt, <모델>_log.jsonl, <모델>.json(완료 표시이자 기록).
@@ -321,6 +325,7 @@ def finetune_command(args) -> None:
                 log_every=args.log_every,
                 log_path=out_dir / f"{model_name}_log.jsonl",
                 schedule=FINETUNE_SCHEDULE,
+                global_step_start=start["steps"],
             )
             save_model(
                 out_dir / f"{model_name}.pt",
@@ -332,7 +337,8 @@ def finetune_command(args) -> None:
                 options=options,
             )
             # 기록: 조명·모델, 출발 모델(파일 지문 포함), 실행 환경, 실제로 쓴 옵티마이저·스케줄러 설정. 8-C
-            # 학습 기록과 같은 키 순서에 light와 start를 더했다.
+            # 학습 기록과 같은 키 순서에 light와 start를 더했다. config.global_step_start는 모델에 넘긴 첫
+            # global_step(출발 모델의 스텝 수)이다. 8-C 학습 기록에는 이 키가 없다(늘 0부터였다).
             info = {
                 "arm": FT_ARM,
                 "light": light,
@@ -351,6 +357,7 @@ def finetune_command(args) -> None:
                     "batch_size": BATCH,
                     "amp": amp,
                     "seed": SEED,
+                    "global_step_start": start["steps"],
                     "options": options,
                     "optimizer": {"name": "StableAdamW", **optimizer},
                     "scheduler": {"name": "WarmCosineScheduler", "total_iters": args.steps, **scheduler},

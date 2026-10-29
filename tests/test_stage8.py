@@ -440,6 +440,9 @@ def test_finetune_lights_and_training_rows():
 # 이미지 수가 남는다. 진짜 train(가짜 작은 모델)으로 돌려 일정이 로그까지 이어지는지 보고, 끝난 모델은 다시
 # 부르면 건너뛰며(--overwrite면 다시 함), 출발 모델이 8-C 규칙의 그 모델(dms-280-car, 3,000스텝, e0 팔)이
 # 아니면 학습 전에 멈추는지 본다.
+# global_step(8-D 규칙 2026-10-30 보충): 모델이 받는 global_step은 출발 모델의 학습 스텝 수(3,000)부터 이어
+# 센다(3스텝이면 3000, 3001, 3002). Dinomaly 손실의 hard-mining 비율 p가 8-C 수렴 때 값(0.9) 그대로이게 하려는
+# 것이고, 시작값은 기록의 config.global_step_start에 남는다.
 def test_finetune_starts_from_the_e0_models_with_the_fine_tuning_schedule(tmp_path, monkeypatch):
     pytest.importorskip("anomalib")  # 진짜 train()이 anomalib의 StableAdamW·WarmCosineScheduler를 쓴다
     from test_run_dinomaly import TinyModel
@@ -480,7 +483,7 @@ def test_finetune_starts_from_the_e0_models_with_the_fine_tuning_schedule(tmp_pa
     real_train = run_dinomaly.train
 
     def spy_train(model, images, **kwargs):
-        calls.append((images.copy(), kwargs))
+        calls.append((images.copy(), kwargs, model))
         return real_train(model, images, **kwargs)
 
     monkeypatch.setattr(run_dinomaly, "load_model", fake_load)
@@ -492,10 +495,13 @@ def test_finetune_starts_from_the_e0_models_with_the_fine_tuning_schedule(tmp_pa
     assert loaded == ["e0/full.pt", "e0/fold2.pt", "e0/full.pt", "e0/fold2.pt"]
     plan = run_m2ad_dinomaly.train_plan(rows)
     order = [("05", "full"), ("05", "fold2"), ("08", "full"), ("08", "fold2")]
-    for (images, kwargs), (light, name) in zip(calls, order, strict=True):
+    for (images, kwargs, model), (light, name) in zip(calls, order, strict=True):
         assert np.array_equal(images, cache.images(run_m2ad_dinomaly.finetune_rows(plan, light, name)))
         assert kwargs["schedule"] == run_dinomaly.FINETUNE_SCHEDULE
         assert (kwargs["steps"], kwargs["batch_size"], kwargs["seed"], kwargs["amp"]) == (3, 16, 0, False)
+        # 손실의 hard-mining 일정은 출발 모델의 3,000스텝에서 이어진다(0부터 다시 세지 않는다).
+        assert kwargs["global_step_start"] == 3000
+        assert [c[1] for c in model.calls] == [3000, 3001, 3002]
     info = json.loads((out / "ft" / "05" / "full.json").read_text(encoding="utf-8"))
     assert (info["arm"], info["light"], info["model"], info["lights"]) == ("ft", "05", "full", ["01", "05"])
     assert info["start"] == {
@@ -508,6 +514,7 @@ def test_finetune_starts_from_the_e0_models_with_the_fine_tuning_schedule(tmp_pa
     }
     config = info["config"]
     assert (config["name"], config["steps"], config["batch_size"], config["seed"]) == (cfg.name, 3, 16, 0)
+    assert config["global_step_start"] == 3000
     assert config["optimizer"] == json.loads(
         json.dumps({"name": "StableAdamW", **run_dinomaly.OPTIMIZER, "lr": 2e-4})
     )

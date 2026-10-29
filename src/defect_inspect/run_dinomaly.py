@@ -342,6 +342,14 @@ def optimizer_settings(schedule: dict | None = None) -> tuple[dict, dict]:
 # schedule: 학습 일정(optimizer_settings). None(기본값)이면 anomalib 일정 그대로라 2·6·8-C단계와 같은
 # 학습이고, 8-D 미세조정은 FINETUNE_SCHEDULE을 넘긴다. 어느 쪽이든 옵티마이저는 이 호출에서 새로 만든다(이전
 # 학습의 옵티마이저 상태를 이어받지 않는다). 잘못된 일정은 모델을 건드리기 전에 ValueError로 거절한다.
+# global_step_start: 모델에 넘기는 global_step의 첫 값(기본 0, 그 뒤 스텝마다 1씩). Dinomaly 손실(anomalib
+# CosineHardMiningLoss)은 이 값으로 '잘 복원된 쉬운 점'의 비율 p = min(0.9 × global_step / 1,000, 0.9)를
+# 정하고 그 점들의 기울기를 0.1배로 줄인다. 0이면 anomalib Lightning 모듈이 처음부터 학습할 때와 같은 값(0, 1,
+# 2, …)이라 2·6·8-C단계 학습과 같다. 저장된 모델을 이어 학습하는 8-D 미세조정은 출발 모델의 학습 스텝
+# 수(3,000)를 넘겨 p가 수렴 때 값(0.9)에서 이어지게 한다(docs/experiments.md 8-D 2026-10-30 규칙 보충). 0부터
+# 다시 세면 300스텝 동안 p가 0~0.27이라 수렴 때와 다른 손실이 된다. 학습률 일정과는 따로다: 스케줄러는 늘 이
+# 호출의 스텝 수로 새로 만든다. 0 이상의 정수(bool 제외)가 아니면 일정과 같이 모델을 건드리기 전에
+# ValueError로 거절한다.
 # 호출 위치: _train_command, attention_parity, _gate_run, run_m2ad_dinomaly(8-C 학습과 8-D 미세조정).
 def train(
     model: torch.nn.Module,
@@ -355,6 +363,7 @@ def train(
     log_every: int = 50,
     log_path: Path | None = None,
     schedule: dict | None = None,
+    global_step_start: int = 0,
 ) -> list[dict]:
     """`model`에서 기울기가 필요한 파라미터를 uint8 이미지 [N, S, S, 3]로 학습한다.
 
@@ -363,7 +372,8 @@ def train(
     순전파를 fp16 autocast와 GradScaler로 돌린다. 손실이 유한하지 않으면 FloatingPointError를 낸다.
     `log_every` 스텝마다(그리고 마지막 스텝) 기록 하나씩을 돌려주고, `log_path`가 있으면 같은 기록을 JSON
     줄로 하나씩 flush하며 덧붙인다. `schedule`을 주면 anomalib 일정 대신 그 일정(`optimizer_settings`)으로
-    학습한다(None이면 anomalib 설정 그대로).
+    학습한다(None이면 anomalib 설정 그대로). 모델에 넘기는 global_step은 `global_step_start`(기본 0)부터
+    센다(저장된 모델을 이어 학습할 때 손실의 hard-mining 일정을 잇는 값).
     """
     import torch
     from anomalib.models.image.dinomaly.components import StableAdamW, WarmCosineScheduler
@@ -375,6 +385,10 @@ def train(
         raise ValueError(f"steps and log_every must be at least 1, got {steps} and {log_every}")
     # 일정 검사를 장치 이동·난수 고정보다 먼저 해, 잘못된 일정이면 모델을 한 번도 부르지 않고 멈춘다.
     optimizer_kwargs, scheduler_kwargs = optimizer_settings(schedule)
+    # global_step 시작값도 같은 때 검사한다. bool은 int의 하위 클래스라 따로 막는다(True가 1로 조용히 쓰이지
+    # 않게). 3000.0 같은 실수도 받지 않는다(기록에 남는 값의 형식을 하나로 두려고).
+    if isinstance(global_step_start, bool) or not isinstance(global_step_start, int) or global_step_start < 0:
+        raise ValueError(f"global_step_start must be an integer of at least 0, got {global_step_start!r}")
     dev = torch.device(device)
     use_amp = amp_applied(amp, dev)
     # 배치 순서는 학습 전에 한 번에 정한다. 병목 dropout 마스크는 torch 난수라 seed로 따로 고정한다.
@@ -408,15 +422,17 @@ def train(
         for step in range(steps):
             # 배치를 GPU로 올려 ImageNet 정규화한 fp32 텐서로 만든다(정밀도 변환은 autocast가 맡는다).
             batch = to_tensor(images[order[step]], dev, torch.float32)
-            # anomalib DinomalyModel은 학습 모드에서 손실을 바로 돌려준다. global_step은 anomalib Lightning
-            # 모듈이 넘기는 것과 같은 값이다. 순전파만 autocast 안에서 하고 역전파는 밖에서 한다.
+            # anomalib DinomalyModel은 학습 모드에서 손실을 바로 돌려준다. global_step은 기본(시작값 0)이면
+            # anomalib Lightning 모듈이 처음부터 학습할 때 넘기는 것과 같은 스텝 번호이고, 미세조정이면 출발
+            # 모델의 스텝 수에서 이어 센 값이다(위 주석). 순전파만 autocast 안에서 하고 역전파는 밖에서 한다.
+            global_step = global_step_start + step
             with _autocast(dev, use_amp):
-                loss = model(batch, global_step=step)
+                loss = model(batch, global_step=global_step)
             # 손실이 유한한지 역전파 전에 확인해, NaN이 나면 그 스텝에서 바로 멈추고 몇 번째 스텝인지 알린다.
             value = float(loss.detach())
             if not math.isfinite(value):
                 raise FloatingPointError(
-                    f"non-finite loss ({value}) at step {step + 1} of {steps} (global_step={step})"
+                    f"non-finite loss ({value}) at step {step + 1} of {steps} (global_step={global_step})"
                 )
             # 역전파 → 기울기 되돌리기(unscale) → norm 자르기 → 스텝 순서. unscale을 먼저 해야 클리핑이 실제
             # 기울기 크기 기준으로 된다.
