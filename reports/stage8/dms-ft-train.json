@@ -1,0 +1,1836 @@
+{
+  "lights": {
+    "02": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.008496802300214767,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 52.907,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.008596882224082947,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 46.347,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.008505702018737793,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 46.029,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.008470974862575531,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 48.808,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.008613498881459236,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 46.085,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.008473901078104973,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1614.7,
+          "train_s": 52.974,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.0259998869150877,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.03178410977125168,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.0259998869150877,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.022772639989852905,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.018304329365491867,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.019611194729804993,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.02503770776093006,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.026015952229499817,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.021513769403100014,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.027295580133795738,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.027345847338438034,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.027172734960913658,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.027580277994275093,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02562950737774372,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02649771422147751,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.030738292261958122,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.029975710436701775,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.029761597514152527,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 11,
+        "n": 180,
+        "fpr": 0.06111111111111111
+      },
+      "e0_light_at_reference": {
+        "false_positives": 136,
+        "n": 180,
+        "fpr": 0.7555555555555555
+      },
+      "mixed_light": {
+        "false_positives": 7,
+        "n": 180,
+        "fpr": 0.03888888888888889
+      },
+      "mixed_reference": {
+        "false_positives": 5,
+        "n": 180,
+        "fpr": 0.027777777777777776
+      }
+    },
+    "03": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.009127942845225334,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 50.642,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.00937487930059433,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 53.843,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.009184345602989197,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 54.989,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.00910251960158348,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1614.7,
+          "train_s": 47.628,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.009318582713603973,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 46.221,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.008913462981581688,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 48.356,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.025749806314706802,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.03202308341860771,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.025650588795542717,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.025432376191020012,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.01881542056798935,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.018519697710871696,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.025380905717611313,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.026039164513349533,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.020831990987062454,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.027344804257154465,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.028155488893389702,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.027134690433740616,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.028853455558419228,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.025453168898820877,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02580071985721588,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.030284244567155838,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02978680655360222,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02978680655360222,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 7,
+        "n": 180,
+        "fpr": 0.03888888888888889
+      },
+      "e0_light_at_reference": {
+        "false_positives": 180,
+        "n": 180,
+        "fpr": 1.0
+      },
+      "mixed_light": {
+        "false_positives": 8,
+        "n": 180,
+        "fpr": 0.044444444444444446
+      },
+      "mixed_reference": {
+        "false_positives": 4,
+        "n": 180,
+        "fpr": 0.022222222222222223
+      }
+    },
+    "04": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.009095463901758194,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 46.296,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.009269002825021744,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 49.3,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.009173814207315445,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.433,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.009105062112212181,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.049,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.009205766022205353,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.073,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.008883902803063393,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 46.333,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.030507048591971397,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.030881106853485107,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02520851604640484,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.01945917308330536,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.018560411408543587,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.018612872809171677,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.027181144803762436,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.025801856070756912,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.021545547991991043,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.02804192155599594,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.026573985815048218,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02698172628879547,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.030676817521452904,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.024293934926390648,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02859526127576828,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.02911587804555893,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.028465865179896355,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.028465865179896355,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 27,
+        "n": 180,
+        "fpr": 0.15
+      },
+      "e0_light_at_reference": {
+        "false_positives": 180,
+        "n": 180,
+        "fpr": 1.0
+      },
+      "mixed_light": {
+        "false_positives": 10,
+        "n": 180,
+        "fpr": 0.05555555555555555
+      },
+      "mixed_reference": {
+        "false_positives": 2,
+        "n": 180,
+        "fpr": 0.011111111111111112
+      }
+    },
+    "05": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.009154072031378746,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.845,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.009181266650557518,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.565,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.009081874042749405,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.427,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.00908646360039711,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.83,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.009238550439476967,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.892,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.00876581110060215,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.295,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.03217274695634842,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.031641919165849686,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.024759441614151,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.0208823811262846,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.017751483246684074,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.018561318516731262,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.029899876564741135,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.025353454053401947,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.01923358254134655,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.027978824451565742,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02637801505625248,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.026602428406476974,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.03155386820435524,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.024770643562078476,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.029638957232236862,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.031055208295583725,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.027881843969225883,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.028798086568713188,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 35,
+        "n": 180,
+        "fpr": 0.19444444444444445
+      },
+      "e0_light_at_reference": {
+        "false_positives": 180,
+        "n": 180,
+        "fpr": 1.0
+      },
+      "mixed_light": {
+        "false_positives": 10,
+        "n": 180,
+        "fpr": 0.05555555555555555
+      },
+      "mixed_reference": {
+        "false_positives": 2,
+        "n": 180,
+        "fpr": 0.011111111111111112
+      }
+    },
+    "06": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.008851595222949982,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 42.637,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.008959086611866951,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.014,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.008825665339827538,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.829,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.008868642151355743,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.549,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.00894135981798172,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.081,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.008605008944869041,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.54,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.03197246044874191,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.03103184886276722,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.024743784219026566,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.019401397556066513,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.018432296812534332,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.018432296812534332,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.028474316000938416,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02525586076080799,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.019268980249762535,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.028670266270637512,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.026446206495165825,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.026446206495165825,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.03521520644426346,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.024913473054766655,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.03108314424753189,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.029750974848866463,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.028852209448814392,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.028852209448814392,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 23,
+        "n": 180,
+        "fpr": 0.12777777777777777
+      },
+      "e0_light_at_reference": {
+        "false_positives": 180,
+        "n": 180,
+        "fpr": 1.0
+      },
+      "mixed_light": {
+        "false_positives": 10,
+        "n": 180,
+        "fpr": 0.05555555555555555
+      },
+      "mixed_reference": {
+        "false_positives": 2,
+        "n": 180,
+        "fpr": 0.011111111111111112
+      }
+    },
+    "07": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.009044472128152847,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.696,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.009117638692259789,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.044,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.009055938571691513,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.985,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.009117800742387772,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.066,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.009224586188793182,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.685,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.00871761329472065,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.187,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.02597697079181671,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.030736299231648445,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02504708059132099,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.019467251375317574,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.0176517516374588,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.018620779737830162,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.026114264503121376,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.026667606085538864,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.01983710192143917,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.03056327812373638,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.026675628498196602,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.027984444051980972,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.03440086171030998,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.025617104023694992,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.028995331376791,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.028586752712726593,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.029764428734779358,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.028586752712726593,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 22,
+        "n": 180,
+        "fpr": 0.12222222222222222
+      },
+      "e0_light_at_reference": {
+        "false_positives": 180,
+        "n": 180,
+        "fpr": 1.0
+      },
+      "mixed_light": {
+        "false_positives": 8,
+        "n": 180,
+        "fpr": 0.044444444444444446
+      },
+      "mixed_reference": {
+        "false_positives": 4,
+        "n": 180,
+        "fpr": 0.022222222222222223
+      }
+    },
+    "08": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.007875863462686539,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.369,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.007947131991386414,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.154,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.007858911529183388,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.268,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.007877010852098465,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.403,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.007946381345391273,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.617,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.007869753986597061,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.361,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.039162129163742065,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.031835176050662994,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02613094635307789,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.017294803634285927,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.019187429919838905,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.0168960802257061,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.025998029857873917,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.025599466636776924,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.01934252493083477,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.0283176489174366,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.027570948004722595,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.027429357171058655,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.036634817719459534,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.025773242115974426,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.03197748214006424,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.02850114181637764,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.029443511739373207,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02850114181637764,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 17,
+        "n": 180,
+        "fpr": 0.09444444444444444
+      },
+      "e0_light_at_reference": {
+        "false_positives": 134,
+        "n": 180,
+        "fpr": 0.7444444444444445
+      },
+      "mixed_light": {
+        "false_positives": 6,
+        "n": 180,
+        "fpr": 0.03333333333333333
+      },
+      "mixed_reference": {
+        "false_positives": 6,
+        "n": 180,
+        "fpr": 0.03333333333333333
+      }
+    },
+    "09": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.009451422840356827,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.021,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.00952225923538208,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.83,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.00941312313079834,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.082,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.009386654943227768,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.008,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.009580271318554878,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.123,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.009077571332454681,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.286,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.02886681817471981,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.03203294053673744,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02477671205997467,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.020290452986955643,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.018040593713521957,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.018523016944527626,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.026054423302412033,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02621980383992195,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.021697454154491425,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.02809090167284012,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02707812748849392,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.027124369516968727,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.03471168875694275,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02535906434059143,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.03179327771067619,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.030636398121714592,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02876855619251728,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.029343368485569954,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 27,
+        "n": 180,
+        "fpr": 0.15
+      },
+      "e0_light_at_reference": {
+        "false_positives": 180,
+        "n": 180,
+        "fpr": 1.0
+      },
+      "mixed_light": {
+        "false_positives": 10,
+        "n": 180,
+        "fpr": 0.05555555555555555
+      },
+      "mixed_reference": {
+        "false_positives": 2,
+        "n": 180,
+        "fpr": 0.011111111111111112
+      }
+    },
+    "10": {
+      "models": {
+        "fold0": {
+          "train_images": 288,
+          "final_loss": 0.009368598461151123,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 42.625,
+          "start_sha256": "85721beed557e1788c80f98520737191060326fa889f47d783200a022a0f0f23"
+        },
+        "fold1": {
+          "train_images": 288,
+          "final_loss": 0.009535059332847595,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.231,
+          "start_sha256": "bf036f1f61d74fe74a1e4f91879504748b675b87ea7d7d383af9d42e9c4a8c63"
+        },
+        "fold2": {
+          "train_images": 288,
+          "final_loss": 0.009351471439003944,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.052,
+          "start_sha256": "a476964890dc4ef083add9d0843eca2a2d4395923d523576e0795aeabf286bad"
+        },
+        "fold3": {
+          "train_images": 288,
+          "final_loss": 0.009300032630562782,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.553,
+          "start_sha256": "0ce93631d0f971ae969d498049250145b84ab00ab4e22062bef58b6d05ef7f46"
+        },
+        "fold4": {
+          "train_images": 288,
+          "final_loss": 0.009502647444605827,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 43.734,
+          "start_sha256": "21a7ed8c7b9619b269416b1c5ed2936b273786559c4d3accb900f9cefdbde4ff"
+        },
+        "full": {
+          "train_images": 360,
+          "final_loss": 0.009019924327731133,
+          "skipped_steps": 0,
+          "peak_vram_mb": 1610.6,
+          "train_s": 44.055,
+          "start_sha256": "427f02d236b1c53713b7c118686c1a1e90a6cd22e63932b696698ac6fc071269"
+        }
+      },
+      "thresholds": [
+        {
+          "inspector": "Motor_000",
+          "light": {
+            "value": 0.030258813872933388,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.03113386407494545,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02538500539958477,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_120",
+          "light": {
+            "value": 0.02149287797510624,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.017916925251483917,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.01879015564918518,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Motor_240",
+          "light": {
+            "value": 0.02643462084233761,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.026374930515885353,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.021715648472309113,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_000",
+          "light": {
+            "value": 0.028677761554718018,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02733679674565792,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.02841343730688095,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_120",
+          "light": {
+            "value": 0.03597981855273247,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.025427939370274544,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.03409993276000023,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        },
+        {
+          "inspector": "Bird_240",
+          "light": {
+            "value": 0.030573856085538864,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "reference": {
+            "value": 0.02851416915655136,
+            "rank": 30,
+            "n": 30,
+            "guaranteed": true
+          },
+          "mixed": {
+            "value": 0.029624182730913162,
+            "rank": 58,
+            "n": 60,
+            "guaranteed": true
+          }
+        }
+      ],
+      "light_at_reference": {
+        "false_positives": 31,
+        "n": 180,
+        "fpr": 0.17222222222222222
+      },
+      "e0_light_at_reference": {
+        "false_positives": 180,
+        "n": 180,
+        "fpr": 1.0
+      },
+      "mixed_light": {
+        "false_positives": 10,
+        "n": 180,
+        "fpr": 0.05555555555555555
+      },
+      "mixed_reference": {
+        "false_positives": 2,
+        "n": 180,
+        "fpr": 0.011111111111111112
+      }
+    }
+  },
+  "total": {
+    "light_at_reference": {
+      "false_positives": 200,
+      "n": 1620,
+      "fpr": 0.12345679012345678
+    },
+    "e0_light_at_reference": {
+      "false_positives": 1530,
+      "n": 1620,
+      "fpr": 0.9444444444444444
+    },
+    "mixed_light": {
+      "false_positives": 79,
+      "n": 1620,
+      "fpr": 0.04876543209876543
+    },
+    "mixed_reference": {
+      "false_positives": 29,
+      "n": 1620,
+      "fpr": 0.017901234567901235
+    }
+  },
+  "training": {
+    "models": 54,
+    "skipped_steps": 0,
+    "peak_vram_mb": 1614.7,
+    "train_s": 2454.3,
+    "final_loss_range": [
+      0.007858911529183388,
+      0.009580271318554878
+    ]
+  }
+}
