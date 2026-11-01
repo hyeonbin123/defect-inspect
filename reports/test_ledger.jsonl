@@ -28,3 +28,4 @@
 {"time": "2026-10-15T10:17:31+00:00", "commit": "732c88a+dirty", "stage": "cache", "config": "m2ad-cache-280", "note": "M2AD resize cache build: pixels copied into arrays, no scores or metrics"}
 {"time": "2026-10-17T19:10:21+00:00", "commit": "471e9de", "stage": "8-m2ad-loop", "config": "m2ad-loop-p0", "note": "stage 8-B closed-loop arms 10 per light, human check m=4"}
 {"time": "2026-10-17T22:15:40+00:00", "commit": "4ae4770", "stage": "8-m2ad", "config": "m2ad-dms-280-car", "note": "stage 8-C arms ['e0', 'e2-a', 'e2-b'], full models, fp32 scoring"}
+{"time": "2026-11-01T03:35:38+00:00", "commit": "5542f26", "stage": "8-m2ad-ft", "config": "m2ad-dms-280-car-ft", "note": "stage 8-D fine-tuned full models, lights ['02', '03', '04', '05', '06', '07', '08', '09', '10'], I01 and L, fp32 scoring", "tree": {"porcelain": [], "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}
