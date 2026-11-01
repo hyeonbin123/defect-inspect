@@ -1,0 +1,436 @@
+{
+  "configs": [
+    "dms-280-car",
+    "dms-280"
+  ],
+  "registered_seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "reduced": false,
+  "dropped": [],
+  "seed0_check": {
+    "dms-280-car": {
+      "equal": true,
+      "macro_image_auroc": {
+        "recorded": 0.9698098982934091,
+        "reproduced": 0.9698098982934091
+      },
+      "macro_aupro": {
+        "recorded": 0.9508671967116503,
+        "reproduced": 0.9508671967116503
+      },
+      "pooled_fpr_at_tpr95": {
+        "recorded": 0.1226252158894646,
+        "reproduced": 0.1226252158894646
+      }
+    },
+    "dms-280": {
+      "equal": true,
+      "macro_image_auroc": {
+        "recorded": 0.9618370260956338,
+        "reproduced": 0.9618370260956338
+      },
+      "macro_aupro": {
+        "recorded": 0.9330940814207005,
+        "reproduced": 0.9330940814207005
+      },
+      "pooled_fpr_at_tpr95": {
+        "recorded": 0.14507772020725387,
+        "reproduced": 0.14507772020725387
+      }
+    }
+  },
+  "per_config": {
+    "dms-280-car": {
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "auroc": [
+        0.9698098982934091,
+        0.9664858034389172,
+        0.9711707036526996,
+        0.9650180523489184
+      ],
+      "mean": 0.968121114433486,
+      "sd": 0.002855125314302906,
+      "min": 0.9650180523489184,
+      "max": 0.9711707036526996,
+      "aupro": {
+        "values": [
+          0.9508671967116503,
+          0.9488508886210036,
+          0.9517138645054809,
+          0.9479777327784488
+        ],
+        "mean": 0.9498524206541459,
+        "sd": 0.0017332305773951895
+      },
+      "fpr_at_tpr95": {
+        "values": [
+          0.1226252158894646,
+          0.14075993091537134,
+          0.12867012089810018,
+          0.14939550949913644
+        ],
+        "mean": 0.13536269430051812,
+        "sd": 0.012015045574807337
+      }
+    },
+    "dms-280": {
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "auroc": [
+        0.9618370260956338,
+        0.9615259874483356,
+        0.9626462964397873,
+        0.9624965037602201
+      ],
+      "mean": 0.9621264534359941,
+      "sd": 0.0005327606025020967,
+      "min": 0.9615259874483356,
+      "max": 0.9626462964397873,
+      "aupro": {
+        "values": [
+          0.9330940814207005,
+          0.9330730127405529,
+          0.9308085951002282,
+          0.9326389308112911
+        ],
+        "mean": 0.9324036550181931,
+        "sd": 0.001083866415274217
+      },
+      "fpr_at_tpr95": {
+        "values": [
+          0.14507772020725387,
+          0.13903281519861832,
+          0.1303972366148532,
+          0.12953367875647667
+        ],
+        "mean": 0.1360103626943005,
+        "sd": 0.00741185560712938
+      }
+    }
+  },
+  "car_effect": {
+    "pair": [
+      "dms-280-car",
+      "dms-280"
+    ],
+    "seeds": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "d": [
+      0.007972872197775316,
+      0.004959815990581595,
+      0.008524407212912366,
+      0.0025215485886982414
+    ],
+    "n": 4,
+    "df": 3,
+    "mean": 0.00599466099749188,
+    "sd": 0.0027956126019058627,
+    "t": 3.1824463052837078,
+    "ci": [
+      0.0015462174995219367,
+      0.010443104495461823
+    ],
+    "stage6_seed0": {
+      "diff": 0.007972872197775316,
+      "ci": [
+        0.0006960791607996461,
+        0.015706486417314015
+      ]
+    }
+  },
+  "selection": {
+    "pair": [
+      "dms-280-car",
+      "dms-308"
+    ],
+    "gap": 0.004926471990797765,
+    "sd_car": 0.002855125314302906,
+    "ratio": 1.7254836297791676
+  },
+  "interpretation": {
+    "car": {
+      "result": "exceeds",
+      "sentence": "CAR 효과는 학습 시드 잡음을 넘는다: seed 4개 짝 차이 평균 +0.60%p, t(자유도 3) 95% 구간 [+0.15, +1.04]%p"
+    },
+    "selection": {
+      "result": "multiple",
+      "sentence": "6단계 선택 차이(seed 0 dev의 dms-280-car − dms-308, 0.49%p)는 dms-280-car seed 표준편차 0.29%p의 1.7배다(dms-308은 seed를 반복하지 않아 dms-280-car의 표준편차로 본 근사)",
+      "ratio": 1.7254836297791676
+    }
+  },
+  "runs": [
+    {
+      "config": "dms-280-car",
+      "seed": 0,
+      "run": "outputs/dms-280-car-dev",
+      "model": "outputs/dms-280-car/model.pt",
+      "model_sha256": "d1f8e6e5a8746950a30973bd255c8e0032b1246abf5e4de91fc15ba2469145ab",
+      "train_commit": "c67c849",
+      "eval_commit": "c67c849",
+      "train": {
+        "final_loss": 0.010076183825731277,
+        "skipped_steps": 0,
+        "peak_vram_mb": 1613.7,
+        "train_s": 874.503
+      },
+      "macro_image_auroc": 0.9698098982934091,
+      "macro_aupro": 0.9508671967116503,
+      "pooled_fpr_at_tpr95": 0.1226252158894646,
+      "per_category_auroc": {
+        "candle": 0.99375,
+        "capsules": 0.947945205479452,
+        "cashew": 0.9841666666666666,
+        "chewinggum": 0.9811475409836066,
+        "fryum": 0.9941666666666666,
+        "macaroni1": 0.9654166666666667,
+        "macaroni2": 0.8629166666666667,
+        "pcb1": 0.9991735537190083,
+        "pcb2": 0.9636363636363636,
+        "pcb3": 0.9661157024793389,
+        "pcb4": 0.9859504132231405,
+        "pipe_fryum": 0.9933333333333333
+      }
+    },
+    {
+      "config": "dms-280-car",
+      "seed": 1,
+      "run": "outputs/dms-280-car-s1-dev",
+      "model": "outputs/dms-280-car-s1/model.pt",
+      "model_sha256": "0a603a3f93e7b3d8de9be25fc53a0902c2dd01549faae8b0060898374396cfd4",
+      "train_commit": "f435c55",
+      "eval_commit": "f435c55",
+      "train": {
+        "final_loss": 0.009932542219758034,
+        "skipped_steps": 0,
+        "peak_vram_mb": 1613.7,
+        "train_s": 1507.059
+      },
+      "macro_image_auroc": 0.9664858034389172,
+      "macro_aupro": 0.9488508886210036,
+      "pooled_fpr_at_tpr95": 0.14075993091537134,
+      "per_category_auroc": {
+        "candle": 0.99125,
+        "capsules": 0.9472602739726027,
+        "cashew": 0.9858333333333333,
+        "chewinggum": 0.9836065573770492,
+        "fryum": 0.995,
+        "macaroni1": 0.9558333333333333,
+        "macaroni2": 0.8320833333333333,
+        "pcb1": 0.9975206611570248,
+        "pcb2": 0.9640495867768595,
+        "pcb3": 0.9644628099173553,
+        "pcb4": 0.9884297520661157,
+        "pipe_fryum": 0.9925
+      }
+    },
+    {
+      "config": "dms-280-car",
+      "seed": 2,
+      "run": "outputs/dms-280-car-s2-dev",
+      "model": "outputs/dms-280-car-s2/model.pt",
+      "model_sha256": "5f2adce1504f59e3fcc7a64c342b386275aea9ed1d4ad1e7654ac552ae75083a",
+      "train_commit": "f435c55",
+      "eval_commit": "f435c55",
+      "train": {
+        "final_loss": 0.009722603484988213,
+        "skipped_steps": 0,
+        "peak_vram_mb": 1613.7,
+        "train_s": 1536.118
+      },
+      "macro_image_auroc": 0.9711707036526996,
+      "macro_aupro": 0.9517138645054809,
+      "pooled_fpr_at_tpr95": 0.12867012089810018,
+      "per_category_auroc": {
+        "candle": 0.9916666666666667,
+        "capsules": 0.9534246575342465,
+        "cashew": 0.9808333333333333,
+        "chewinggum": 0.978688524590164,
+        "fryum": 0.9908333333333333,
+        "macaroni1": 0.9620833333333333,
+        "macaroni2": 0.8895833333333333,
+        "pcb1": 0.9979338842975206,
+        "pcb2": 0.9652892561983472,
+        "pcb3": 0.9669421487603306,
+        "pcb4": 0.987603305785124,
+        "pipe_fryum": 0.9891666666666666
+      }
+    },
+    {
+      "config": "dms-280-car",
+      "seed": 3,
+      "run": "outputs/dms-280-car-s3-dev",
+      "model": "outputs/dms-280-car-s3/model.pt",
+      "model_sha256": "02c8305744919e5bfbe1b9bba96e0ac16aea2e3cab1bfcc3f5f9c925622a0bef",
+      "train_commit": "f435c55",
+      "eval_commit": "f435c55",
+      "train": {
+        "final_loss": 0.010359985753893852,
+        "skipped_steps": 0,
+        "peak_vram_mb": 1613.7,
+        "train_s": 1523.861
+      },
+      "macro_image_auroc": 0.9650180523489184,
+      "macro_aupro": 0.9479777327784488,
+      "pooled_fpr_at_tpr95": 0.14939550949913644,
+      "per_category_auroc": {
+        "candle": 0.9920833333333333,
+        "capsules": 0.9383561643835616,
+        "cashew": 0.9833333333333333,
+        "chewinggum": 0.9819672131147541,
+        "fryum": 0.9933333333333333,
+        "macaroni1": 0.9595833333333333,
+        "macaroni2": 0.8270833333333333,
+        "pcb1": 0.996694214876033,
+        "pcb2": 0.9615702479338843,
+        "pcb3": 0.96900826446281,
+        "pcb4": 0.9855371900826446,
+        "pipe_fryum": 0.9916666666666667
+      }
+    },
+    {
+      "config": "dms-280",
+      "seed": 0,
+      "run": "outputs/dms-280-dev",
+      "model": "outputs/dms-280/model.pt",
+      "model_sha256": "42528e57a60f5b155a9a6ec159d993b1db51a009f4de60b9cca5986d7bdc0ab7",
+      "train_commit": "c67c849",
+      "eval_commit": "c67c849",
+      "train": {
+        "final_loss": 0.0377982072532177,
+        "skipped_steps": 0,
+        "peak_vram_mb": 1548.5,
+        "train_s": 860.862
+      },
+      "macro_image_auroc": 0.9618370260956338,
+      "macro_aupro": 0.9330940814207005,
+      "pooled_fpr_at_tpr95": 0.14507772020725387,
+      "per_category_auroc": {
+        "candle": 0.9758333333333333,
+        "capsules": 0.9308219178082192,
+        "cashew": 0.9858333333333333,
+        "chewinggum": 0.9745901639344262,
+        "fryum": 0.9916666666666667,
+        "macaroni1": 0.9254166666666667,
+        "macaroni2": 0.8220833333333334,
+        "pcb1": 0.9958677685950413,
+        "pcb2": 0.974793388429752,
+        "pcb3": 0.9851239669421488,
+        "pcb4": 0.9983471074380166,
+        "pipe_fryum": 0.9816666666666667
+      }
+    },
+    {
+      "config": "dms-280",
+      "seed": 1,
+      "run": "outputs/dms-280-s1-dev",
+      "model": "outputs/dms-280-s1/model.pt",
+      "model_sha256": "36b7e9204c3f2ba8e0140b07e3afec76ecb3f368cc7e9f4f59b874e3a7e4b627",
+      "train_commit": "f435c55",
+      "eval_commit": "f435c55",
+      "train": {
+        "final_loss": 0.03768184781074524,
+        "skipped_steps": 0,
+        "peak_vram_mb": 1548.5,
+        "train_s": 1510.703
+      },
+      "macro_image_auroc": 0.9615259874483356,
+      "macro_aupro": 0.9330730127405529,
+      "pooled_fpr_at_tpr95": 0.13903281519861832,
+      "per_category_auroc": {
+        "candle": 0.9791666666666666,
+        "capsules": 0.9246575342465754,
+        "cashew": 0.98,
+        "chewinggum": 0.980327868852459,
+        "fryum": 0.9891666666666666,
+        "macaroni1": 0.9216666666666666,
+        "macaroni2": 0.8283333333333334,
+        "pcb1": 0.993801652892562,
+        "pcb2": 0.971900826446281,
+        "pcb3": 0.9867768595041322,
+        "pcb4": 0.9983471074380166,
+        "pipe_fryum": 0.9841666666666666
+      }
+    },
+    {
+      "config": "dms-280",
+      "seed": 2,
+      "run": "outputs/dms-280-s2-dev",
+      "model": "outputs/dms-280-s2/model.pt",
+      "model_sha256": "2bfe6ba8e7ef316cd32af36417dca6231fca408fe28415347d7996054a0b0501",
+      "train_commit": "f435c55",
+      "eval_commit": "f435c55",
+      "train": {
+        "final_loss": 0.0368003323674202,
+        "skipped_steps": 0,
+        "peak_vram_mb": 1548.5,
+        "train_s": 1518.309
+      },
+      "macro_image_auroc": 0.9626462964397873,
+      "macro_aupro": 0.9308085951002282,
+      "pooled_fpr_at_tpr95": 0.1303972366148532,
+      "per_category_auroc": {
+        "candle": 0.9775,
+        "capsules": 0.9438356164383561,
+        "cashew": 0.9791666666666666,
+        "chewinggum": 0.9737704918032787,
+        "fryum": 0.9875,
+        "macaroni1": 0.92375,
+        "macaroni2": 0.8316666666666667,
+        "pcb1": 0.9946280991735538,
+        "pcb2": 0.9727272727272728,
+        "pcb3": 0.9863636363636363,
+        "pcb4": 0.9983471074380166,
+        "pipe_fryum": 0.9825
+      }
+    },
+    {
+      "config": "dms-280",
+      "seed": 3,
+      "run": "outputs/dms-280-s3-dev",
+      "model": "outputs/dms-280-s3/model.pt",
+      "model_sha256": "49e60b0f61ea0261d61c16a378f4a1150a1284f2fca558d9dec98aeb1c19d8d1",
+      "train_commit": "f435c55",
+      "eval_commit": "f435c55",
+      "train": {
+        "final_loss": 0.040581803768873215,
+        "skipped_steps": 0,
+        "peak_vram_mb": 1548.5,
+        "train_s": 1518.576
+      },
+      "macro_image_auroc": 0.9624965037602201,
+      "macro_aupro": 0.9326389308112911,
+      "pooled_fpr_at_tpr95": 0.12953367875647667,
+      "per_category_auroc": {
+        "candle": 0.97625,
+        "capsules": 0.9445205479452055,
+        "cashew": 0.9866666666666667,
+        "chewinggum": 0.9762295081967213,
+        "fryum": 0.9933333333333333,
+        "macaroni1": 0.92625,
+        "macaroni2": 0.8175,
+        "pcb1": 0.9958677685950413,
+        "pcb2": 0.9669421487603306,
+        "pcb3": 0.9838842975206612,
+        "pcb4": 0.9983471074380166,
+        "pipe_fryum": 0.9841666666666666
+      }
+    }
+  ]
+}
