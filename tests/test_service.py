@@ -8,9 +8,10 @@
 # [주요 구성] 요청 도우미와 ASGI 직접 호출 → 판정·히트맵·입력 형식(RGB 그림은 복사 없이 디코딩) → 잘못된
 # 요청과 크기 제한 → 손상 파일과 디코더 보안 권고 회귀(작은 BMP·APNG) → 16비트·투명도·미리보기 → 재보정과
 # 되돌리기 → 관리자 토큰·다른 출처 거절 → 임계값 변경·토큰 거절의 감사 기록(uvicorn 기본 로깅에서 표준
-# 출력의 JSON 한 줄) → 잠금과 동시 요청·대기열 → 본문을 받기 전의 입장 제한(503)과 스풀 공간 부족 → Host
-# 검사·보안 헤더·정적 파일 → 아티팩트 읽기(load_inspectors, 대조한 모델 지문)와 시작 예열 → 배포 설정의 기대
-# 모델 지문 → 히트맵 PNG 눈금과 비유한 맵 거부 → 데모 페이지 JS(node가 있을 때).
+# 출력의 JSON 한 줄) → 잠금과 동시 요청·대기열 → 본문을 받기 전의 입장 제한(503)과 uvicorn --root-path
+# 아래에서의 같은 본문 전 검사(라우터와 같은 경로 판단) → 스풀 공간 부족 → Host 검사·보안 헤더·정적 파일 →
+# 아티팩트 읽기(load_inspectors, 대조한 모델 지문)와 시작 예열 → 배포 설정의 기대 모델 지문 → 히트맵 PNG
+# 눈금과 비유한 맵 거부 → 데모 페이지 JS(node가 있을 때).
 
 import asyncio
 import base64
@@ -850,11 +851,11 @@ def test_threshold_changes_are_audited_on_stdout_under_uvicorn_logging(uvicorn_l
 # method·path·client가 함께 남는다. 보낸 값이든 설정한 토큰이든 토큰 값은 남기지 않는다(틀린 값은 진짜 토큰과
 # 한 글자만 다를 수 있다). 하위 경로(/calibrate/...)와 GET·DELETE도 같은 검사라 같은 줄이 남는다. path는
 # 요청하는 쪽이 마음대로 고를 수 있는 필드라 uvicorn 접근 로그처럼 퍼센트 인코딩해 남긴다: 줄 바꿈과 JSON을
-# 담은 경로로 가짜 감사 줄을 끼워 넣지 못하고(줄 수가 그대로), 디코딩하면 원래 경로가 된다. 라우트
-# 수준의 같은 검사(require_admin, _Guard와 경로 판단이 어긋날 때의 이중 장치)가 거절해도 같은 줄이 남는다:
-# uvicorn --root-path로 띄우면 scope의 path가 root_path로 시작해 _Guard는 관리자 경로로 보지 않고, 라우터가
-# root_path를 떼어 /calibrate 라우트로 보낸 뒤 require_admin이 거절한다. 토큰이 맞는 요청과 조회는 거절 줄을
-# 남기지 않는다.
+# 담은 경로로 가짜 감사 줄을 끼워 넣지 못하고(줄 수가 그대로), 디코딩하면 원래 경로가 된다. uvicorn
+# --root-path로 띄운 서버처럼 path가 root_path로 시작하는 요청(/x/calibrate)도 _Guard가 라우터와 같은 앱 안의
+# 경로로 보고 거절하며, 감사 줄의 path는 서버가 넘긴 원래 경로다(본문 전 거절은
+# test_a_root_path_keeps_the_admin_check_before_the_body가 본다). 토큰이 맞는 요청과 조회는 거절 줄을 남기지
+# 않는다.
 def test_refused_admin_requests_are_audited_with_a_reason(uvicorn_logging, capfd, monkeypatch):
     monkeypatch.delenv("DEFECT_INSPECT_ADMIN_TOKEN", raising=False)
     wrong = "not-the-admin-token-7f3a"
@@ -1132,9 +1133,11 @@ def _upload_files(field: str, images: list[bytes]) -> list:
     return [(field, (f"{i}.png", io.BytesIO(data), "image/png")) for i, data in enumerate(images)]
 
 
-# 서버 없이 요청을 겹치게 보내는 비동기 클라이언트. 앱은 _Counting으로 감싸서 넘긴다.
-def _async_client(counting: _Counting) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=counting), base_url=HOST)
+# 서버 없이 요청을 겹치게 보내는 비동기 클라이언트. 앱은 _Counting으로 감싸서 넘긴다. root_path를 주면 scope의
+# root_path가 그 값이 된다. 이때 요청 경로에는 부르는 쪽이 root_path를 앞에 붙인다(/x/inspect): uvicorn
+# --root-path가 path 앞에 root_path를 붙여 넘기는 것(_asgi 주석)을 흉내 낸다. httpx는 경로를 그대로 넘긴다.
+def _async_client(counting: _Counting, root_path: str = "") -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=counting, root_path=root_path), base_url=HOST)
 
 
 # 작업자와 대기열이 모두 찼을 때 새 업로드가 본문을 한 조각도 받기 전에 503(Retry-After: 1)으로 거절되는지
@@ -1143,8 +1146,10 @@ def _async_client(counting: _Counting) -> httpx.AsyncClient:
 # 난다. 그래서 _Guard가 본문 전에 진행 중인 업로드 요청 수를 세어 거절해야 한다. 작업자 1·대기 0으로 띄우고
 # 첫 검사를 모델 안에 붙잡은 채 2MB PNG를 보내면 503이고 앱이 받아 간 본문 조각이 없어야 하며, /calibrate도
 # 같은 자리 수를 쓰므로 503이고, /healthz는 그대로 200이다. 첫 검사를 풀어 주면 같은 업로드가 끝까지 받아져
-# 200이다.
-def test_a_busy_service_refuses_an_upload_before_reading_its_body():
+# 200이다. root가 "/x"인 경우는 uvicorn --root-path /x로 띄운 서버(하위 경로로 넘기는 리버스 프록시 뒤)다:
+# path가 /x/inspect처럼 root_path로 시작해도 _Guard가 라우터와 같은 경로로 보므로 같은 거절이 본문 전에 난다.
+@pytest.mark.parametrize("root", ["", "/x"], ids=["no-root-path", "root-path"])
+def test_a_busy_service_refuses_an_upload_before_reading_its_body(root):
     app = service.create_offline_app(admin_token=TOKEN, workers=1, queue=0)
     inspector = app.state.inspectors["demo"]
     real, inside, release = inspector.session, threading.Event(), threading.Event()
@@ -1162,18 +1167,20 @@ def test_a_busy_service_refuses_an_upload_before_reading_its_body():
     calibration = [_png(im) for im in _bright(25)]
 
     async def scenario():
-        async with _async_client(counting) as client:
+        async with _async_client(counting, root) as client:
 
             def inspect(data: bytes):
                 files = _upload_files("image", [data])
-                return client.post("/inspect", files=files, data={"category": "demo"})
+                return client.post(f"{root}/inspect", files=files, data={"category": "demo"})
 
             first = asyncio.create_task(inspect(_png(_normal())))
             assert await asyncio.to_thread(inside.wait, 10)
             busy = await inspect(big)
             files = _upload_files("images", calibration)
-            full = await client.post("/calibrate", files=files, data={"category": "demo"}, headers=ADMIN)
-            health = await client.get("/healthz")
+            full = await client.post(
+                f"{root}/calibrate", files=files, data={"category": "demo"}, headers=ADMIN
+            )
+            health = await client.get(f"{root}/healthz")
             release.set()
             held = await first
             again = await inspect(big)
@@ -1195,8 +1202,10 @@ def test_a_busy_service_refuses_an_upload_before_reading_its_body():
 # 재보정은 한 번에 하나만 받는다: 첫 /calibrate가 모델 안에 붙잡혀 있는 동안 두 번째 /calibrate는 본문을
 # 받기 전에 503(Retry-After: 1)이다. 재보정 본문은 256MB까지라 둘이 겹치면 /tmp가 가장 빨리 찬다. 그동안 검사
 # 업로드는 자리가 남아 있으면(기본 작업자 2·대기 16) 그대로 들어가 모델 안에서 재보정과 나란히 돈다. 첫
-# 재보정을 풀어 주면 둘 다 200이고 다음 재보정도 다시 받는다.
-def test_only_one_calibration_runs_at_a_time_while_inspections_still_get_in():
+# 재보정을 풀어 주면 둘 다 200이고 다음 재보정도 다시 받는다. root가 "/x"인 경우는 uvicorn --root-path /x로
+# 띄운 서버다(위 테스트와 같음): /x/calibrate도 재보정으로 세어 두 번째를 본문 전에 거절해야 한다.
+@pytest.mark.parametrize("root", ["", "/x"], ids=["no-root-path", "root-path"])
+def test_only_one_calibration_runs_at_a_time_while_inspections_still_get_in(root):
     app = service.create_offline_app(admin_token=TOKEN)
     inspector = app.state.inspectors["demo"]
     real = inspector.session
@@ -1217,22 +1226,22 @@ def test_only_one_calibration_runs_at_a_time_while_inspections_still_get_in():
     images = [_png(im) for im in _bright(25)]
 
     async def scenario():
-        async with _async_client(counting) as client:
+        async with _async_client(counting, root) as client:
 
             def calibrate():
                 files = _upload_files("images", images)
-                return client.post("/calibrate", files=files, data={"category": "demo"}, headers=ADMIN)
+                return client.post(f"{root}/calibrate", files=files, data={"category": "demo"}, headers=ADMIN)
 
             first = asyncio.create_task(calibrate())
             assert await asyncio.to_thread(inside.wait, 10)
             second = await calibrate()
             inspected = await client.post(
-                "/inspect", files=_upload_files("image", [_png(_normal())]), data={"category": "demo"}
+                f"{root}/inspect", files=_upload_files("image", [_png(_normal())]), data={"category": "demo"}
             )
             release.set()
             held = await first
             again = await calibrate()
-            state = await client.get("/categories")
+            state = await client.get(f"{root}/categories")
         return second, inspected, held, again, state
 
     second, inspected, held, again, state = asyncio.run(scenario())
@@ -1242,6 +1251,147 @@ def test_only_one_calibration_runs_at_a_time_while_inspections_still_get_in():
     assert inspected.status_code == 200 and overlap.is_set()
     assert held.status_code == 200 and again.status_code == 200
     assert state.json()[0]["calibration"] == {"strategy": "holdout", "n": 25, "guaranteed": True}
+
+
+# uvicorn --root-path로 띄우면(하위 경로로 넘기는 리버스 프록시 뒤) uvicorn은 scope의 path 앞에 root_path를
+# 붙여 넘기고 라우터는 그것을 떼어 라우트를 고른다(_asgi 주석). 이때도 관리자 토큰 검사가 본문을 받기 전에
+# 걸리는지 확인한다: 토큰이 없거나 틀린 POST /x/calibrate는 403이고 앱이 받아 간 본문 조각이 없으며(예전에는
+# _Guard가 관리자 경로로 보지 않아 본문을 모두 받은 뒤 라우트의 require_admin이 거절했다), 하위 경로 GET
+# /x/calibrate/...도 403이다. 감사 줄은 거절마다 하나이고(라우트의 이중 검사까지 가지 않으므로 두 번 남지
+# 않는다), path는 서버가 넘긴 원래 경로 그대로다. root_path가 있어도 path가 그것으로 시작하지
+# 않으면(/calibrate) 라우터처럼 path를 그대로 보고, 이름만 root_path로 이어지는 경로(/xcalibrate)는 관리자
+# 경로가 아니다(라우터도 /calibrate 라우트로 보내지 않아 404, 감사 줄 없음). 관리자 토큰은 어느 출력에도 없다.
+def test_a_root_path_keeps_the_admin_check_before_the_body(uvicorn_logging, capfd):
+    app = service.create_offline_app(admin_token=TOKEN)
+    header, head = _multipart_head("images")
+    pieces = [head, *([b"\0" * 500] * 4)]
+    wrong = "not-the-admin-token-7f3a"
+    capfd.readouterr()
+    for given in ({}, {"X-Admin-Token": wrong}):
+        status, out, _, pulled = _asgi(
+            app, "POST", "/x/calibrate", root_path="/x", headers={**header, **given}.items(), chunks=pieces
+        )
+        assert status == 403 and pulled == [] and out["x-content-type-options"] == "nosniff"
+    assert _asgi(app, "GET", "/x/calibrate/anything", root_path="/x")[0] == 403
+    # path가 root_path로 시작하지 않는 scope: 라우터와 같이 path를 그대로 본다(root_path 없을 때와 같은 거절).
+    status, _, _, pulled = _asgi(
+        app, "POST", "/calibrate", root_path="/x", headers=header.items(), chunks=pieces
+    )
+    assert status == 403 and pulled == []
+    # 이름만 root_path로 이어지는 경로는 관리자 경로도 업로드 경로도 아니다.
+    assert _asgi(app, "POST", "/xcalibrate", root_path="/x", headers=header.items(), chunks=pieces)[0] == 404
+    out, err = capfd.readouterr()
+
+    seen = [(line["event"], line["reason"], line["method"], line["path"]) for line in _audit_lines(out)]
+    assert seen == [
+        ("admin_refused", "missing", "POST", "/x/calibrate"),
+        ("admin_refused", "mismatch", "POST", "/x/calibrate"),
+        ("admin_refused", "missing", "GET", "/x/calibrate/anything"),
+        ("admin_refused", "missing", "POST", "/calibrate"),
+    ]
+    for secret in (TOKEN, wrong):
+        assert secret not in out and secret not in err
+
+
+# 라우트 수준의 관리자 검사(require_admin)는 _Guard와 경로 판단이 어긋날 때의 이중 장치다. 지금은 두 판단이
+# 같아(_route_path) 보통 요청으로는 이 길에 닿지 않으므로, _Guard의 경로 판단만 일부러 다른 경로로
+# 바꿔(라우터의 규칙이 바뀐 Starlette 판에서 둘이 어긋난 경우를 흉내 냄) 토큰이 틀리거나 없는 POST
+# /calibrate가 라우트까지 가게 한다. 그래도 403이고 _Guard와 같은 모양의 감사 줄이 거절마다 하나 남으며(이
+# 길에서는 본문을 이미 받은 뒤다), 임계값은 그대로이고 토큰 값은 어느 출력에도 없다.
+def test_the_route_check_still_refuses_when_the_guard_misreads_the_path(uvicorn_logging, capfd, monkeypatch):
+    client = _client()
+    wrong = "not-the-admin-token-7f3a"
+    monkeypatch.setattr(service, "_route_path", lambda scope: "/somewhere-else")
+    capfd.readouterr()
+    white = [np.full((64, 64, 3), 255, np.uint8)] * 19
+    assert _calibrate(client, white, headers={"X-Admin-Token": wrong}).status_code == 403
+    assert _calibrate(client, white, headers=None).status_code == 403
+    out, err = capfd.readouterr()
+
+    seen = [
+        (line["event"], line["reason"], line["method"], line["path"], line["client"])
+        for line in _audit_lines(out)
+    ]
+    assert seen == [
+        ("admin_refused", "mismatch", "POST", "/calibrate", "testclient:50000"),
+        ("admin_refused", "missing", "POST", "/calibrate", "testclient:50000"),
+    ]
+    assert _state(client)["calibration"]["n"] == 24
+    for secret in (TOKEN, wrong):
+        assert secret not in out and secret not in err
+
+
+# root_path가 있어도 본문 한계가 라우트별 한계인지 확인한다. 한계는 경로로 고른다(/calibrate는 여러 장이라
+# 본문 전체 한계 MAX_REQUEST_BYTES, 그 밖은 파일 하나 + multipart 여유). /x/calibrate를 검사용 한계로 보면
+# 정상 재보정이 413을 받는다. 검사 한계를 monkeypatch로 20,000바이트로 줄이고(재보정 사진 한 장은 그보다 작다)
+# 사진 25장 재보정(본문은 그보다 훨씬 크다)을 보낸다: 길이를 밝힌 본문(TestClient)도, 길이를 밝히지 않은
+# chunked 본문도 200이다. 재보정 한계를 넘으면 413이고, /x/inspect는 밝힌 길이가 검사 한계를 넘으면 본문을
+# 받기 전에 413이다.
+def test_a_root_path_keeps_the_body_limit_of_each_route(monkeypatch):
+    monkeypatch.setattr(service, "MAX_UPLOAD_BYTES", 20_000)
+    monkeypatch.setattr(service, "MULTIPART_SLACK_BYTES", 0)
+    app = service.create_offline_app(admin_token=TOKEN)
+    rooted = TestClient(app, base_url=HOST, root_path="/x")
+    images = _bright(25)
+    assert max(len(_png(im)) for im in images) < 20_000
+    request = httpx.Request("POST", f"{HOST}/x/calibrate", files=_files(images), data={"category": "demo"})
+    body = request.read()
+    assert len(body) > 4 * 20_000
+
+    declared = rooted.post("/x/calibrate", files=_files(images), data={"category": "demo"}, headers=ADMIN)
+    assert declared.status_code == 200 and int(declared.request.headers["content-length"]) > 4 * 20_000
+    chunked = rooted.post(
+        "/x/calibrate",
+        content=iter([body]),
+        headers={"Content-Type": request.headers["content-type"], **ADMIN},
+    )
+    assert "content-length" not in chunked.request.headers and chunked.status_code == 200
+    # 재보정 본문 전체 한계는 root_path 아래에서도 그대로 걸린다.
+    monkeypatch.setattr(service, "MAX_REQUEST_BYTES", 10)
+    again = rooted.post("/x/calibrate", files=_files(images), data={"category": "demo"}, headers=ADMIN)
+    assert again.status_code == 413
+    # 검사는 밝힌 길이가 한계를 넘으면 본문을 한 조각도 받기 전에 413이다.
+    header, head = _multipart_head()
+    status, _, _, pulled = _asgi(
+        app,
+        "POST",
+        "/x/inspect",
+        root_path="/x",
+        headers={**header, "Content-Length": "999999"}.items(),
+        chunks=[head],
+    )
+    assert status == 413 and pulled == []
+
+
+# _Guard의 경로 판단(_route_path)이 설치된 Starlette 라우터가 라우트를 고를 때 쓰는 규칙
+# (starlette._utils.get_route_path, routing.py가 가져다 쓴다)과 같은지 scope 여러 가지로 대조한다. 서비스는
+# Starlette의 비공개 함수를 가져다 쓰지 않고 같은 규칙을 따로 두므로, Starlette를 올려 라우터의 규칙이
+# 바뀌거나 함수가 옮겨지면 이 테스트가 깨져 _route_path를 다시 맞추게 한다. 대조하는 경우: root_path가 없거나
+# 빈 값, path가 root_path로 시작하는 경우와 아닌 경우, path가 root_path와 같은 경우, 이름만 이어지는
+# 경우(/xcalibrate), 끝이 /인 root_path, 여러 단계 root_path, 대소문자가 다른 경우.
+def test_the_guard_reads_the_route_path_like_the_router():
+    from starlette._utils import get_route_path
+
+    cases = [
+        ("/calibrate", None),
+        ("/calibrate", ""),
+        ("/x/calibrate", "/x"),
+        ("/x/calibrate/anything", "/x"),
+        ("/calibrate", "/x"),
+        ("/x", "/x"),
+        ("/x/", "/x"),
+        ("/xcalibrate", "/x"),
+        ("/x//calibrate", "/x/"),
+        ("/a/b/inspect", "/a/b"),
+        ("/a/b/inspect", "/a"),
+        ("/X/calibrate", "/x"),
+    ]
+    for path, root_path in cases:
+        scope = {"type": "http", "path": path}
+        if root_path is not None:
+            scope["root_path"] = root_path
+        assert service._route_path(scope) == get_route_path(scope), (path, root_path)
+    assert service._route_path({"path": "/x/calibrate", "root_path": "/x"}) == service.ADMIN_PATH
 
 
 # 업로드를 /tmp에 스풀하는 동안 공간이 모자랐을 때(ENOSPC) 응답이 400이 아니라 503(Retry-After: 1)인지

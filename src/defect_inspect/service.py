@@ -637,7 +637,34 @@ def _admin_problem(headers: Headers, token: str | None) -> tuple[str, str] | Non
     return None
 
 
-# 경로별 본문 한계: /calibrate는 여러 장이라 256MB, 그 밖은 파일 하나 + 여유.
+# 요청의 앱 안 경로(라우터가 라우트를 고를 때 보는 경로)를 구한다. 서비스를 하위 경로에 두려고 uvicorn
+# --root-path로 띄우면 서버는 scope의 path 앞에 root_path를 붙여 넘기고(클라이언트의 /calibrate가 path
+# /x/calibrate, root_path /x), Starlette 라우터는 root_path를 떼어 /calibrate 라우트로 보낸다. _Guard가 path를
+# 그대로 비교하면 이런 요청을 관리자·업로드 경로로 보지 않아, 관리자 토큰·선언 크기·입장 제한 검사가 빠지고
+# 본문을 모두 받은 뒤 라우트의 검사(require_admin, _Gate)에서야 거절된다. README는 밖으로 열 때 리버스 프록시
+# 뒤에 두라고 권하므로, 프록시가 하위 경로로 넘기는 배치에서 본문 전 거절이 사라지는 길이었다. 그래서 _Guard도
+# 라우터와 같은 경로로 판단한다.
+# [규칙] uv.lock에 고정한 Starlette 1.7.0의 get_route_path(starlette/_utils.py, routing.py가 라우트를 고를 때
+# 부른다)와 같다: root_path가 없거나 빈 값이면, 또는 path가 root_path로 시작하지 않으면 path 그대로. path가
+# root_path와 같으면 빈 문자열. root_path 바로 뒤가 "/"면 root_path를 뗀 나머지. 그 밖(/x 아래가 아니라 이름만
+# 이어지는 /xcalibrate)은 path 그대로. Starlette의 비공개 모듈을 가져다 쓰지 않고 규칙을 여기 두며, 두 판단이
+# 같은지는 tests/test_service.py가 여러 scope로 대조한다(Starlette를 올려 규칙이 바뀌면 그 테스트가 깨진다).
+# [주의] _Guard의 감사 줄과 처리되지 않은 오류 로그에는 이 값이 아니라 서버가 넘긴 원래 path를 남긴다(운영자가
+# uvicorn 접근 로그와 맞춰 보는 값). 입력: ASGI scope(path, 선택 root_path). 출력: 앱 안의 경로 문자열.
+def _route_path(scope) -> str:
+    path = scope["path"]
+    root_path = scope.get("root_path", "")
+    if not root_path or not path.startswith(root_path):
+        return path
+    if path == root_path:
+        return ""
+    if path[len(root_path)] == "/":
+        return path[len(root_path) :]
+    return path
+
+
+# 경로별 본문 한계: /calibrate는 여러 장이라 256MB, 그 밖은 파일 하나 + 여유. path는 _route_path로 구한 앱
+# 안의 경로다(root_path가 붙은 원래 path를 넣으면 /calibrate가 검사용 한계를 받는다).
 def _body_limit(path: str) -> int:
     if path == ADMIN_PATH:
         return MAX_REQUEST_BYTES
@@ -677,6 +704,11 @@ def _spool_full(exc: BaseException) -> bool:
 # 천천히 보내는 연결 여러 개가 /tmp(compose의 tmpfs, 메모리 한도에 포함)를 채울 수 있다. 이 층에서 요청이
 # 도착한 순간 세면 상한을 넘는 업로드는 본문을 한 조각도 받기 전에 돌려보내고, 동시에 디스크에 있을 수 있는
 # 업로드의 합이 (작업자 + 대기열) × 본문 한계로 묶인다(compose.yaml의 tmpfs 크기 계산).
+# [경로 판단] 어느 경로의 요청인지는 라우터와 같은 앱 안의 경로(_route_path, root_path를 뗀 경로)로 본다.
+# 그래야 uvicorn --root-path로 하위 경로에 띄워도 관리자·업로드 경로의 검사가 본문 전에 걸린다. 이 값은 요청이
+# 들어온 순간 __call__에서 한 번만 구해 모든 검사와 자리 반납에 쓴다: 라우터는 Mount(정적 파일 등)를 지날 때
+# 같은 scope 사전의 root_path를 바꿔 쓰므로, 응답 뒤에 scope를 다시 읽으면 들어올 때와 다른 경로가 나올 수
+# 있다.
 class _Guard:
     """앱 전체를 감싸는 순수 ASGI 감싸개.
 
@@ -705,39 +737,40 @@ class _Guard:
     # 거절은 사유(disabled·missing·mismatch)를 담은 감사 줄도 남긴다(uvicorn 접근 로그에는 403만 남고 사유가
     # 없다). 진행 중인 요청 수의 검사(503)는 자리를 차지하는 부작용이 있어 __call__에서 이 검사들을 모두 지난
     # 뒤에 한다(_admit): 거절 사유가 앞쪽 검사부터 보이고, 어차피 거절될 요청이 자리를 차지하지 않는다.
-    def _refuse(self, scope, headers: Headers) -> JSONResponse | None:
-        path = scope["path"]
+    # route는 __call__이 구한 앱 안의 경로(_route_path)다. 경로 비교와 본문 한계는 이 값으로 하고, 감사 줄에는
+    # 서버가 넘긴 원래 path(root_path가 붙은 값)를 남긴다.
+    def _refuse(self, scope, headers: Headers, route: str) -> JSONResponse | None:
         # 거절한 요청의 본문은 앱에 닿지 않는다: 서버가 소켓에서 읽어 버리므로 클라이언트는 그래도 응답을
         # 받아 볼 수 있다.
         if not _host_allowed(headers.get("host", ""), self.allowed_hosts):
             return _refusal(400, "host not allowed")
         if scope["method"] not in SAFE_METHODS and _cross_site(headers):
             return _refusal(403, "cross-site requests are not accepted")
-        if path == ADMIN_PATH or path.startswith(ADMIN_PATH + "/"):
+        if route == ADMIN_PATH or route.startswith(ADMIN_PATH + "/"):
             problem = _admin_problem(headers, self.admin_token)
             if problem:
                 reason, detail = problem
-                _audit_refusal(reason, scope["method"], path, scope.get("client"))
+                _audit_refusal(reason, scope["method"], scope["path"], scope.get("client"))
                 return _refusal(403, detail)
         length = headers.get("content-length", "")
-        if length.isdigit() and int(length) > _body_limit(path):
+        if length.isdigit() and int(length) > _body_limit(route):
             return _refusal(413, "request body too large")
         return None
 
     # 입장 제한 대상인지: 업로드 본문을 받는 두 경로(POST /inspect, POST /calibrate)만 센다. 다른 요청(GET과
     # HEAD, DELETE /calibrate, 모르는 경로의 POST)은 본문이 없거나 라우터가 본문을 읽지 않고 답하므로 세지
-    # 않는다.
+    # 않는다. route는 앱 안의 경로(_route_path)다.
     @staticmethod
-    def _upload(scope) -> bool:
-        return scope["method"] == "POST" and scope["path"] in (INSPECT_PATH, ADMIN_PATH)
+    def _upload(method: str, route: str) -> bool:
+        return method == "POST" and route in (INSPECT_PATH, ADMIN_PATH)
 
     # 자리 검사. 본문을 받기 전에 부른다: 진행 중인 업로드 요청이 capacity개면 503 + Retry-After(_Gate와 같은
     # 문구), 재보정이 이미 하나 진행 중인데 또 /calibrate면 503(다른 문구). 자리가 있으면 차지하고 None을
-    # 돌려준다. 차지한 자리는 _leave가 돌려준다.
-    def _admit(self, scope) -> JSONResponse | None:
+    # 돌려준다. 차지한 자리는 _leave가 같은 route로 돌려준다.
+    def _admit(self, route: str) -> JSONResponse | None:
         if self._uploads >= self.capacity:
             return _refusal(503, BUSY_DETAIL, headers=RETRY_AFTER)
-        if scope["path"] == ADMIN_PATH:
+        if route == ADMIN_PATH:
             if self._calibrations >= 1:
                 return _refusal(503, CALIBRATING_DETAIL, headers=RETRY_AFTER)
             self._calibrations += 1
@@ -745,18 +778,21 @@ class _Guard:
         return None
 
     # _admit이 차지한 자리를 돌려준다(응답이 끝났거나 처리 중에 실패했거나 클라이언트가 끊었을 때 모두).
-    def _leave(self, scope) -> None:
+    # route는 _admit에 준 것과 같은 값이어야 재보정 수가 어긋나지 않는다(__call__이 한 번 구한 값을 넘긴다).
+    def _leave(self, route: str) -> None:
         self._uploads -= 1
-        if scope["path"] == ADMIN_PATH:
+        if route == ADMIN_PATH:
             self._calibrations -= 1
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        # 앱 안의 경로는 여기서 한 번만 구한다(클래스 주석의 [경로 판단]).
+        route = _route_path(scope)
         started = False
         received = 0
-        limit = _body_limit(scope["path"])
+        limit = _body_limit(route)
 
         # 응답 시작 메시지에 보안 헤더를 더한다. setdefault라 라우트가 이미 정한 헤더는 덮어쓰지 않는다.
         # started는 응답이 이미 나가기 시작했는지 기억해 아래 예외 처리에서 쓴다.
@@ -785,15 +821,15 @@ class _Guard:
                     )
             return message
 
-        refusal = self._refuse(scope, Headers(scope=scope))
+        refusal = self._refuse(scope, Headers(scope=scope), route)
         if refusal is not None:
             await refusal(scope, receive, send_with_headers)
             return
         # 업로드 요청은 여기서 자리를 얻어야 앱에 닿는다. 자리가 없으면 본문을 한 조각도 받지 않고 503을
         # 보낸다(거절한 요청의 본문은 위 거절들과 마찬가지로 서버가 소켓에서 읽어 버린다).
-        upload = self._upload(scope)
+        upload = self._upload(scope["method"], route)
         if upload:
-            refusal = self._admit(scope)
+            refusal = self._admit(route)
             if refusal is not None:
                 await refusal(scope, receive, send_with_headers)
                 return
@@ -809,7 +845,7 @@ class _Guard:
             await _refusal(500, "internal server error")(scope, receive, send_with_headers)
         finally:
             if upload:
-                self._leave(scope)
+                self._leave(route)
 
 
 # 동시에 계산하는 작업을 workers개, 기다리는 요청을 queue개로 묶고 나머지는 Retry-After와 함께 503으로
@@ -965,9 +1001,10 @@ def create_app(
         return await http_exception_handler(request, exc)
 
     # 라우트 수준의 관리자 검사. _Guard가 이미 본문을 읽기 전에 같은 규칙으로 막지만, 둘의 경로 판단이
-    # 어긋나는 경우에 대비해 라우트에도 같은 규칙을 두는 이중 장치다. 예: uvicorn --root-path로 띄우면 scope의
-    # path가 root_path로 시작해 _Guard는 관리자 경로로 보지 않고, 라우터가 root_path를 떼어 이 라우트로
-    # 보낸다. 여기서 거절해도 _Guard와 같은 감사 줄을 남긴다(path는 서버가 넘긴 scope의 path 그대로).
+    # 어긋나는 경우에 대비해 라우트에도 같은 규칙을 두는 이중 장치다. _Guard는 라우터와 같은
+    # 규칙(_route_path)으로 root_path를 떼어 보므로 uvicorn --root-path로 띄워도 판단이 같다. 그래도
+    # Starlette를 올려 라우터의 경로 규칙이 바뀐 판처럼 둘이 어긋나면, 토큰 없는 재보정은 본문을 받은 뒤라도
+    # 여기서 거절된다. 여기서 거절해도 _Guard와 같은 감사 줄을 남긴다(path는 서버가 넘긴 scope의 path 그대로).
     def require_admin(request: Request) -> None:
         problem = _admin_problem(request.headers, admin_token)
         if problem:
