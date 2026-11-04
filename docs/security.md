@@ -183,6 +183,7 @@ curl -s -X POST https://api.osv.dev/v1/query -d '{"package":{"name":"torchvision
 - (2)는 `--require-hashes`를 주어도 해시가 있는지만 보고 값이 맞는지는 확인하지 않는다는 경고를 낸다. 해시 검증은 (1)이 한다
 - (4)를 두는 이유: 학습용 그룹(`train`·`dinomaly`)은 서비스 이미지에 들어가지 않아 CI가 대조하지 않는다. 이 그룹을 손으로 대조할 때 (1)·(2)의 `--group serve`를 `--group train --group dinomaly`로 바꾸면 torch·torchvision은 "Dependency not found on PyPI"로 빠지므로, 이 둘은 (4)로 채운다
 - 2026-10-29 추가: CI audit 작업이 (1)에 이어 (2)의 OSV 대조도 돈다. (3)과 (4), 그리고 서비스 집합 밖의 그룹 대조는 여전히 손으로 한다. 잠금 전체를 한 번에 볼 때는 (1)·(2)의 `--no-dev --group serve` 대신 `--all-groups`를 준다
+- 2026-11-05 추가: CI audit 작업이 잠금 전체도 대조한다(아래 2026-11-05 절). 그 단계는 환경 표지를 떼어 모든 Python 갈래를 대조하고, torch·torchvision의 로컬 판 표시(`+cu128`)를 떼어 PyPI의 같은 판으로 대조하므로 (4)가 메우던 빈자리까지 덮는다. 바로 위의 `--all-groups` 방식은 환경 표지를 남긴 채 대조하므로 pip-audit을 돌리는 파이썬에 맞지 않는 갈래(예: Python 3.12 이상에서 쓰는 numpy 2.5.3)를 말없이 건너뛴다. (3)은 여전히 손으로 한다
 
 ### 2026-10-24 Pillow 12.3.0 → 13.0.0, opentelemetry-api 1.45.0 → 1.45.1
 - **계기**: 위 절차 (1)을 다시 돌리니 `Found 36 known vulnerabilities in 2 packages`가 나왔다. pillow 12.3.0에 35건(수정 판은 모두 13.0.0), fastapi가 끌어오는 opentelemetry-api 1.45.0에 1건(CVE-2026-114603 / GHSA-xcq7-p3pf-p88h, tracestate를 제한 없이 해석함, 수정 판 1.45.1)이다. 권고들은 2026-10-20~22에 올라왔고 마지막 push(2026-10-18)보다 뒤라 CI는 녹색으로 남아 있었지만, 다음 push부터 audit 작업이 실패할 상태였다. (2)와 (3)에서는 pillow가 39건이었다(GHSA-8g5g-8vmr-9782, GHSA-xvh5-g6gv-559v, GHSA-rfgq-q3w2-pmv2, GHSA-4558-3h8r-v8xp가 더 있음)
@@ -217,3 +218,9 @@ curl -s -X POST https://api.osv.dev/v1/query -d '{"package":{"name":"torchvision
 | GHSA-xmj3-9gf7-h52w | Windows에서 옛 방식 wheel 설치(`Wheel.install_as_egg`)가 wheel 안의 `namespace_packages.txt` 때문에 대상 폴더 밖에 `__init__.py`를 만듦, 수정 판 84.1.0 | 닿지 않음 | wheel은 uv가 설치하고 setuptools의 옛 설치 경로를 쓰지 않는다 |
 
 - **setuptools를 올리지 못하는 이유**: torch 2.11.0이 `setuptools<82`를 요구해 `uv lock --upgrade-package setuptools`가 잠금을 바꾸지 않는다. torch는 학습·채점 수치에 닿는 라이브러리라 이 갱신에서 올리지 않는다(올릴 때의 절차는 `pyproject.toml`의 인덱스 주석). setuptools는 서비스 이미지에 들어가지 않는다
+
+### 2026-11-05 CI 대조 범위를 잠금 전체로 넓힘
+- **계기**: CI audit 작업과 같은 명령(위 절차 (1)·(2))이 실제로 대조한 패키지를 pip-audit의 JSON 출력으로 세었다. `uv.lock`의 패키지는 프로젝트 자신을 빼고 130개다(이름 124개. 그 가운데 numpy, scipy, contourpy, imagecodecs, networkx, tifffile 6개는 Python 3.12 이상에서 쓰는 둘째 판이 따로 있다). CI가 대조한 것은 그 가운데 22개였다. 서비스 집합(기본 + `serve`)만 내보내는 데다, pip-audit이 요구 줄의 환경 표지를 자기를 돌리는 파이썬(3.11)으로 판단해 서비스 집합의 둘째 판(numpy 2.5.3, scipy 1.18.1)을 말없이 건너뛰었다. 학습·개발·그림·OpenVINO 그룹은 손으로 하는 대조에만 들어 있었다
+- **조치**: CI audit 작업에 잠금 전체를 대조하는 단계를 더했다(`.github/workflows/ci.yml`의 `Audit every locked package`). 모든 그룹을 해시 없이 내보내 환경 표지와 torch·torchvision의 로컬 판 표시(`+cu128`)를 떼고, 같은 이름의 둘째 판은 다른 목록으로 나눠, 목록마다 PyPI와 OSV에 `--no-deps --disable-pip --strict`로 대조한다. 내보낸 줄 수가 잠금의 패키지 수와 다르면 멈춘다. 무시하는 것은 이 문서에 받아들인 이유를 적은 세 권고(torch 2.11.0의 PYSEC-2025-194, setuptools 81.0.0의 PYSEC-2026-3447·GHSA-xmj3-9gf7-h52w)뿐이고, 셋 다 학습 그룹에만 있어 서비스 이미지에는 없다. 서비스 집합을 해시와 함께 대조하는 기존 두 줄은 그대로 두었다(무시하는 권고 없음)
+- **대조 결과 (2026-11-05, 같은 단계를 로컬 Git Bash에서 그대로 돌림)**: 130개(124 + 6)를 모두 대조했고 건너뛴 패키지는 없었다. PyPI와 OSV 모두 나온 것은 받아들인 세 권고의 네 줄뿐이다(PYSEC-2026-3447은 두 줄로 나온다). 서비스 집합의 (1)·(2)는 0건, Pillow 13.0.0을 GitHub Advisory Database에 물은 (3)은 두 표기 모두 0건, OSV API에 물은 (4)는 torch 2.11.0에 GHSA-rrmf-rvhw-rf47(= PYSEC-2025-194) 1건, torchvision 0.26.0에 0건이다. 일부러 권고가 있는 판(pillow 12.3.0)으로 바꾼 목록, 빈 내보내기, 실패한 내보내기, 한 줄이 빠진 내보내기에서는 이 단계가 실패했다
+- **OSV에만 있는 권고**: 없다. 로컬 판 표시를 떼면 PyPI도 torch 2.11.0의 PYSEC-2025-194를 내므로, 지금까지 OSV 쪽에서만 보이던(위 절차 (4)) 이 권고가 두 데이터베이스에 함께 나온다. 판단은 위 2026-10-24 절의 torch 단락과 2026-10-29 절의 setuptools 표 그대로다(받아들이고, 고친 판으로 올리지 않는다)

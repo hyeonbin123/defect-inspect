@@ -223,7 +223,7 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-GitHub Actions(`.github/workflows/ci.yml`)는 push마다 세 작업을 돌린다: torch 없이 ruff와 pytest, 서비스 이미지에 들어가는 의존성(기본 + serve)의 알려진 취약점 대조(pip-audit), Docker 이미지 빌드 뒤 작은 ONNX 아티팩트로 기본 명령을 띄워 `/healthz`·`/inspect`를 부르고 모델 지문이 틀린 세트로는 뜨지 않는지, 배포 설정의 기대 지문이 맞으면 뜨고 그 목록에 없는 모델로는 뜨지 않는지 보는 스모크 검사. 워크플로 토큰은 읽기 전용이고 외부 액션은 커밋 SHA로 고정했다.
+GitHub Actions(`.github/workflows/ci.yml`)는 push마다 세 작업을 돌린다: torch 없이 ruff와 pytest, 서비스 이미지에 들어가는 의존성(기본 + serve)의 알려진 취약점 대조(pip-audit), Docker 이미지 빌드 뒤 작은 ONNX 아티팩트로 기본 명령을 띄워 `/healthz`·`/inspect`를 부르고 모델 지문이 틀린 세트로는 뜨지 않는지, 배포 설정의 기대 지문이 맞으면 뜨고 그 목록에 없는 모델로는 뜨지 않는지 보는 스모크 검사. 워크플로 토큰은 읽기 전용이고 외부 액션은 커밋 SHA로 고정했다. 2026-11-05 추가: audit 작업은 잠금 파일의 모든 패키지(학습·개발 등 모든 그룹과 Python 3.12 이상에서 쓰는 둘째 판까지)도 대조하고, 받아들인 이유를 [docs/security.md](docs/security.md#의존성-취약점-대조)에 적은 학습 그룹의 세 권고(torch 2.11.0, setuptools 81.0.0)만 무시한다.
 
 ## 재현 명령
 ```bash

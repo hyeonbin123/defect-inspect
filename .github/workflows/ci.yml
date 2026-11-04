@@ -1,9 +1,10 @@
 # CI: push(main)와 pull request마다 세 작업을 따로 돌린다.
 # - test: 기본 패키지 + dev·serve 그룹(torch와 데이터 없음)으로 ruff와 pytest. torch·데이터가 필요한 테스트는
 #   스스로 건너뛴다(pytest.importorskip, data 표식). ruff 규칙에는 보안 규칙(S)도 들어 있다(pyproject.toml)
-# - audit: 서비스 이미지에 실제로 들어가는 의존성(기본 + serve, dev 제외)을 pip-audit으로 두 취약점 데이터베이스
-#   (pip-audit 기본값인 PyPI의 취약점 정보, 그리고 OSV)와 대조한다. 학습용 그룹(torch 등)은 이미지에 없고 로컬에서만
-#   쓰므로 여기서 보지 않는다(손으로 하는 대조는 docs/security.md의 로컬 감사 절차)
+# - audit: pip-audit으로 두 취약점 데이터베이스(pip-audit 기본값인 PyPI의 취약점 정보, 그리고 OSV)와 두 번 대조한다.
+#   먼저 서비스 이미지에 실제로 들어가는 의존성(기본 + serve, dev 제외)을 해시와 함께 대조하고(무시하는 권고 없음),
+#   이어서 uv.lock의 모든 패키지(학습·개발 등 모든 그룹, Python 3.12 이상에서 쓰는 둘째 판까지)를 대조한다. 잠금 전체
+#   대조는 docs/security.md에 받아들인 이유를 적은 학습 그룹의 세 권고만 무시한다(아래 단계 주석)
 # - docker: Dockerfile로 서비스 이미지를 빌드하고, 작은 복원 방식 아티팩트 세트를 마운트해 기본 명령 그대로
 #   띄운 뒤 /healthz와 /inspect를 부른다. 이어서 meta의 모델 지문이 틀린 세트로는 시작을 거절하는지, 배포 설정의
 #   기대 지문(DEFECT_INSPECT_EXPECTED_MODEL_SHA256)이 맞으면 뜨고 그 목록에 없는 모델로는 뜨지 않는지 본다
@@ -79,6 +80,48 @@ jobs:
           uv export --frozen --no-dev --group serve --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/serve.txt"
           uvx pip-audit@2.10.1 -r "$RUNNER_TEMP/serve.txt" --disable-pip --require-hashes --progress-spinner off
           uvx pip-audit@2.10.1 -r "$RUNNER_TEMP/serve.txt" --disable-pip --require-hashes --progress-spinner off -s osv
+
+      # 잠금 파일 전체 대조. 위 단계는 서비스 이미지의 집합만 보고, pip-audit은 요구 줄의 환경 표지(`; python_full_version
+      # >= '3.12'` 따위)를 자기를 돌리는 파이썬으로 판단해 맞지 않는 줄을 말없이 건너뛴다. 그래서 위 단계만으로는 서비스
+      # 집합의 Python 3.11 갈래만 대조되고, 학습·개발 등 다른 그룹과 Python 3.12 이상에서 쓰는 둘째 판(numpy·scipy 등)은
+      # 어느 대조에도 들지 않았다(2026-11-05 확인: 잠금 130개 가운데 22개, docs/security.md).
+      # 이 단계는 모든 그룹을 내보내고(잠금에는 모든 플랫폼·파이썬 갈래가 들어 있다), 환경 표지를 떼고, torch·torchvision의
+      # 로컬 판 표시(+cu128)를 떼어 PyPI의 같은 판으로 대조한다. pip-audit은 한 목록에 같은 이름이 두 번 나오면 거절하므로
+      # 같은 이름의 둘째 판은 따로 목록을 만든다. 잠금에 고정된 판을 그대로 대조하므로 --no-deps --disable-pip이고,
+      # --strict는 대조하지 못한 패키지가 하나라도 있으면 실패로 본다. 로컬 판 표시를 뗀 torch는 PyPI 파일과 해시가
+      # 달라서 해시 없이 내보낸다(해시 검증은 위 단계가 서비스 집합에 한다). 내보낸 줄 수가 잠금의 패키지 수(프로젝트
+      # 자신 하나를 뺀 값)와 다르면 대조 범위가 빠진 것이므로 멈춘다.
+      # 무시하는 권고는 docs/security.md에 이유를 적고 받아들인 셋뿐이고, 모두 학습 그룹(torch가 끌어옴)에만 있어 서비스
+      # 이미지에는 없다:
+      #   PYSEC-2025-194 (torch 2.11.0, torch.jit.script의 메모리 손상): 고친 판 2.13.0은 다른 CUDA 인덱스에만 있고,
+      #     torch를 올리면 학습·채점 환경이 바뀌어 측정을 다시 해야 한다
+      #   PYSEC-2026-3447, GHSA-xmj3-9gf7-h52w (setuptools 81.0.0): torch 2.11.0이 setuptools<82를 요구해 올릴 수 없다.
+      #     이 저장소는 setuptools로 소스 배포를 만들지 않고(빌드는 hatchling), 옛 방식 wheel 설치도 쓰지 않는다
+      # 목록 하나나 데이터베이스 하나가 실패해도 나머지를 끝까지 대조해 로그에 남긴 뒤, 하나라도 실패했으면 마지막에
+      # 실패로 끝낸다. shell: bash는 pipefail을 켜서 내보내기나 grep이 실패하면 빈 목록으로 지나가지 않고 바로 멈추게 한다.
+      - name: Audit every locked package
+        shell: bash
+        run: |
+          uv export --frozen --all-groups --no-emit-project --format requirements-txt --no-hashes --no-annotate > "$RUNNER_TEMP/locked.txt"
+          grep -E '^[A-Za-z0-9]' "$RUNNER_TEMP/locked.txt" \
+            | sed -E -e 's/[[:space:]]*;.*$//' -e 's/\+[^[:space:]]*$//' > "$RUNNER_TEMP/pinned.txt"
+          locked=$(grep -c '^\[\[package\]\]' uv.lock)
+          exported=$(wc -l < "$RUNNER_TEMP/pinned.txt")
+          echo "uv.lock packages without the project: $((locked - 1)), exported for the audit: $exported"
+          test "$exported" -eq "$((locked - 1))"
+          awk -F'==' -v dir="$RUNNER_TEMP" '{
+            name = tolower($1); gsub(/[-_.]+/, "-", name)
+            print > (dir "/audit-" (++seen[name]) ".txt")
+          }' "$RUNNER_TEMP/pinned.txt"
+          status=0
+          for list in "$RUNNER_TEMP"/audit-*.txt; do
+            for service in pypi osv; do
+              echo "== $(basename "$list"): $(wc -l < "$list") packages, $service"
+              uvx pip-audit@2.10.1 -r "$list" --no-deps --disable-pip --strict --progress-spinner off -s "$service" \
+                --ignore-vuln PYSEC-2025-194 --ignore-vuln PYSEC-2026-3447 --ignore-vuln GHSA-xmj3-9gf7-h52w || status=1
+            done
+          done
+          exit "$status"
 
   docker:
     runs-on: ubuntu-24.04
