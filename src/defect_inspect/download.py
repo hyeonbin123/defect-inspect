@@ -1,16 +1,20 @@
 """이어 받기가 되는 다운로드와 SHA-256 검증(표준 라이브러리만 씀)."""
 
 # [파일 역할] VisA 원본 tar(1.93GB) 하나를 공식 S3 주소에서 받아 SHA-256으로 검증하는 0단계 다운로드
-# 모듈이다(`python -m defect_inspect.download`). 같은 파일의 sha256_file은 다른 모듈들이 ONNX·모델 파일의
-# 지문을 실행 기록에 남길 때도 쓴다.
+# 모듈이다(`python -m defect_inspect.download`). 같은 파일의 sha256_file은 다른 모듈들이 모델·가중치·zip
+# 파일의 지문을 실행 기록에 남기거나 기록과 대조할 때도 쓴다.
 # [설계 이유] 큰 파일을 받다가 끊겨도 처음부터 다시 받지 않도록 `.part` 파일에 이어 받고(HTTP Range), 다 받은
 # 뒤 해시가 맞을 때만 최종 이름으로 바꾼다. 그래서 최종 경로에는 검증된 파일만 남는다. 표준 라이브러리만 써서,
 # 기본 패키지만 설치한 환경에서도 돈다.
 # [흐름] download(): https 주소인지 확인 → 이미 검증된 파일이 있으면 끝 → `.part` 크기만큼 Range 요청으로 이어
 # 받기(_fetch) → 해시 검증 → os.replace로 이름 바꾸기.
-# [연결] paths.VISA_TAR가 저장 위치다. sha256_file은 dinomaly_serving, run_dinomaly, run_perturb,
-# runtime_compare가 가져다 쓴다. tests/test_download.py는 opener 인자에 가짜 서버를 넣어 이어 받기·416·206
-# 같은 경우를 확인한다.
+# [연결] paths.VISA_TAR가 저장 위치다. sha256_file은 아홉 모듈이 가져다 쓴다. 지문을 기록에 남기는 쪽:
+# dinomaly_serving(내보낸 ONNX와 원본 모델, 채점한 ONNX. calibrate는 점수를 낸 ONNX인지 대조도 한다),
+# run_dinomaly(모델·관문 파일), run_m2ad_dinomaly(미세조정의 출발 모델), runtime_compare(대조한 ONNX),
+# backbones(DINOv2 가중치 파일). 기록과 대조하는 쪽: inspector(서비스 시작 때 모델 파일), m2ad(zip 세 개),
+# run_perturb(원본 채점과 같은 Dinomaly 모델인지, 새 기록에도 남긴다), analyze_stage6(6단계 보충에서 채점한
+# 모델 파일).
+# tests/test_download.py는 opener 인자에 가짜 서버를 넣어 이어 받기·416·206 같은 경우를 확인한다.
 
 import hashlib
 import os

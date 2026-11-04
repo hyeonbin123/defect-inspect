@@ -284,6 +284,10 @@ uv run python -m defect_inspect.analyze_stage6 test --torch outputs/dms-280-car-
 uv run python -m defect_inspect.dinomaly_serving score --artifacts artifacts/dms-280-car --protocol dev   # --condition shift-1, --condition blur-2, --precision int8-dynamic 도
 uv run python -m defect_inspect.analyze_stage6 supplement --clean outputs/dms-280-car-onnx-fp32-dev --conditions outputs/dms-280-car-onnx-fp32-dev-shift-1 outputs/dms-280-car-onnx-fp32-dev-blur-2 --int8 outputs/dms-280-car-onnx-int8-dynamic-dev
 uv run python -m defect_inspect.dinomaly_serving calibrate --artifacts artifacts/dms-280-car --scores outputs/dms-280-car-onnx-fp32-test   # 서비스용 임계값
+# 6단계 보충: 학습 시드 분산 (dev만, seed 1~3. 봉인 테스트는 읽지 않는다)
+uv run python -m defect_inspect.run_dinomaly train --config dms-280-car --precision-from outputs/gate-dms-280/gate.json --seed 1 --out outputs/dms-280-car-s1   # seed 2·3, dms-280 도
+uv run python -m defect_inspect.run_dinomaly eval --config dms-280-car --protocol dev --no-amp --model outputs/dms-280-car-s1/model.pt --out outputs/dms-280-car-s1-dev
+uv run python -m defect_inspect.analyze_stage6 seeds                # reports/stage6/seeds.json
 
 # 7단계: 조명 변화 대응(M2AD)과 라벨 없는 변화 감지
 uv run python -m defect_inspect.drift                     # 저장된 점수만 읽는다 (reports/stage7/drift.json)
@@ -306,6 +310,12 @@ uv run python -m defect_inspect.run_m2ad_dinomaly score-train --arm e0   # 세 �
 uv run python -m defect_inspect.analyze_stage8 dms-train            # reports/stage8/dms-train.json (test 전에 커밋)
 uv run python -m defect_inspect.run_m2ad_dinomaly test --allow-test --stage 8-m2ad
 uv run python -m defect_inspect.analyze_stage8 dms-test             # reports/stage8/dms-test.json
+# 8-D: 저장된 8-C E0 모델을 새 조명마다 미세조정해 다시 등록
+uv run python -m defect_inspect.run_m2ad_dinomaly finetune --light 02 03 04 05 06 07 08 09 10   # 끝난 모델은 건너뛴다
+uv run python -m defect_inspect.run_m2ad_dinomaly score-finetune --light 02 03 04 05 06 07 08 09 10   # 학습 시편만 읽는다
+uv run python -m defect_inspect.analyze_stage8 dms-ft-train         # reports/stage8/dms-ft-train.json (test 전에 커밋)
+uv run python -m defect_inspect.run_m2ad_dinomaly test-finetune --allow-test --stage 8-m2ad-ft
+uv run python -m defect_inspect.analyze_stage8 dms-ft               # reports/stage8/dms-ft.json
 
 # 9단계: 촬영 통계 품질 게이트와 변화 감지 (CPU, VisA dev와 M2AD 학습 시편만)
 uv run python -m defect_inspect.capture                             # reports/stage9/capture.json
