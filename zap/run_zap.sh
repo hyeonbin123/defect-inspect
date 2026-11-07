@@ -4,13 +4,16 @@
 # 경로, HAR 시드의 실제 업로드 요청, spider, passive·active scan)은 zap/automation.yaml에 있고, 이 스크립트는
 # 환경 변수를 맞추고 ZAP을 띄우기만 한다.
 #
-#   ZAP_DIR=<zap-2.17.0.jar가 있는 폴더> ADMIN_TOKEN=<토큰> zap/run_zap.sh <이름> [시드 HAR]
+#   ZAP_DIR=<zap-2.17.0.jar가 있는 폴더> ADMIN_TOKEN=<토큰> [ZAP_PORT=<포트>] zap/run_zap.sh <이름> [시드 HAR]
 #
 # [사용 조건] 서비스가 그 관리자 토큰으로 TARGET(기본 http://127.0.0.1:8093)에서 이미 돌고 있어야 한다.
 # 오프라인 앱을 띄우는 방법은 stackhawk.yml을 본다. 기본 시드는 hawk/seed.har(범주 demo)이고, 아티팩트
 # 세트를 스캔하려면 그 세트의 범주 하나에 맞춘 시드가 필요하다(hawk/make_seed_har.py --category).
 # 보고서 <이름>.json과 <이름>.md, ZAP 로그, 새 ZAP 홈 폴더는 work/zap/<이름>/에 생긴다. 출력은 파일로만
-# 보내고 파이프로는 절대 넘기지 않는다.
+# 보내고 파이프로는 절대 넘기지 않는다. ZAP_PORT는 ZAP 자체 프록시가 듣는 포트(기본 8080, ZAP 기본값과 같다)다. 이 계획은
+# 그 프록시를 거치지 않지만 ZAP은 그 포트를 열지 못하면 시작하지 않으므로, 같은 PC의 다른 프로그램이 8080을 쓰고 있으면
+# 빈 포트를 준다(2026-11-07 다른 저장소의 컨테이너가 127.0.0.1:8080을 쓰고 있어 "Failed to start the main proxy:
+# java.net.BindException"으로 멈춘 일이 있다). 스캔 대상·정책·스레드·시간 한도(zap/automation.yaml)와는 상관없다.
 # [왜 필요한가] HawkScan 체험이 2026-10-05에 끝나 이후 재스캔은 ZAP으로 하고, 같은 도구의 기록끼리
 # 비교한다(docs/security.md). 관리자 토큰은 파일에 적지 않고 실행할 때 환경 변수로만 받는다.
 # [흐름] 인자·환경 변수 검사 → 출력 폴더(work/zap/<이름>/) 확인 → 대상 Host에만 관리자 토큰 헤더를 붙이도록
@@ -64,11 +67,11 @@ SEED_HAR=$(native "$seed")
 REPORT_DIR=$(native "$out")
 
 # ZAP 실행: -cmd(창 없이 명령행 모드), -notel(원격 측정 끔), -dir(스캔마다 새 ZAP 홈 폴더, 이전 설정이 섞이지
-# 않게), 업데이트 확인 끔, -autorun(자동화 계획 실행). JVM 힙은 2GB로 둔다. 출력은 파이프로 넘기지 않고
-# work/zap/<이름>/zap.log 파일로만 보낸다(머리 주석).
+# 않게), -port(자체 프록시 포트, 기본 8080 = ZAP 기본값. 머리 주석의 ZAP_PORT), 업데이트 확인 끔, -autorun(자동화 계획
+# 실행). JVM 힙은 2GB로 둔다. 출력은 파이프로 넘기지 않고 work/zap/<이름>/zap.log 파일로만 보낸다(머리 주석).
 # || status=$?로 ZAP이 실패해도 set -e에 걸려 바로 끝나지 않게 하고, 종료 코드를 알린 뒤 그대로 돌려준다.
 status=0
-java -Xmx2g -jar "$(native "${jars[0]}")" -cmd -notel -dir "$(native "$out/home")" \
+java -Xmx2g -jar "$(native "${jars[0]}")" -cmd -notel -dir "$(native "$out/home")" -port "${ZAP_PORT:-8080}" \
   -config start.checkForUpdates=false -autorun "$(native "$root/zap/automation.yaml")" \
   > "$out/zap.log" 2>&1 || status=$?
 echo "ZAP exit status $status, reports and log in $out"
