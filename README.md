@@ -1,5 +1,7 @@
 # defect-inspect
 
+[![CI](https://github.com/hyeonbin123/defect-inspect/actions/workflows/ci.yml/badge.svg)](https://github.com/hyeonbin123/defect-inspect/actions/workflows/ci.yml)
+
 정상 제품 사진만으로 만드는 외관 검사기(이상 탐지)를, 현장에서 실제로 굴릴 때 부딪히는 질문으로 재는 프로젝트다.
 
 공개 벤치마크의 AUROC는 이미 포화에 가깝다. 그래서 점수 경쟁 대신 다음을 미리 정한 규칙으로 잰다.
@@ -11,6 +13,8 @@
 
 계획은 [docs/plan.md](docs/plan.md), 측정 규칙과 결과는 [docs/experiments.md](docs/experiments.md)에 있다. 규칙은 재기 전에 커밋한다.
 
+용어: **AUROC**는 결함 이미지와 정상 이미지를 이상 점수로 가르는 정도이며 높을수록 좋다(이 README는 0에서 100 사이 값으로 적는다). **오검출률**은 정상 이미지를 불량으로 판정한 비율이다. **PatchCore**와 **Dinomaly**는 정상 이미지만으로 만드는 이상 탐지 방법이다.
+
 ## 한눈에
 | 질문 | 답 (VisA 봉인 테스트와 M2AD 실제 조명 실험, 미리 정한 규칙으로 판정) |
 |---|---|
@@ -18,6 +22,8 @@
 | 2. 정상 이미지로 고정한 임계값은 목표를 지키나 | 빼 둔 정상으로 잡으면 목표 5%에 실제 5.6%로 유한표본 이론 구간(3.6~6.3%) 안이고, 교차 적합은 4.0%로 목표를 넘지 않는 보수적인 쪽이다. 뱅크를 만든 이미지로 잡으면 86%다. 단, 촬영 조건이 그대로일 때만 그렇다. WideResNet PatchCore 기준으로 조명이 바뀌면(M2AD) 97%, 20~30% 어두워지면(VisA) 15~41%가 된다. M2AD에서 새 조명의 정상 30장을 뱅크에 더하고 임계값을 다시 잡으면 4.4%로 돌아온다(8장으로도 3.5%). 다른 조명 4~5개를 미리 등록해 두면 등록하지 않은 조명에서 55.6%(DINOv2 특징에 이미지별 중심화까지 더하면 11.5%)이고, 라벨 없이 경보를 받아 다음 20장으로 자동 재등록하면 9.4~9.9%다(7단계). 8단계에서 이 9.4%는 거르기 탓으로 확인됐다(거르지 않고 넣으면 4.3%·검출률 59.3%, 결함이 섞인 묶음에서 점수 상위 4장만 사람이 보면 3.1%·46.6%). 새 조명 정상 30장으로 임계값만 다시 잡으면 3.2%지만 검출률이 18.6%다 |
 | 3. 합성 교란이 실제 조명 변화를 대신하나 | 미리 적은 가설("합성 교란은 실제 조명 변화의 절반에도 못 미친다")은 기각됐다. 가장 센 흐림·JPEG는 실제 조명 변화(평균 +95%p)의 85% 안팎까지 오검출을 늘렸다. 그러나 조명을 흉내 낸 밝기 배율(+14%p)과 감마(+52%p)는 실제 조명(모든 조건 +78%p 이상)에 못 미쳐, 밝기 교란만으로는 실제 조명 변화를 어림할 수 없다(이 부분은 규칙 밖의 해석이다) |
 | 4. CPU 200ms 안에 들면서 기준을 지키는 구성이 남나 | PatchCore로는 남지 않았다. 4단계에서 규칙대로 고른 구성(WRN-50 256px, 코어셋 1%)은 배포용 뱅크로 CPU 214ms이고 AUROC가 Dinomaly보다 6.8%p 낮아 기준을 지키지 못했다(가설 기각). INT8은 점수가 크게 달라져 쓸 수 없었다. 6단계에서 Dinomaly의 인코더를 DINOv2 ViT-S로 줄여 280px로 학습한 모델은 세 기준을 모두 지켰다(가설 지지): CPU 150ms, 실제 오검출률 4.3%, AUROC 96.5로 GPU Dinomaly(96.8)와 0.3%p 차이(다른 실행끼리의 점 추정, 구간 없음), PatchCore보다 +6.4%p [+5.1, +7.8]. 검사 서비스는 이 모델로 바꿨다. 다만 같은 구성을 M2AD 기준 조명으로만 학습하면 다른 조명에서 오검출률 92.3%(조명 4~5개를 함께 학습해도 34.5%, 8단계)라 조명이 바뀌는 라인에는 그대로 쓸 수 없다 |
+
+검사 서비스를 바로 띄워 보려면 [검사 서비스](#검사-서비스) 절의 명령을 쓴다.
 
 ## 결과
 0~4단계와 6~9단계를 쟀다(5단계는 이 README와 그림이다). 자세한 표와 판정, 규칙 변경 기록은 [docs/experiments.md](docs/experiments.md)에 있다.
@@ -226,6 +232,9 @@ uv run ruff format --check .
 GitHub Actions(`.github/workflows/ci.yml`)는 push마다 세 작업을 돌린다: torch 없이 ruff와 pytest, 서비스 이미지에 들어가는 의존성(기본 + serve)의 알려진 취약점 대조(pip-audit), Docker 이미지 빌드 뒤 작은 ONNX 아티팩트로 기본 명령을 띄워 `/healthz`·`/inspect`를 부르고 모델 지문이 틀린 세트로는 뜨지 않는지, 배포 설정의 기대 지문이 맞으면 뜨고 그 목록에 없는 모델로는 뜨지 않는지 보는 스모크 검사. 워크플로 토큰은 읽기 전용이고 외부 액션은 커밋 SHA로 고정했다. 2026-11-05 추가: audit 작업은 잠금 파일의 모든 패키지(학습·개발 등 모든 그룹과 Python 3.12 이상에서 쓰는 둘째 판까지)도 대조하고, 받아들인 이유를 [docs/security.md](docs/security.md#의존성-취약점-대조)에 적은 학습 그룹의 세 권고(torch 2.11.0, setuptools 81.0.0)만 무시한다.
 
 ## 재현 명령
+<details>
+<summary>단계별 재현 명령 펼치기</summary>
+
 ```bash
 # 0단계: 데이터와 분할
 uv run python -m defect_inspect.download               # VisA tar (1.93GB, sha256 검증)
@@ -330,6 +339,9 @@ uv run python -m defect_inspect.figures
 uv run python -m defect_inspect.figures --examples outputs/dm-test --allow-test --name examples-dinomaly
 uv run python -m defect_inspect.figures --examples outputs/p0-test --allow-test --name examples-patchcore
 ```
+
+</details>
+
 `--allow-test`가 붙은 실행은 봉인 테스트 이미지(`run_m2ad`는 M2AD 테스트 이미지)를 읽고, 읽을 때마다 `reports/test_ledger.jsonl`에 한 줄을 남긴다. 테스트 이미지를 캐시로 옮기는 `cache`와 `m2ad`도 한 줄을 남긴다. 예외는 `run_m2ad --check`(3단계 M2AD 실험에 등록한 코드 점검)다. M2AD에는 검증 분할이 없어 `--allow-test` 없이 M2AD 테스트 이미지 가운데 Motor 시점 000 검사기의 기준 조명(S)과 I02 이미지만 읽고, 장부에 남기지 않으며 결과는 `<출력 폴더>-check`에 쓴다. `--protocol test`만 붙은 분석 명령(`compare`, `analyze_perturb`, `analyze_grid`)은 저장된 점수만 읽는다. 지연은 다른 프로그램이 CPU를 쓰지 않을 때 잰다(규칙 변경 6).
 
 재현 범위(2026-10-29 추가): Dinomaly 학습(2·6·8단계)은 같은 명령과 seed로 다시 돌려도 비트 단위로 같다는 보장이 없다. GPU 커널의 결정성을 강제하지 않았고, 6·8단계는 fp16 autocast로 학습했다(다시 학습해 비교한 적은 없다). 문서의 ONNX 지문(`3bcf8e04…`)과 임계값은 저장소에 없는 로컬 아티팩트의 것이라, 새로 학습한 모델의 수치는 조금 다를 수 있다. 2026-10-29부터 Dinomaly 학습·평가 기록에 실행 환경(torch·CUDA·cuDNN·GPU·anomalib·timm 버전과 cuDNN 플래그)과 DINOv2 가중치 지문(timm 허브 저장소, 캐시 리비전, sha256)을 남긴다. 봉인 테스트 장부의 줄에는 작업 트리 상태(`tree`: `git status --porcelain` 목록과 커밋하지 않은 변경의 sha256)가 함께 남고, M2AD 캐시를 새로 만들 때는 zip 세 개의 sha256을 기록한 값과 대조한다(docs/experiments.md 공통 규칙).
