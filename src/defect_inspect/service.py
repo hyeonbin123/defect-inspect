@@ -6,7 +6,9 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 메모리 뱅크). `create_offline_app`은 모델 파일 없이 아주 작은 합성 검사기를 서빙한다(테스트와 보안 스캔용).
 
 업로드: 채널당 8비트이고 투명도가 없는 PNG, JPEG, BMP, TIFF, WebP. 저장된 화소를 그대로 채점한다(EXIF 회전
-없음). 모델과 메모리 뱅크를 만든 리사이즈 캐시도 그렇게 만들었다.
+없음). 모델과 메모리 뱅크를 만든 리사이즈 캐시도 그렇게 만들었다. TIFF·JPEG·PNG와 RLE로 압축한 BMP는 열기
+전에 구조 항목(스트립·타일 표와 숫자 배열, 마커와 스캔, 청크, RLE BMP의 크기)을 세어, 알려진 증폭
+경로의 상한을 넘으면 거절한다(image_precheck.py).
 
 설정(환경 변수 또는 `create_app`의 키워드 인자):
 - `DEFECT_INSPECT_ALLOWED_HOSTS`: 서비스가 응답할 Host 이름을 쉼표로 나열한다(`*.example.com`과 `*`는
@@ -38,7 +40,12 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 # [보안 구성] 본문을 읽기 전에 Host 허용 목록, 다른 출처의 쓰기 요청 거절, 관리자 토큰, 진행 중인 업로드 요청
 # 수(작업자 + 대기열을 넘으면 503 + Retry-After)를 검사하고(_Guard), 본문 크기를 스트리밍 중에도 제한하며,
 # 모든 응답에 보안 헤더(CSP 등)를 붙인다. 이미지 디코딩은 형식·픽셀 수·비트 깊이·투명도를 제한하고, 동시에
-# 계산하는 작업 수를 묶어 둔다(_Gate, 같은 상한의 두 번째 장치). 업로드를 임시 저장소에 쓰다 공간이 모자라면
+# 계산하는 작업 수를 묶어 둔다(_Gate, 같은 상한의 두 번째 장치). Pillow는 열 때 헤더만 읽지 않고 TIFF의
+# 스트립·타일 표와 숫자 배열, JPEG의 마커, PNG의 청크를 항목마다 파이썬 객체로 만들므로, 파일 크기·화소 수
+# 한도 안의 파일도 CPU 수~수십 초와 수백 MiB를 쓸 수 있다. 그래서 열기 전에 구조 항목 수를 세는 사전 검사를
+# 둔다(image_precheck.py. 디코딩 때 비용이 드는 점진 JPEG의 스캔 수, PNG의 압축 청크 수, RLE BMP의 크기도
+# 센다. 알려진 증폭 경로만 막고 요청당 시간·메모리 상한을 대신하지는 않는다). 업로드를 임시 저장소에 쓰다
+# 공간이 모자라면
 # 400이 아니라 503으로 답해 재시도하게 한다. DAST(HawkScan, ZAP) 기록은 docs/security.md에 있다.
 # [운영 기록] 판정 기준(임계값)을 바꾼 요청과 관리자 토큰 거절은 전용 감사 로거(AUDIT_LOGGER)가 표준 출력에
 # JSON 한 줄씩 남긴다(언제, 무엇이 무엇에서 무엇으로, 어디서). 재보정한 값은 메모리에만 있어 재시작하면
@@ -47,7 +54,8 @@ torch 없이 CPU의 onnxruntime만으로 돈다. 검사기는 아티팩트 묶�
 # 밖에서 확인할 수 있다. 배포 설정에 승인한 지문 목록(DEFECT_INSPECT_EXPECTED_MODEL_SHA256)을 주면, 아티팩트
 # 볼륨 안의 meta 기록이 아니라 볼륨 밖의 그 목록과도 대조해 다른 모델 파일로는 뜨지 않는다(대조하는 것은 모델
 # 파일뿐이고 임계값·PatchCore 뱅크는 볼륨의 값을 쓴다, parse_expected_sha256 주석).
-# [연결] inspector.py(전처리·추론·임계값 상태), calibrate.py(conformal 임계값). 실행은 uvicorn
+# [연결] inspector.py(전처리·추론·임계값 상태), calibrate.py(conformal 임계값), image_precheck.py(업로드의
+# 구조 항목 수 사전 검사). 실행은 uvicorn
 # defect_inspect.service:create_app --factory(Dockerfile, compose.yaml) 또는 모델 파일 없는
 # create_offline_app(테스트와 보안 스캔용).
 
@@ -89,9 +97,11 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # calibrate: /calibrate가 연구 코드와 같은 conformal 규칙(l = ceil((n+1)(1-α))번째 점수)으로 임계값을 정하게
-# 한다. inspector: 두 종류의 검사기와 아티팩트 형식 상수, 모델 파일 지문(meta 대조, 지문 형식 검사, 파일
-# 해시 캐시).
+# 한다. image_precheck: Image.open 전에 TIFF·JPEG·PNG와 RLE BMP의 구조 항목을 세어, 알려진 증폭 경로의
+# 상한을 넘으면 거절한다(_decode가 부른다). inspector: 두 종류의 검사기와 아티팩트 형식 상수, 모델 파일
+# 지문(meta 대조, 지문 형식 검사, 파일 해시 캐시).
 from .calibrate import conformal_rank, conformal_threshold
+from .image_precheck import check_image_structure
 from .inspector import (
     ARTIFACT_VERSION,
     PATCHCORE,
@@ -500,6 +510,13 @@ def warm_up(inspectors: dict[str, AnyInspector]) -> list[str]:
 # 호출(BICUBIC)이라 점수가 달라지지 않는다. 이미 RGB인 그림은 convert("RGB")를 거치지 않는다(아래 주석).
 # EXIF 회전은 적용하지 않는다. 모델과 뱅크를 만든 리사이즈 캐시도 저장된 화소 그대로였기 때문이다(모듈
 # docstring).
+# 디코딩 앞에 두 가지 검사가 있다. (1) Image.open 전의 구조 사전 검사: Image.open은 "헤더만" 읽지 않는다.
+# TIFF는 첫 IFD의 스트립·타일 표를(디코딩이 끝나면 Exif·GPS 하위 IFD의 숫자 배열도), JPEG는 첫 스캔 앞의 마커
+# 전부를, PNG는 IDAT 앞뒤의 청크 전부를 항목마다 파이썬 객체로 만든다. 화소 수가 작아(폭 1 × 높이 N 등) 아래
+# 화소 수 검사를 통과하는 20MiB 파일도 열기만으로 CPU 수~수십 초와 수백 MiB를 쓰므로, 열기 전에 항목 수를
+# 세어 상한을 넘으면 거절한다(image_precheck.py. 디코딩 때 비용이 드는 점진 JPEG의 스캔 수, PNG의 압축 청크
+# 수, RLE BMP의 크기도 함께 본다. 알려진 증폭 경로만 막는다). 거절은 읽을 수 없는 이미지와 같은 400이다.
+# (2) 열린 뒤의 화소 수 검사(아래).
 def _decode(data: bytes, size: int | None = None) -> Image.Image:
     """업로드 바이트 -> 8비트 RGB 그림. 적절한 이미지가 아니면 400을 낸다.
 
@@ -507,9 +524,12 @@ def _decode(data: bytes, size: int | None = None) -> Image.Image:
     원본 크기로 디코딩한 그림을 계속 들고 있지 않는다. 이미 RGB인 그림은 원본 크기 사본을 만들지 않는다.
     """
     try:
+        # ImageStructureError(구조 항목이 너무 많음)는 이 try의 마지막 except가 아래의 400 하나로 바꾼다.
+        check_image_structure(data)
         image = Image.open(io.BytesIO(data), formats=IMAGE_FORMATS)
-        # Image.open은 헤더만 읽으므로, 화소 수 검사를 실제 디코딩(convert) 전에 해서 "압축 폭탄"처럼 작은
-        # 파일이 거대한 그림으로 풀리는 것을 막는다.
+        # 구조 항목을 센 뒤에도 Image.open이 읽는 것은 구조(머리·마커·청크·IFD)뿐이고 화소는 아직 디코딩하지
+        # 않았다. 화소 수 검사를 실제 디코딩(convert) 전에 해서 "압축 폭탄"처럼 작은 파일이 거대한 그림으로
+        # 풀리는 것을 막는다.
         if image.width * image.height > MAX_IMAGE_PIXELS:
             raise HTTPException(status_code=400, detail="image has too many pixels")
         if image.mode in DEEP_MODES:
@@ -531,11 +551,12 @@ def _decode(data: bytes, size: int | None = None) -> Image.Image:
             picture = picture.resize((size, size), Image.Resampling.BICUBIC)
         else:
             # 리사이즈가 없으면 여기서 화소 디코딩을 끝내, 손상된 파일의 디코더 예외가 이 try 밖(부른 쪽)에서
-            # 나지 않게 한다(Image.open은 머리만 읽고 화소는 처음 쓸 때 디코딩한다).
+            # 나지 않게 한다(Image.open은 구조만 읽고 화소는 처음 쓸 때 디코딩한다).
             picture.load()
         return picture
     # 의도한 HTTP 오류와 메모리 부족은 그대로 올리고, 그 밖의 디코더 예외(SyntaxError, RuntimeError 등 OSError
-    # 아닌 것도 있음)는 내부 정보를 감춘 400 하나로 바꾼다(from None으로 원래 예외 연쇄도 숨김).
+    # 아닌 것도 있음)와 구조 사전 검사의 거절(ImageStructureError)은 내부 정보를 감춘 400 하나로 바꾼다
+    # (from None으로 원래 예외 연쇄도 숨김).
     except (HTTPException, MemoryError):
         raise
     except Exception:
